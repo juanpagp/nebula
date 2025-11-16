@@ -2,6 +2,7 @@ package org.lokray.nebc.core;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.Objects;
 
 public class Compiler
 {
@@ -66,10 +67,7 @@ public class Compiler
 
 	private void printHelp()
 	{
-		try (BufferedReader reader = new BufferedReader(
-				new InputStreamReader(
-						Compiler.class.getResourceAsStream("/nebc-help.txt")
-				)))
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(Objects.requireNonNull(Compiler.class.getResourceAsStream("/nebc-help.txt")))))
 		{
 			reader.lines().forEach(System.out::println);
 		}

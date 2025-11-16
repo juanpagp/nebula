@@ -25,10 +25,6 @@ public enum FileType
 	 */
 	private static final Map<String, FileType> EXTENSION_MAP = new HashMap<>();
 
-	/**
-	 * Populates the {@link #EXTENSION_MAP} with file extensions and their
-	 * corresponding {@code FileType} constants when the enum is loaded.
-	 */
 	static
 	{
 		for (FileType type : FileType.values())

@@ -20,10 +20,10 @@ import java.util.stream.Collectors;
 public class ArgsParser
 {
 
-	@Option(names = {"-h", "--help"}, usageHelp = false)
+	@Option(names = {"-h", "--help"})
 	boolean helpRequested;
 
-	@Option(names = {"-v", "--version"}, versionHelp = false)
+	@Option(names = {"-v", "--version"})
 	boolean versionRequested;
 
 	@Parameters(index = "0", arity = "0..*", description = "The source files (*.neb) to compile.")

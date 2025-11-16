@@ -1,0 +1,163 @@
+// Alias
+alias Console.println = println;
+
+// Constants
+const float PI = 3.14f;
+
+// Single-method trait for rendering
+trait void Renderable.render() => println("Default render");
+/*
+This is syntactic sugar for:
+
+trait Renderable
+{
+    void render()
+    {
+        println("Default render");
+    }
+}
+*/
+
+// Base class: Shape inherits Renderable
+class Shape : Renderable
+{
+    Vec2[] vertices;
+    Vec2 pos;
+
+	// Use the overloaded operator '+'
+    void move(Vec2 delta) { pos += delta; } // mutates state
+
+    float getArea(); // abstract method to be implemented by subclasses
+}
+
+// Vector type
+struct Vec2
+{
+    float x, y;
+
+    // Implicit constructor; all fields must be provided
+    // e.g. Vec2(x: 1, y: 0)
+
+	// Overload the '+' operator
+	operator+(Vec2 other)
+	{
+		return Vec2(this.x + other.x, this.y + other.y);
+	}
+}
+
+// Circle subclass
+struct Circle : Shape
+{
+    float r;
+    int8 resolution;
+
+    // Constructor
+    Circle(float r = 1, Vec2 pos = Vec2(0,0), int8 resolution = 30)
+    {
+        this.r = r;
+        this.pos = pos;
+        this.resolution = resolution;
+
+        // Calculate vertices using helper
+        var cvOpt = calculateVerticesPositions(this);
+        this.vertices = cvOpt.unwrapOrElse([]); // default to empty array if None
+    }
+
+    float getArea() => PI * r ** 2;
+
+    override void render()
+    {
+        println("Rendering Circle with " + resolution + " vertices");
+    }
+}
+
+// Rect subclass
+struct Rect : Shape
+{
+    float h, w;
+
+    // Constructor
+    Rect(float h = 1, float w = 1, Vec2 pos = Vec2(0,0))
+    {
+        this.h = h;
+        this.w = w;
+        this.pos = pos;
+
+        // Calculate vertices using helper
+        var cvOpt = calculateVerticesPositions(this);
+        this.vertices = cvOpt.unwrapOrElse([]); // default to empty array if None
+    }
+
+    float getArea() => h * w;
+}
+
+// Helper function to calculate vertices positions for Shapes
+// This of course could (and in a real world scenario should) be a method inside the shape class, and be overridden by each shape, but its done outside like thos to demonstrate matching over subtypes
+Option<Vec2[]> calculateVerticesPositions(T: Shape shape)
+{
+    match shape
+    {
+        shape is Rect rect
+        {
+            Vec2[4] vertices;
+            // Perform vertex math using rect.pos, rect.h, rect.w
+            // If invalid values:
+            // return None;
+            return Some(vertices);
+        }
+
+        shape is Circle circle
+        {
+            Vec2[circle.resolution] vertices;
+            // Perform vertex math using circle.pos, circle.r
+            // If invalid values:
+            // return None;
+            return Some(vertices);
+        }
+        // No default needed; compiler ensures exhaustiveness
+    }
+}
+
+// Tagged unions for safe alternatives
+tagged union Result<T, E>
+{
+    Ok(T),
+    Err(E)
+}
+
+// Explicit 'tagged' 'union' keywords for clarity. Leaves 'enum' keyword for simple enumeration
+tagged union Option<T>
+{
+    Some(T),
+    None
+}
+
+// Main entry point.
+// Note, this isn't in a class, if it was it'd have to be static
+void main()
+{
+	// Repeat 100 times for benchmarking
+	// If done correclty, all here is stack allocated
+
+	// Nebula feature, simplified loops, this is actually a zero-cost abstraction syntactic sugar for and implicit classical c-style loop for (int i = 0, i <= 100; i++). It's uncovered by the compiler when building the AST, so theres literally no drawbacks.
+	for (i < 100)
+	{
+		// Leverage named parameters and default values for more readable constructors
+		// Unit circle at the right
+		var circle = Circle(pos: Vec2(5,1));
+
+		// 2x2 square at the origin
+		var rect = Rect(2,2);
+
+		// Floor
+		var floor = Rect(h: 1, w: 5, pos: Vec2(0,20));
+
+		Shape[] shapes = [circle, rect, floor];
+
+		foreach (var shape in shapes)
+		{
+			shape.render();
+			println($"Rendered {typeof(shape).toLowerCase()} with area {shape.getArea()}");
+		}
+	}
+}

@@ -12,33 +12,10 @@ public class Compiler
 	public Compiler(CompilerConfig config)
 	{
 		this.config = config;
-		System.out.println();
 	}
 
 	public int run()
 	{
-		// ---- HELP ----
-		if (config.helpRequested())
-		{
-			printHelp();
-			return 0;
-		}
-
-		// ---- VERSION ----
-		if (config.versionRequested())
-		{
-			System.out.println("nebc v0.0.1 pre-alpha");
-			return 0;
-		}
-
-		// ---- VALIDATION ----
-		if (config.nebSources() == null || config.nebSources().isEmpty())
-		{
-			System.err.println("Error: Missing required parameter: '<sourceFiles>'");
-			return 1;
-		}
-
-		// ---- NORMAL COMPILATION ----
 		System.out.println("--- Nebula Compiler 1.0 ---");
 		System.out.println("Starting compilation process...");
 
@@ -61,13 +38,24 @@ public class Compiler
 		System.out.println("Borrow Checking Level: " + config.borrowCheckingLevel());
 		System.out.println("Compile as Library: " + config.compileAsLibrary());
 
+		//
+		// --- Future Compilation Steps Would Go Here ---
+		// 1. Lexing & Parsing
+		// 2. Static Analysis (Semantics, Types)
+		// 3. Memory Analysis (Borrow Checking)
+		// 4. Code Generation (LLVM IR)
+		//
+
 		System.out.println("Compilation successful! (Exit Code 0)");
-		return 0;
+		return 0; // Return 0 for success
 	}
 
+	// This method is no longer used by Compiler.java,
+	// but it's fine to leave it here as CliParser uses it.
+	// Alternatively, move it to CliParser or a shared Util class.
 	private void printHelp()
 	{
-		try (BufferedReader reader = new BufferedReader(new InputStreamReader(Objects.requireNonNull(Compiler.class.getResourceAsStream("/nebc-help.txt")))))
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(Objects.requireNonNull(Compiler.class.getResourceAsStream("/info/nebc-help.txt")))))
 		{
 			reader.lines().forEach(System.out::println);
 		}

@@ -7,6 +7,7 @@
     <groupId>org.lokray</groupId>
     <artifactId>nebc</artifactId>
     <version>0.0.1 pre-alpha</version>
+    <name>Nebula Compiler (nebc)</name>
 
     <properties>
         <maven.compiler.source>23</maven.compiler.source>
@@ -15,36 +16,6 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>org.bytedeco</groupId>
-            <artifactId>llvm</artifactId>
-            <version>20.1.7-1.5.12</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.bytedeco</groupId>
-            <artifactId>llvm-platform</artifactId>
-            <version>20.1.7-1.5.12</version>
-            <optional>true</optional>
-        </dependency>
-
-        <dependency>
-            <groupId>org.antlr</groupId>
-            <artifactId>antlr4-runtime</artifactId>
-            <version>4.13.1</version>
-        </dependency>
-        <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-            <version>2.13.2</version>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/info.picocli/picocli -->
-        <dependency>
-            <groupId>info.picocli</groupId>
-            <artifactId>picocli</artifactId>
-            <version>4.7.7</version>
-        </dependency>
     </dependencies>
 
     <profiles>
@@ -104,17 +75,8 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <mainClass>org.lokray.NebC</mainClass>
-                    <imageName>nebula</imageName>
-                    <buildArgs>
-                        <!-- Instruct GraalVM Native Image to load configurations from the 'graalvm-config' directory inside target/classes -->
-                        <buildArg>
-                            -H:ConfigurationResourceRoots=${project.build.outputDirectory}/META-INF/native-image/org/lokray
-                        </buildArg>
-                        <buildArg>--report-unsupported-elements-at-runtime</buildArg>
-                        <buildArg>-H:MaximumInliningSize=10</buildArg>
-                        <buildArg>-Dgraal.PrintCompilation=true</buildArg>
-                    </buildArgs>
+                    <mainClass>org.lokray.Main</mainClass>
+                    <imageName>nebc</imageName>
                 </configuration>
             </plugin>
         </plugins>

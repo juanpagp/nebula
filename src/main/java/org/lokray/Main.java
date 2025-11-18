@@ -1,6 +1,7 @@
 package org.lokray;
 
 import org.lokray.cli.NebcCli;
+import org.lokray.util.ExitCode;
 
 public class Main
 {
@@ -8,8 +9,11 @@ public class Main
 	{
 		// Delegate entirely to the CLI orchestrator
 		NebcCli cli = new NebcCli();
-		int exitCode = cli.execute(args);
 
-		System.exit(exitCode);
+		// Receive the type-safe Enum result
+		ExitCode status = cli.execute(args);
+
+		// Extract the integer value for the OS
+		System.exit(status.getCode());
 	}
 }

@@ -1,7 +1,7 @@
 lexer grammar NebulaLexer;
 
 options {
-    superClass = LexerBase;
+    superClass = NebulaLexerBase;
 }
 
 channels {
@@ -117,32 +117,29 @@ REGULAR_STRING
 	: '"' (~["\\\r\n\u0085\u2028\u2029] | CommonCharacter)* '"'
 	;
 
+// Standard Verbatim String (e.g. @"...")
+VERBATIUM_STRING
+    : '@"' (~'"' | '""')* '"'
+    ;
+
+// --- String Interpolation Start Rules ---
+
 INTERPOLATED_REGULAR_STRING_START
 	: '$"' { this.OnInterpolatedRegularStringStart(); } -> pushMode(INTERPOLATION_STRING)
 	;
 
-OPEN_BRACE: '{' { this.OnOpenBrace(); };
-// DEFAULT-MODE close-brace: handle interpolation-aware closing
+INTERPOLATED_VERBATIUM_STRING_START
+    : '$@"' { this.OnInterpolatedVerbatiumStringStart(); } -> pushMode(INTERPOLATION_STRING)
+    ;
+
+// --- Standard Operators and Punctuation (Default Mode) ---
+
+OPEN_BRACE
+    : '{' { this.OnOpenBrace(); }
+    ;
+
 CLOSE_BRACE
-    : '}'
-      {
-        // If we are ending an interpolation expression entirely, do the interpolation close flow:
-        if (this.IsInterpolationEndBrace && this.IsInterpolationEndBrace()) {
-            // update our curly stack
-            this.OnCloseBrace();
-            // return to INTERPOLATION_STRING mode (we entered DEFAULT mode for the expression)
-            this.popMode();
-            // consume the '}' and do NOT emit a plain '}' token
-            this.skip();
-        }
-        // otherwise if it's just a nested brace inside the interpolation expression,
-        // decrement nesting and consume it (don't emit a normal '}' token).
-        else if (this.IsInterpolationNestedBrace && this.IsInterpolationNestedBrace()) {
-            this.OnCloseBrace();
-            this.skip();
-        }
-        // else behave like a normal close-brace token (emit it)
-      }
+    : '}' { this.OnCloseBrace(); }
     ;
 
 OPEN_BRACKET: '[';
@@ -151,7 +148,11 @@ OPEN_PARENS: '(';
 CLOSE_PARENS: ')';
 DOT: '.';
 COMMA: ',';
-COLON: ':' { this.OnColon(); };
+
+COLON
+    : ':' { this.OnColon(); }
+    ;
+
 SEMICOLON: ';';
 UNDERSCORE: '_';
 PLUS: '+';
@@ -194,42 +195,52 @@ OP_LEFT_SHIFT_ASSIGNMENT: '<<=';
 OP_RANGE: '..';
 FAT_ARROW: '=>';
 
-// --- inside interpolated regular string (string content mode) ---
+
+// --- Interpolation String Mode ---
 mode INTERPOLATION_STRING;
 
 DOUBLE_CURLY_INSIDE
-    : '{{' -> type(DOUBLE_CURLY_INSIDE)
+    : '{{'
     ;
 
-// When we see '{' inside the string, record and switch to DEFAULT mode
-// (Roslyn pushes DEFAULT_MODE here and uses predicates/actions in default mode
-// to treat the following tokens as normal C# until the matching '}' is found).
+// Opening a hole for an expression (e.g., $"Hello {name}")
+// Calls OpenBraceInside, SKIPs the token, and pushes DEFAULT_MODE to parse the expression
 OPEN_BRACE_INSIDE
     : '{' { this.OpenBraceInside(); } -> skip, pushMode(DEFAULT_MODE)
     ;
 
-// escapes inside string (e.g. \" or \\n)
+// Regular String Logic
 REGULAR_CHAR_INSIDE
     : { this.IsRegularCharInside() }? SimpleEscapeSequence
     ;
 
-// closing quote of the interpolated string
+REGULAR_STRING_INSIDE
+    : { this.IsRegularCharInside() }? ~('{' | '\\' | '"')+
+    ;
+
+// Verbatim String Logic
+VERBATIUM_DOUBLE_QUOTE_INSIDE
+    : { this.IsVerbatiumDoubleQuoteInside() }? '""'
+    ;
+
+VERBATIUM_INSIDE_STRING
+    : { this.IsVerbatiumDoubleQuoteInside() }? ~('{' | '"')+
+    ;
+
+// Closing the entire string
 DOUBLE_QUOTE_INSIDE
     : '"' { this.OnDoubleQuoteInside(); } -> popMode
     ;
 
-// plain text inside string: explicitly exclude both '{' and '}' so braces are tokenized separately
-REGULAR_STRING_INSIDE
-    : { this.IsRegularCharInside() }? ~('{' | '}' | '\\' | '"')+
-    ;
-    
-// --- format sub-mode used when a ':' inside an interpolation indicates a format string ---
+
+// --- Interpolation Format Mode (for when ':' is detected in an expression) ---
 mode INTERPOLATION_FORMAT;
 
 DOUBLE_CURLY_CLOSE_INSIDE
     : '}}' -> type(FORMAT_STRING)
     ;
 
+// Closing the format specifier returns to String Mode
 CLOSE_BRACE_INSIDE
     : '}' { this.OnCloseBraceInside(); } -> skip, popMode
     ;
@@ -237,6 +248,8 @@ CLOSE_BRACE_INSIDE
 FORMAT_STRING
     : ~'}'+
     ;
+
+// --- Fragments ---
 
 fragment InputCharacter
 	: ~[\r\n\u0085\u2028\u2029]

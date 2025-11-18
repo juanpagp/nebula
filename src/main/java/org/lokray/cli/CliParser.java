@@ -110,8 +110,7 @@ public class CliParser
 						i++;
 						if (i >= args.length)
 						{
-							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
-									"Error: Option '" + arg + "' requires an argument.")));
+							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE, "Error: Option '" + arg + "' requires an argument.")));
 						}
 						builder.targetPlatform(args[i]);
 						break;
@@ -120,8 +119,7 @@ public class CliParser
 						i++;
 						if (i >= args.length)
 						{
-							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
-									"Error: Option '" + arg + "' requires an argument.")));
+							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE, "Error: Option '" + arg + "' requires an argument.")));
 						}
 						// This can throw a RuntimeException from the builder, which we catch below
 						builder.borrowCheckingLevel(args[i]);

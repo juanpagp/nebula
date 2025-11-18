@@ -4,6 +4,10 @@ options {
     superClass = NebulaLexerBase;
 }
 
+@header {
+    package org.lokray.nebc.frontend.parser.generated;
+}
+
 channels {
     COMMENTS_CHANNEL
 }

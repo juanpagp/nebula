@@ -63,7 +63,7 @@
                 </executions>
                 <configuration>
                     <outputDirectory>src/main/java/org/lokray/nebc/frontend/parser/generated</outputDirectory>
-                    <listener>false</listener>
+                    <listener>true</listener>
                     <visitor>true</visitor>
                 </configuration>
             </plugin>

@@ -2,7 +2,10 @@ parser grammar NebulaParser;
 
 options {
     tokenVocab = NebulaLexer;
-    language = JavaScript;
+}
+
+@header {
+package org.lokray.nebc.frontend.parser.generated;
 }
 
 // The entry point, now including directives and namespace declarations

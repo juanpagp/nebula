@@ -109,7 +109,7 @@ BIN_INTEGER_LITERAL
 	;
 
 REAL_LITERAL
-	: ([0-9] ('_'* [0-9])*)? '.' [0-9] ('_'* [0-9])* ExponentPart? [FfDdMm]?
+	: ([0-9] ('_'* [0-9])*) '.' [0-9] ('_'* [0-9])* ExponentPart? [FfDdMm]?
 	| [0-9] ('_'* [0-9])* ([FfDdMm] | ExponentPart [FfDdMm]?)
 	;
 

@@ -310,7 +310,16 @@ type
     : (IDENTIFIER COLON)? (
         class_type rank_specifier*
         | predefined_type rank_specifier*
+        | tuple_type rank_specifier*
     )
+    ;
+
+tuple_type
+    : OPEN_PARENS tuple_type_element (COMMA tuple_type_element)* CLOSE_PARENS
+    ;
+
+tuple_type_element
+    : type IDENTIFIER?
     ;
 
 class_type
@@ -377,6 +386,10 @@ type_argument_list
 //=============================================================================
 // Expression Hierarchy
 // =============================================================================
+
+tuple_literal
+    : OPEN_PARENS argument (COMMA argument)+ CLOSE_PARENS
+    ;
 
 parenthesized_expression
     : OPEN_PARENS expression CLOSE_PARENS
@@ -476,6 +489,7 @@ primary_expression
 primary_expression_start
     : literal
     | parenthesized_expression
+    | tuple_literal
     | THIS
     | array_literal
     | new_expression
@@ -484,6 +498,7 @@ primary_expression_start
 
 postfix_operator
     : DOT IDENTIFIER
+    | DOT INTEGER_LITERAL
     | OPEN_PARENS argument_list? CLOSE_PARENS
     | OPEN_BRACKET expression_list CLOSE_BRACKET
     | OP_INC

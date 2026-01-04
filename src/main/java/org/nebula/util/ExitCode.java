@@ -1,4 +1,4 @@
-package org.lokray.util;
+package org.nebula.util;
 
 /**
  * centralized definitions for application exit codes.

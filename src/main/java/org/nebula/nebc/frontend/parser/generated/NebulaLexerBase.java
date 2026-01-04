@@ -1,4 +1,4 @@
-package org.lokray.nebc.frontend.parser.generated;
+package org.nebula.nebc.frontend.parser.generated;
 
 import org.antlr.v4.runtime.*;
 import java.util.ArrayDeque;

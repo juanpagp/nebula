@@ -5,7 +5,7 @@ options {
 }
 
 @header {
-    package org.lokray.nebc.frontend.parser.generated;
+    package org.nebula.nebc.frontend.parser.generated;
 }
 
 channels {
@@ -22,6 +22,7 @@ DELIMITED_COMMENT           : '/*' .*? '*/'           -> channel(COMMENTS_CHANNE
 WHITESPACES                 : (Whitespace | NewLine)+ -> channel(HIDDEN);
 
 ALIAS: 'alias';
+AS: 'as';
 ASYNC: 'async';
 AWAIT: 'await';
 BOOL: 'bool';
@@ -56,10 +57,8 @@ LONG: 'long';
 NAMESPACE: 'namespace';
 NEW: 'new';
 MATCH: 'match';
-MUT: 'mut';
 OPERATOR: 'operator';
 OVERRIDE: 'override';
-OWN: 'own';
 PRIVATE: 'private';
 PROTECTED: 'protected';
 PUBLIC: 'public';
@@ -71,8 +70,8 @@ STATIC: 'static';
 STRING: 'string';
 STRUCT: 'struct';
 SWITCH: 'switch';
+TAG: 'tag';
 TAGGED: 'tagged';
-TEMPOWN: 'tempown';
 THIS: 'this';
 TRAIT: 'trait';
 TRUE: 'TRUE';
@@ -84,6 +83,7 @@ UINT64: 'uint64';
 ULONG: 'ulong';
 USHORT: 'ushort';
 UNION: 'union';
+USE: 'use';
 VAR: 'var';
 VOID: 'void';
 WHILE: 'while';
@@ -152,7 +152,7 @@ OPEN_PARENS: '(';
 CLOSE_PARENS: ')';
 DOT: '.';
 COMMA: ',';
-
+DOUBLE_COLON: '::';
 COLON
     : ':' { this.OnColon(); }
     ;
@@ -174,7 +174,6 @@ ASSIGNMENT: '=';
 LT: '<';
 GT: '>';
 INTERR: '?';
-DOUBLE_COLON: '::';
 OP_COALESCING: '??';
 OP_INC: '++';
 OP_DEC: '--';

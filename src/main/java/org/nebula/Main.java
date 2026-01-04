@@ -1,7 +1,7 @@
-package org.lokray;
+package org.nebula;
 
-import org.lokray.cli.NebcCli;
-import org.lokray.util.ExitCode;
+import org.nebula.cli.NebcCli;
+import org.nebula.util.ExitCode;
 
 public class Main
 {

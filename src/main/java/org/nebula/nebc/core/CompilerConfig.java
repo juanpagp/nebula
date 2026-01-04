@@ -1,10 +1,10 @@
-package org.lokray.nebc.core;
+package org.nebula.nebc.core;
 
-import org.lokray.cli.CliParser;
-import org.lokray.cli.ArgParseError;
-import org.lokray.nebc.io.FileType;
-import org.lokray.nebc.io.SourceFile;
-import org.lokray.util.Result;
+import org.nebula.cli.CliParser;
+import org.nebula.cli.ArgParseError;
+import org.nebula.nebc.io.FileType;
+import org.nebula.nebc.io.SourceFile;
+import org.nebula.util.Result;
 
 import java.io.File;
 import java.util.ArrayList;

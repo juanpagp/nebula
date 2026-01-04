@@ -1,7 +1,7 @@
-package org.lokray.cli;
+package org.nebula.cli;
 
-import org.lokray.nebc.core.CompilerConfig;
-import org.lokray.util.Result;
+import org.nebula.nebc.core.CompilerConfig;
+import org.nebula.util.Result;
 
 import java.util.Optional;
 
@@ -62,12 +62,12 @@ public class CliParser
 						CLIUtils.printHelp();
 						return Optional.empty(); // Clean exit
 
-					case "-v":
 					case "--version":
 						CLIUtils.printVersion();
 						return Optional.empty(); // Clean exit
 
 					// --- Boolean Flags ---
+					case "-v":
 					case "--verbose":
 						builder.verbose(true);
 						break;

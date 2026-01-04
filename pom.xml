@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.lokray</groupId>
+    <groupId>org.nebula</groupId>
     <artifactId>nebc</artifactId>
     <version>0.0.1 pre-alpha</version>
     <name>Nebula Compiler (nebc)</name>
@@ -62,7 +62,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <outputDirectory>src/main/java/org/lokray/nebc/frontend/parser/generated</outputDirectory>
+                    <outputDirectory>src/main/java/org/nebula/nebc/frontend/parser/generated</outputDirectory>
                     <listener>true</listener>
                     <visitor>true</visitor>
                 </configuration>
@@ -80,7 +80,7 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <mainClass>org.lokray.Main</mainClass>
+                    <mainClass>org.nebula.Main</mainClass>
                     <imageName>nebc</imageName>
                 </configuration>
             </plugin>

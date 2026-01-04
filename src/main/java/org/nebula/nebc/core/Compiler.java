@@ -1,7 +1,7 @@
-package org.lokray.nebc.core;
+package org.nebula.nebc.core;
 
-import org.lokray.nebc.frontend.parser.Parser;
-import org.lokray.util.ExitCode;
+import org.nebula.nebc.frontend.parser.Parser;
+import org.nebula.util.ExitCode;
 
 public class Compiler
 {

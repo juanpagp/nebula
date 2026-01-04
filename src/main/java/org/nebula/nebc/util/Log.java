@@ -1,4 +1,4 @@
-package org.lokray.nebc.util;
+package org.nebula.nebc.util;
 
 /**
  * Simple static logging utility for the CLI/runtime.

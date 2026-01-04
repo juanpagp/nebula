@@ -1,4 +1,4 @@
-package org.lokray.nebc.frontend.parser;
+package org.nebula.nebc.frontend.parser;
 
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CharStream;
@@ -8,11 +8,11 @@ import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
-import org.lokray.nebc.core.CompilerConfig;
-import org.lokray.nebc.frontend.parser.generated.NebulaLexer;
-import org.lokray.nebc.frontend.parser.generated.NebulaParser;
-import org.lokray.nebc.io.SourceFile;
-import org.lokray.nebc.util.Log;
+import org.nebula.nebc.core.CompilerConfig;
+import org.nebula.nebc.frontend.parser.generated.NebulaLexer;
+import org.nebula.nebc.frontend.parser.generated.NebulaParser;
+import org.nebula.nebc.io.SourceFile;
+import org.nebula.nebc.util.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;

@@ -1,4 +1,4 @@
-package org.lokray.util;
+package org.nebula.util;
 
 import java.util.function.Function;
 

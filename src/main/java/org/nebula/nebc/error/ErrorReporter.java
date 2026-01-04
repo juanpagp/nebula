@@ -1,7 +1,7 @@
-package org.lokray.nebc.error;
+package org.nebula.nebc.error;
 
-import org.lokray.cli.ArgParseError;
-import org.lokray.nebc.util.Log;
+import org.nebula.cli.ArgParseError;
+import org.nebula.nebc.util.Log;
 
 /**
  * Centralized static mechanism for reporting errors to the user.

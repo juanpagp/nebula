@@ -5,7 +5,7 @@ options {
 }
 
 @header {
-package org.lokray.nebc.frontend.parser.generated;
+    package org.nebula.nebc.frontend.parser.generated;
 }
 
 // The entry point, now including directives and namespace declarations
@@ -13,46 +13,68 @@ compilation_unit
     : directive* top_level_declaration* EOF
     ;
 
-// A new rule for all top-level directives (Import and Alias)
 directive
-    : import_directive
-    | alias_directive
+    : alias_directive
     ;
 
 //=============================================================================
-// Namespace Directives (Import, Alias, Namespace)
+// Namespace Directives (Use, Alias, Namespace)
 // =============================================================================
 
-// Handles 'import fully.qualified.Name;' Handles 'import static fully.qualified.Name.staticMember;'
-import_directive
-    : IMPORT STATIC? qualified_identifier (DOT IDENTIFIER)? SEMICOLON
+use_statement
+    : USE qualified_name use_tail? SEMICOLON
+    ;
+
+use_tail
+    : DOUBLE_COLON IDENTIFIER use_alias?
+    | use_alias
+    ;
+
+use_alias
+    : AS IDENTIFIER
+    ;
+
+tag_statement
+    : TAG tag_list AS IDENTIFIER SEMICOLON
+    ;
+
+tag_list
+    : IDENTIFIER
+    | OPEN_BRACE tag_items CLOSE_BRACE
+    ;
+
+tag_items
+    : IDENTIFIER (COMMA IDENTIFIER)*
     ;
 
 // Handles alias definitions: 'Console.println() = println();'
 // 'namespace.to.User = namespace.to.Usuario;'
 alias_directive
-    : ALIAS qualified_identifier ASSIGNMENT qualified_identifier SEMICOLON
+    : ALIAS qualified_name AS IDENTIFIER SEMICOLON
     ;
 
 // Handles namespace declarations
 namespace_declaration
-    : NAMESPACE qualified_identifier (
+    : NAMESPACE qualified_name (
         OPEN_BRACE top_level_declaration* CLOSE_BRACE
         | SEMICOLON
     )
     ;
 
-// The full path for namespaces and types
-qualified_identifier
-    : IDENTIFIER (DOT IDENTIFIER)*
+// Namespaces, modules, types
+qualified_name
+    : IDENTIFIER (DOUBLE_COLON IDENTIFIER)*
     ;
+
 
 //=============================================================================
 // Top-Level Declarations
 // =============================================================================
 
 top_level_declaration
-    : const_declaration
+    : use_statement
+    | tag_statement
+    | const_declaration
     | method_declaration
     | class_declaration
     | struct_declaration
@@ -66,7 +88,9 @@ top_level_declaration
 // =============================================================================
 
 statement
-    : const_declaration
+    : use_statement
+    | tag_statement
+    | const_declaration
     | variable_declaration
     | expression_statement
     | block
@@ -174,7 +198,7 @@ parameter_list
     ;
 
 parameter
-    : ownership_specifier? type IDENTIFIER (ASSIGNMENT expression)?
+    : type IDENTIFIER (ASSIGNMENT expression)?
     ;
 
 method_body
@@ -246,7 +270,7 @@ trait_declaration
     ;
 
 trait_signature
-    : return_type IDENTIFIER DOT IDENTIFIER parameters
+    : return_type qualified_name DOT IDENTIFIER parameters
     ;
 
 trait_block
@@ -290,7 +314,7 @@ type
     ;
 
 class_type
-    : qualified_identifier type_argument_list?
+    : qualified_name type_argument_list?
     ;
 
 predefined_type
@@ -370,18 +394,8 @@ assignment_expression
     : conditional_expression (assignment_operator assignment_expression)?
     ;
 
-ownership_expression
-    : ownership_specifier unary_expression
-    ;
-
 new_expression
-    : NEW qualified_identifier arguments
-    ;
-
-ownership_specifier
-    : MUT
-    | OWN
-    | TEMPOWN
+    : NEW qualified_name arguments
     ;
 
 assignment_operator
@@ -451,8 +465,7 @@ exponentiation_expression
     ;
 
 unary_expression
-    : ownership_expression
-    | ('+' | '-' | '!' | '~') unary_expression
+    : ('+' | '-' | '!' | '~') unary_expression
     | primary_expression
     ;
 
@@ -527,6 +540,8 @@ literal
     ;
 
 string_literal
+
+
     : REGULAR_STRING
     | interpolated_regular_string
     ;

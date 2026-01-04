@@ -1,4 +1,4 @@
-package org.lokray.cli;
+package org.nebula.cli;
 
 import java.io.BufferedReader;
 import java.io.InputStream;

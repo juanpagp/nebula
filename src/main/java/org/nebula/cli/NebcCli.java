@@ -1,10 +1,10 @@
-package org.lokray.cli;
+package org.nebula.cli;
 
-import org.lokray.nebc.core.Compiler;
-import org.lokray.nebc.core.CompilerConfig;
-import org.lokray.nebc.error.ErrorReporter;
-import org.lokray.util.ExitCode;
-import org.lokray.util.Result;
+import org.nebula.nebc.core.Compiler;
+import org.nebula.nebc.core.CompilerConfig;
+import org.nebula.nebc.error.ErrorReporter;
+import org.nebula.util.ExitCode;
+import org.nebula.util.Result;
 
 import java.util.Optional;
 

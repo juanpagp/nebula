@@ -1,4 +1,4 @@
-package org.lokray.nebc.io;
+package org.nebula.nebc.io;
 
 import java.util.HashMap;
 import java.util.Map;

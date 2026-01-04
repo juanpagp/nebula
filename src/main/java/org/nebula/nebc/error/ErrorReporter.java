@@ -9,10 +9,7 @@ import org.nebula.nebc.util.Log;
  */
 public class ErrorReporter
 {
-	// Prevent instantiation
-	private ErrorReporter()
-	{
-	}
+	private ErrorReporter(){} // Prevent instantiation
 
 	/**
 	 * Reports a fatal CLI argument parsing error.

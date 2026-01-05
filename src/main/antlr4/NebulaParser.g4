@@ -339,27 +339,19 @@ numeric_type
     ;
 
 integral_type
-    : BYTE
-    | SBYTE
-    | SHORT
-    | USHORT
-    | INT
-    | UINT
-    | INT8
-    | UINT8
+    : INT8
     | INT16
-    | UINT16
     | INT32
-    | UINT32
     | INT64
+    | UINT8
+    | UINT16
+    | UINT32
     | UINT64
-    | LONG
-    | ULONG
     ;
 
 floating_point_type
-    : FLOAT
-    | DOUBLE
+    : F32
+    | F64
     | DECIMAL
     ;
 

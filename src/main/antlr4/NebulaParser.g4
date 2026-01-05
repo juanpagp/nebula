@@ -93,24 +93,42 @@ statement
     | const_declaration
     | variable_declaration
     | expression_statement
-    | block
     | if_statement
     | for_statement
     | foreach_statement
     | return_statement
     | match_statement
+    | block
     ;
+
 
 expression_statement
     : expression SEMICOLON
     ;
 
 block
-    : OPEN_BRACE statement* CLOSE_BRACE
+    : OPEN_BRACE block_statements block_tail CLOSE_BRACE
+    ;
+
+block_statements
+    : statement*
+    ;
+
+block_tail
+    : expression    // expression block
+    |               // or empty (statement-only block)
+    ;
+
+if_expression
+    : IF parenthesized_expression block ELSE block
     ;
 
 if_statement
     : IF parenthesized_expression statement (ELSE statement)?
+    ;
+
+match_expression
+    : MATCH expression match_body
     ;
 
 for_statement
@@ -143,7 +161,7 @@ return_statement
     ;
 
 match_statement
-    : MATCH expression match_body
+    : match_expression SEMICOLON
     ;
 
 match_body
@@ -482,6 +500,8 @@ primary_expression_start
     : literal
     | parenthesized_expression
     | tuple_literal
+    | if_expression
+    | match_expression
     | THIS
     | array_literal
     | new_expression

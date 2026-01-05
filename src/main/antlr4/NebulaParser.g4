@@ -107,7 +107,7 @@ expression_statement
     ;
 
 block
-    : OPEN_BRACE block_statements block_tail CLOSE_BRACE
+    : OPEN_BRACE block_statements? block_tail? CLOSE_BRACE
     ;
 
 block_statements
@@ -116,7 +116,6 @@ block_statements
 
 block_tail
     : expression    // expression block
-    |               // or empty (statement-only block)
     ;
 
 if_expression

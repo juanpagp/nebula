@@ -8,6 +8,7 @@ import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
+import org.antlr.v4.runtime.tree.Trees;
 import org.nebula.nebc.core.CompilerConfig;
 import org.nebula.nebc.frontend.parser.generated.NebulaLexer;
 import org.nebula.nebc.frontend.parser.generated.NebulaParser;
@@ -179,6 +180,8 @@ public class Parser
 			{
 				parseTrees.add(tree);
 			}
+
+            System.out.println(Trees.toStringTree(tree, parser));
 		}
 
 		return totalErrors;

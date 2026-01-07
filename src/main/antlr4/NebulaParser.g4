@@ -92,12 +92,12 @@ statement
     | tag_statement
     | const_declaration
     | variable_declaration
-    | expression_statement
+    | block
     | if_statement
     | for_statement
     | foreach_statement
     | return_statement
-    | block
+    | expression_statement
     ;
 
 
@@ -517,6 +517,7 @@ primary_expression_start
     | tuple_literal
     | if_expression
     | match_expression
+    | block
     | THIS
     | array_literal
     | new_expression

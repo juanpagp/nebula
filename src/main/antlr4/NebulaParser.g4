@@ -35,16 +35,16 @@ use_alias
     ;
 
 tag_statement
-    : TAG tag_list AS IDENTIFIER SEMICOLON
+    : visibility_modifier? TAG tag_list AS IDENTIFIER SEMICOLON
     ;
 
 tag_list
-    : IDENTIFIER
+    : type
     | OPEN_BRACE tag_items CLOSE_BRACE
     ;
 
 tag_items
-    : IDENTIFIER (COMMA IDENTIFIER)*
+    : type (COMMA type)*
     ;
 
 // Handles alias definitions: 'Console.println() = println();'
@@ -97,7 +97,6 @@ statement
     | for_statement
     | foreach_statement
     | return_statement
-    | match_statement
     | block
     ;
 
@@ -127,7 +126,7 @@ if_statement
     ;
 
 match_expression
-    : MATCH expression match_body
+    : MATCH parenthesized_expression match_body
     ;
 
 for_statement
@@ -159,16 +158,31 @@ return_statement
     : RETURN expression? SEMICOLON
     ;
 
-match_statement
-    : match_expression SEMICOLON
-    ;
-
 match_body
-    : OPEN_BRACE match_arm* CLOSE_BRACE
+    : OPEN_BRACE match_arm (COMMA match_arm)* COMMA? CLOSE_BRACE
     ;
 
 match_arm
-    : expression block
+    : pattern FAT_ARROW expression
+    ;
+
+pattern
+    : pattern_or
+    ;
+
+pattern_or
+    : pattern_atom (PIPE pattern_atom)*
+    ;
+
+pattern_atom
+    : literal
+    | UNDERSCORE
+    | IDENTIFIER
+    | parenthesized_pattern
+    ;
+
+parenthesized_pattern
+    : OPEN_PARENS pattern CLOSE_PARENS
     ;
 
 //=============================================================================
@@ -182,8 +196,14 @@ variable_declaration
     : modifiers (VAR | type) variable_declarators SEMICOLON
     ;
 
+visibility_modifier
+    : PUBLIC
+    | PRIVATE
+    | PROTECTED
+    ;
+
 modifiers
-    : (PUBLIC | PRIVATE | PROTECTED | STATIC | OVERRIDE)*
+    : (visibility_modifier | STATIC | OVERRIDE)*
     ;
 
 field_declaration
@@ -220,7 +240,7 @@ parameter
 
 method_body
     : block
-    | FAT_ARROW expression SEMICOLON
+    | FAT_ARROW expression
     | SEMICOLON
     ;
 
@@ -405,7 +425,7 @@ parenthesized_expression
     ;
 
 nonAssignmentExpression
-    : conditional_expression
+    : binary_or_expression
     ;
 
 expression
@@ -413,7 +433,7 @@ expression
     ;
 
 assignment_expression
-    : conditional_expression (assignment_operator assignment_expression)?
+    : binary_or_expression (assignment_operator assignment_expression)?
     ;
 
 new_expression
@@ -431,10 +451,6 @@ assignment_operator
     | OP_OR_ASSIGNMENT
     | OP_XOR_ASSIGNMENT
     | OP_LEFT_SHIFT_ASSIGNMENT
-    ;
-
-conditional_expression
-    : binary_or_expression ('?' expression ':' expression)?
     ;
 
 binary_or_expression

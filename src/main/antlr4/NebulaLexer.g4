@@ -80,6 +80,9 @@ VAR: 'var';
 VOID: 'void';
 WHILE: 'while';
 
+// Has to be defined before the IDENTIFIER rule, otherwise '_' gets matched as an IDENTIFIER
+UNDERSCORE: '_';
+
 IDENTIFIER
 	: IdentifierOrKeyword
 	;
@@ -150,7 +153,6 @@ COLON
     ;
 
 SEMICOLON: ';';
-UNDERSCORE: '_';
 PLUS: '+';
 MINUS: '-';
 STAR: '*';
@@ -158,7 +160,7 @@ POW: '**';
 DIV: '/';
 PERCENT: '%';
 AMP: '&';
-BITWISE_OR: '|';
+PIPE: '|';
 CARET: '^';
 BANG: '!';
 TILDE: '~';

@@ -34,26 +34,35 @@ use_alias
     : AS IDENTIFIER
     ;
 
+// -----------------------------------------------------------------------------
+// Tag System
+// -----------------------------------------------------------------------------
 tag_statement
-    : visibility_modifier? TAG tag_list AS IDENTIFIER SEMICOLON
+    : visibility_modifier? TAG tag_declaration AS IDENTIFIER SEMICOLON
     ;
 
-tag_list
-    : type
-    | OPEN_BRACE tag_items CLOSE_BRACE
+tag_declaration
+    : type                                  # tagSingle
+    | OPEN_BRACE tag_enumeration CLOSE_BRACE # tagEnumList
+    | OPEN_BRACE tag_expression CLOSE_BRACE  # tagExpr
     ;
 
-tag_items
+tag_enumeration
     : type (COMMA type)*
     ;
 
-// Handles alias definitions: 'Console.println() = println();'
-// 'namespace.to.User = namespace.to.Usuario;'
+tag_expression
+    : OPEN_PARENS tag_expression CLOSE_PARENS       # tagExprParens
+    | BANG tag_expression                           # tagExprNot
+    | tag_expression ('&' | AMP) tag_expression     # tagExprIntersect
+    | tag_expression ('|' | PIPE) tag_expression    # tagExprUnion
+    | type                                          # tagExprAtom
+    ;
+
 alias_directive
     : ALIAS qualified_name AS IDENTIFIER SEMICOLON
     ;
 
-// Handles namespace declarations
 namespace_declaration
     : NAMESPACE qualified_name (
         OPEN_BRACE top_level_declaration* CLOSE_BRACE
@@ -61,7 +70,6 @@ namespace_declaration
     )
     ;
 
-// Namespaces, modules, types
 qualified_name
     : IDENTIFIER (DOUBLE_COLON IDENTIFIER)*
     ;

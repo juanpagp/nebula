@@ -503,8 +503,13 @@ exponentiation_expression
     ;
 
 unary_expression
-    : ('+' | '-' | '!' | '~') unary_expression
+    : cast_expression
+    | ('+' | '-' | '!' | '~') unary_expression
     | primary_expression
+    ;
+
+cast_expression
+    : OPEN_PARENS type CLOSE_PARENS unary_expression
     ;
 
 primary_expression

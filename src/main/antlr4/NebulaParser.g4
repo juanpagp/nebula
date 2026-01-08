@@ -302,12 +302,12 @@ inheritance_clause
     ;
 
 trait_declaration
-    : TRAIT trait_signature FAT_ARROW expression SEMICOLON
-    | TRAIT IDENTIFIER trait_block
+    : TRAIT IDENTIFIER trait_body
     ;
 
-trait_signature
-    : return_type qualified_name DOT IDENTIFIER parameters
+trait_body
+    : trait_block
+    | method_declaration
     ;
 
 trait_block

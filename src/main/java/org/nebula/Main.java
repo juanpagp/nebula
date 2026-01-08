@@ -7,7 +7,6 @@ public class Main
 {
 	public static void main(String[] args)
 	{
-        double a = .1;
         // Delegate entirely to the CLI orchestrator
 		NebcCli cli = new NebcCli();
 

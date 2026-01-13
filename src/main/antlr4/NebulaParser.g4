@@ -227,7 +227,7 @@ variable_declarator
     ;
 
 method_declaration
-    : modifiers return_type IDENTIFIER parameters method_body
+    : modifiers return_type IDENTIFIER type_parameters? parameters method_body
     ;
 
 constructor_declaration
@@ -409,12 +409,12 @@ generic_parameter
     ;
 
 constraint
-    : type
+    : IDENTIFIER
     ;
 
 type_parameters
     : '<' generic_parameter (COMMA generic_parameter)* '>'
-    ;
+;
 
 type_argument_list
     : '<' type (COMMA type)* '>'

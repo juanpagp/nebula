@@ -181,7 +181,9 @@ public class Parser
 				parseTrees.add(tree);
 			}
 
-            System.out.println(Trees.toStringTree(tree, parser));
+
+			System.out.println(Trees.toStringTree(tree, parser));
+            parseTrees.add(tree);
 		}
 
 		return totalErrors;

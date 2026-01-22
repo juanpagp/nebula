@@ -2,24 +2,28 @@ package org.nebula.nebc.ast;
 
 import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
-import java.util.List;
-
+/**
+ * Base class for all nodes in the Nebula Abstract Syntax Tree (AST).
+ */
 public abstract class ASTNode
 {
-	public final SourceSpan span;
+	private final SourceSpan span;
 
 	protected ASTNode(SourceSpan span)
 	{
-		this.span = span;
+		this.span = span != null ? span : SourceSpan.unknown();
 	}
 
-	public void visit(AstVisitor v)
+	/**
+	 * @return The location of this node in the source code.
+	 */
+	public SourceSpan getSpan()
 	{
-		for (ASTNode child : children())
-		{
-			child.visit(v);
-		}
+		return span;
 	}
 
-	protected abstract List<ASTNode> children();
+	/**
+	 * Visitor pattern entry point.
+	 */
+	public abstract <R> R accept(ASTVisitor<R> visitor);
 }

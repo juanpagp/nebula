@@ -1,24 +1,57 @@
 package org.nebula.nebc.ast;
 
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
-
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * The root node of the AST, all other nodes are children of a CompilationUnit node.
- * There's exactly one CompilationUnit per AST instance and it represents a Nebula source file (.neb).
+ * The root AST node representing an entire Nebula program.
+ * It serves as the container for global directives and top-level declarations.
  */
-public class CompilationUnit extends ASTNode
+public class CompilationUnit implements ASTNode
 {
+	private final List<ASTNode> directives;
+	private final List<ASTNode> declarations;
 
-	protected CompilationUnit(SourceSpan span)
+	/**
+	 * Constructs a new CompilationUnit.
+	 * * @param directives   The list of directives (like alias or use statements).
+	 * @param declarations The list of top-level declarations (classes, methods, namespaces, etc.).
+	 */
+	public CompilationUnit(List<ASTNode> directives, List<ASTNode> declarations)
 	{
-		super(span);
+		this.directives = new ArrayList<>(directives);
+		this.declarations = new ArrayList<>(declarations);
+	}
+
+	/**
+	 * @return An unmodifiable list of directives in this unit.
+	 */
+	public List<ASTNode> getDirectives()
+	{
+		return Collections.unmodifiableList(directives);
+	}
+
+	/**
+	 * @return An unmodifiable list of top-level declarations (Class, Struct, Method, etc.).
+	 */
+	public List<ASTNode> getDeclarations()
+	{
+		return Collections.unmodifiableList(declarations);
 	}
 
 	@Override
-	protected List<ASTNode> children()
+	public <R> R accept(ASTVisitor<R> visitor)
 	{
-		return List.of();
+		return visitor.visitCompilationUnit(this);
+	}
+
+	@Override
+	public String toString()
+	{
+		return "CompilationUnit{" +
+				"directives=" + directives.size() +
+				", declarations=" + declarations.size() +
+				'}';
 	}
 }

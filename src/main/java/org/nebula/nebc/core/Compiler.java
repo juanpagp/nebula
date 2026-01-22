@@ -1,6 +1,6 @@
 package org.nebula.nebc.core;
 
-import org.nebula.nebc.ASTBuilder;
+import org.nebula.nebc.ast.ASTBuilder;
 import org.nebula.nebc.ast.CompilationUnit;
 import org.nebula.nebc.frontend.parser.Parser;
 import org.nebula.util.ExitCode;
@@ -25,8 +25,8 @@ public class Compiler
 		int frontendExitCode = parser.parse();
 		if (frontendExitCode != 0) return ExitCode.SYNTAX_ERROR;
 
-		// 2. Build the AST
-		this.compilationUnits = ASTBuilder.buildAST(parser.getParseTrees());
+		// 2. Build the AST for each parse tree
+		this.compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
 
 		// TODO: 2. Semantic Analysis (Type checking, symbol resolution)
 		// TODO: 3. Code Generation (LLVM IR)

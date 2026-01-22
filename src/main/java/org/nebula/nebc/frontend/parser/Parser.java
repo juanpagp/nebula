@@ -23,7 +23,7 @@ import java.util.Map;
 
 public class Parser
 {
-	private final List<ParseTree> parseTrees;
+	private final List<ParsingResult> parsingResultList;
 	private final CompilerConfig config;
 	// Storage to pass valid token streams from the lexer phase to the parser phase
 	private final Map<SourceFile, CommonTokenStream> validTokenStreams;
@@ -31,13 +31,13 @@ public class Parser
 	public Parser(CompilerConfig config)
 	{
 		this.config = config;
-		this.parseTrees = new ArrayList<>();
+		this.parsingResultList = new ArrayList<>();
 		this.validTokenStreams = new HashMap<>();
 	}
 
-	public List<ParseTree> getParseTrees()
+	public List<ParsingResult> getParsingResultList()
 	{
-		return parseTrees;
+		return parsingResultList;
 	}
 
 	/**
@@ -178,12 +178,12 @@ public class Parser
 			}
 			else
 			{
-				parseTrees.add(tree);
+				parsingResultList.add(new ParsingResult(sourceFile, tree));
 			}
 
 
 			System.out.println(Trees.toStringTree(tree, parser));
-            parseTrees.add(tree);
+            parsingResultList.add(new ParsingResult(sourceFile, tree));
 		}
 
 		return totalErrors;

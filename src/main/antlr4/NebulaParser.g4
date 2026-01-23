@@ -10,15 +10,11 @@ options {
 
 // The entry point, now including directives and namespace declarations
 compilation_unit
-    : directive* top_level_declaration* EOF
-    ;
-
-directive
-    : alias_directive
+    : top_level_declaration* EOF
     ;
 
 //=============================================================================
-// Namespace Directives (Use, Alias, Namespace)
+// Namespace Directives (Use, Namespace)
 // =============================================================================
 
 use_statement
@@ -57,10 +53,6 @@ tag_expression
     | tag_expression ('&' | AMP) tag_expression     # tagExprIntersect
     | tag_expression ('|' | PIPE) tag_expression    # tagExprUnion
     | type                                          # tagExprAtom
-    ;
-
-alias_directive
-    : ALIAS qualified_name AS IDENTIFIER SEMICOLON
     ;
 
 namespace_declaration

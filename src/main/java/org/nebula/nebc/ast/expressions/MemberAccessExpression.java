@@ -1,0 +1,23 @@
+package org.nebula.nebc.ast.expressions;
+
+import org.nebula.nebc.ast.ASTVisitor;
+import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+
+public class MemberAccessExpression extends Expression
+{
+	private final Expression target;
+	private final String memberName;
+
+	public MemberAccessExpression(SourceSpan span, Expression target, String memberName)
+	{
+		super(span);
+		this.target = target;
+		this.memberName = memberName;
+	}
+
+	@Override
+	public <R> R accept(ASTVisitor<R> visitor)
+	{
+		return visitor.visitMemberAccessExpression(this);
+	}
+}

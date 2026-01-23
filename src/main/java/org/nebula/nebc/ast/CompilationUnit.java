@@ -8,7 +8,7 @@ import java.util.List;
  * The root AST node representing an entire Nebula program.
  * It serves as the container for global directives and top-level declarations.
  */
-public class CompilationUnit implements ASTNode
+public class CompilationUnit extends ASTNode
 {
 	private final List<ASTNode> directives;
 	private final List<ASTNode> declarations;

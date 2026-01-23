@@ -21,7 +21,6 @@ SINGLE_LINE_COMMENT         : '//' InputCharacter*    -> channel(COMMENTS_CHANNE
 DELIMITED_COMMENT           : '/*' .*? '*/'           -> channel(COMMENTS_CHANNEL);
 WHITESPACES                 : (Whitespace | NewLine)+ -> channel(HIDDEN);
 
-ALIAS: 'alias';
 AS: 'as';
 ASYNC: 'async';
 AWAIT: 'await';

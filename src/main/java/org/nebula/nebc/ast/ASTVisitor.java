@@ -2,16 +2,22 @@ package org.nebula.nebc.ast;
 
 import org.nebula.nebc.ast.declarations.*;
 import org.nebula.nebc.ast.expressions.*;
+import org.nebula.nebc.ast.patterns.*;
 import org.nebula.nebc.ast.statements.*;
-import org.nebula.nebc.ast.types.*;
-import org.nebula.nebc.ast.statements.UseStatement;
+import org.nebula.nebc.ast.tags.*;
+import org.nebula.nebc.ast.types.Type;
 
 /**
  * Interface for the Visitor pattern that allows AST traversal.
  * Each `visit` method corresponds to a specific AST node type.
+ *
+ * @param <R> The return type of the visit operation.
  */
 public interface ASTVisitor<R>
 {
+	/**
+	 * Visits the root node of the AST.
+	 */
 	R visitCompilationUnit(CompilationUnit node);
 
 	// ----------------------
@@ -24,7 +30,7 @@ public interface ASTVisitor<R>
 	R visitNamespaceDeclaration(NamespaceDeclaration node);
 
 	/**
-	 * Includes both top-level and member variable declarations.
+	 * Includes both top-level and member variable declarations (including const).
 	 */
 	R visitVariableDeclaration(VariableDeclaration node);
 
@@ -103,7 +109,7 @@ public interface ASTVisitor<R>
 	R visitReturnStatement(ReturnStatement node);
 
 	/**
-	 * An expression used as a statement (e.g., a function call).
+	 * An expression used as a statement (e.g., a function call or assignment).
 	 */
 	R visitExpressionStatement(ExpressionStatement node);
 
@@ -118,12 +124,11 @@ public interface ASTVisitor<R>
 
 	/**
 	 * Collapses additive, multiplicative, relational, etc.
-	 * Use an 'Operator' enum inside the node to distinguish them.
 	 */
 	R visitBinaryExpression(BinaryExpression node);
 
 	/**
-	 * @grammar !expr, -expr, ~expr, etc.
+	 * @grammar !expr, -expr, ~expr, expr++, expr--
 	 */
 	R visitUnaryExpression(UnaryExpression node);
 
@@ -140,7 +145,7 @@ public interface ASTVisitor<R>
 	/**
 	 * @grammar match (expr) { pattern => expr, ... }
 	 */
-	R visitMatchExpression(MatchExpression node);
+	R visitMatchExpression(org.nebula.nebc.ast.patterns.MatchExpression node);
 
 	/**
 	 * @grammar if (expr) block else block
@@ -153,7 +158,7 @@ public interface ASTVisitor<R>
 	R visitNewExpression(NewExpression node);
 
 	/**
-	 * Handles method calls and constructor calls.
+	 * Handles method calls and constructor invocations.
 	 */
 	R visitInvocationExpression(InvocationExpression node);
 
@@ -161,6 +166,11 @@ public interface ASTVisitor<R>
 	 * @grammar obj.member or tuple.0
 	 */
 	R visitMemberAccessExpression(MemberAccessExpression node);
+
+	/**
+	 * @grammar array[index] or map[key]
+	 */
+	R visitIndexExpression(IndexExpression node);
 
 	/**
 	 * @grammar [expr, expr, expr]
@@ -181,6 +191,59 @@ public interface ASTVisitor<R>
 	 * Accessing a variable by name.
 	 */
 	R visitIdentifierExpression(IdentifierExpression node);
+
+	/**
+	 * @grammar this
+	 */
+	R visitThisExpression(ThisExpression node);
+
+	/**
+	 * @grammar "Hello {name}"
+	 */
+	R visitStringInterpolationExpression(StringInterpolationExpression node);
+
+	// ------------------
+	// ---- Patterns ----
+	// ------------------
+
+	/**
+	 * A single branch in a match expression.
+	 */
+	R visitMatchArm(MatchArm node);
+
+	/**
+	 * Matches a literal value (e.g., case 10 => ...).
+	 */
+	R visitLiteralPattern(LiteralPattern node);
+
+	/**
+	 * Matches a type (e.g., case String s => ...).
+	 */
+	R visitTypePattern(TypePattern node);
+
+	/**
+	 * Matches anything (e.g., case _ => ...).
+	 */
+	R visitWildcardPattern(WildcardPattern node);
+
+	/**
+	 * Matches multiple alternatives (e.g., case A | B => ...).
+	 */
+	R visitOrPattern(OrPattern node);
+
+	// --------------
+	// ---- Tags ----
+	// --------------
+
+	/**
+	 * A tag atom (usually a Type).
+	 */
+	R visitTagAtom(TagAtom node);
+
+	/**
+	 * Tag operations like Union (|), Intersection (&), or Negation (!).
+	 */
+	R visitTagOperation(TagOperation node);
 
 	// ---------------
 	// ---- Types ----

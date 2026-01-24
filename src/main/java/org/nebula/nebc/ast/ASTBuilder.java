@@ -1,6 +1,5 @@
 package org.nebula.nebc.ast;
 
-import org.antlr.v4.runtime.tree.ParseTree;
 import org.nebula.nebc.ast.declarations.VariableDeclaration;
 import org.nebula.nebc.ast.declarations.VariableDeclarator;
 import org.nebula.nebc.ast.expressions.Expression;

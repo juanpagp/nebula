@@ -4,18 +4,34 @@ import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.ast.ASTVisitor;
 import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
+import java.util.Collections;
 import java.util.List;
 
 public class NamespaceDeclaration extends Declaration
 {
 	private final String name;
-	private final List<ASTNode> members;
+	private final List<ASTNode> members; // Null or empty implies file-scoped
 
 	public NamespaceDeclaration(SourceSpan span, String name, List<ASTNode> members)
 	{
 		super(span);
 		this.name = name;
 		this.members = members;
+	}
+
+	public String getName()
+	{
+		return name;
+	}
+
+	public List<ASTNode> getMembers()
+	{
+		return members == null ? Collections.emptyList() : Collections.unmodifiableList(members);
+	}
+
+	public boolean isFileScoped()
+	{
+		return members == null || members.isEmpty();
 	}
 
 	@Override

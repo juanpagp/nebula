@@ -11,13 +11,15 @@ public class VariableDeclaration extends Declaration
 	private final Type type; // null if using 'var'
 	private final List<VariableDeclarator> declarators;
 	private final boolean isVar; // true if 'var' was used
+	private final boolean isConst;
 
-	public VariableDeclaration(SourceSpan span, Type type, List<VariableDeclarator> declarators, boolean isVar)
+	public VariableDeclaration(SourceSpan span, Type type, List<VariableDeclarator> declarators, boolean isVar, boolean isConst)
 	{
 		super(span);
 		this.type = type;
 		this.declarators = declarators;
 		this.isVar = isVar;
+		this.isConst = isConst;
 	}
 
 	public Type getType()
@@ -30,9 +32,14 @@ public class VariableDeclaration extends Declaration
 		return declarators;
 	}
 
-	public boolean isInferred()
+	public boolean isVar()
 	{
 		return isVar;
+	}
+
+	public boolean isConst()
+	{
+		return isConst;
 	}
 
 	@Override

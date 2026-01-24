@@ -4,20 +4,43 @@ import org.nebula.nebc.ast.ASTVisitor;
 import org.nebula.nebc.ast.expressions.Expression;
 import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
+import java.util.Collections;
+import java.util.List;
+
 public class ForStatement extends Statement
 {
-	private final Statement initializer; // Can be a VariableDeclaration
+	private final Statement initializer;
 	private final Expression condition;
-	private final Expression iterator;
+	private final List<Expression> iterators; // Updated from single Expression
 	private final Statement body;
 
-	public ForStatement(SourceSpan span, Statement initializer, Expression condition, Expression iterator, Statement body)
+	public ForStatement(SourceSpan span, Statement initializer, Expression condition, List<Expression> iterators, Statement body)
 	{
 		super(span);
 		this.initializer = initializer;
 		this.condition = condition;
-		this.iterator = iterator;
+		this.iterators = iterators;
 		this.body = body;
+	}
+
+	public Statement getInitializer()
+	{
+		return initializer;
+	}
+
+	public Expression getCondition()
+	{
+		return condition;
+	}
+
+	public List<Expression> getIterators()
+	{
+		return Collections.unmodifiableList(iterators);
+	}
+
+	public Statement getBody()
+	{
+		return body;
 	}
 
 	@Override

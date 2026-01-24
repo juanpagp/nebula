@@ -9,9 +9,9 @@ import java.util.List;
 
 public class ConstructorDeclaration extends Declaration
 {
-	private final String name; // Usually matches class name or "new"
-	private final List<Parameter> parameters;
-	private final ASTNode body; // Block
+	public final String name; // Usually matches class name or "new"
+	public final List<Parameter> parameters;
+	public final ASTNode body; // Block
 
 	public ConstructorDeclaration(SourceSpan span, String name, List<Parameter> parameters, ASTNode body)
 	{

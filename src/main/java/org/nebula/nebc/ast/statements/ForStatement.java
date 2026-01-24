@@ -9,10 +9,10 @@ import java.util.List;
 
 public class ForStatement extends Statement
 {
-	private final Statement initializer;
-	private final Expression condition;
-	private final List<Expression> iterators; // Updated from single Expression
-	private final Statement body;
+	public final Statement initializer;
+	public final Expression condition;
+	public final List<Expression> iterators; // Updated from single Expression
+	public final Statement body;
 
 	public ForStatement(SourceSpan span, Statement initializer, Expression condition, List<Expression> iterators, Statement body)
 	{
@@ -21,26 +21,6 @@ public class ForStatement extends Statement
 		this.condition = condition;
 		this.iterators = iterators;
 		this.body = body;
-	}
-
-	public Statement getInitializer()
-	{
-		return initializer;
-	}
-
-	public Expression getCondition()
-	{
-		return condition;
-	}
-
-	public List<Expression> getIterators()
-	{
-		return Collections.unmodifiableList(iterators);
-	}
-
-	public Statement getBody()
-	{
-		return body;
 	}
 
 	@Override

@@ -5,9 +5,9 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class AssignmentExpression extends Expression
 {
-	private final Expression target;
-	private final String operator; // =, +=, -=, etc.
-	private final Expression value;
+	public final Expression target;
+	public final String operator; // =, +=, -=, etc.
+	public final Expression value;
 
 	public AssignmentExpression(SourceSpan span, Expression target, String operator, Expression value)
 	{

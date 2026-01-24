@@ -5,8 +5,8 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class ArrayType extends Type
 {
-	private final Type baseType; // e.g., 'int' in 'int[]'
-	private final int dimensions;        // 1 for [], 2 for [][], etc.
+	public final Type baseType; // e.g., 'int' in 'int[]'
+	public final int dimensions;        // 1 for [], 2 for [][], etc.
 
 	public ArrayType(SourceSpan span, Type baseType, int dimensions)
 	{

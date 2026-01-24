@@ -6,9 +6,9 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class IfStatement extends Statement
 {
-	private final Expression condition;
-	private final Statement thenBranch;
-	private final Statement elseBranch;
+	public final Expression condition;
+	public final Statement thenBranch;
+	public final Statement elseBranch;
 
 	public IfStatement(SourceSpan span, Expression condition, Statement thenBranch, Statement elseBranch)
 	{

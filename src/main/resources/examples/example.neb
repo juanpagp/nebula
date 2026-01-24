@@ -1,6 +1,3 @@
-// Alias
-alias Console.println = println;
-
 // Constants
 const float PI = 3.14f;
 

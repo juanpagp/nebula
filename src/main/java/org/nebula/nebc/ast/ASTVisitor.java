@@ -30,9 +30,15 @@ public interface ASTVisitor<R>
 	R visitNamespaceDeclaration(NamespaceDeclaration node);
 
 	/**
-	 * Includes both top-level and member variable declarations (including const).
+	 * Includes member variable declarations.
 	 */
 	R visitVariableDeclaration(VariableDeclaration node);
+
+	/**
+	 * Includes both top-level and member const declarations.
+	 */
+	R visitConstDeclaration(ConstDeclaration constDeclaration);
+
 
 	/**
 	 * @grammar modifiers returnType name<T>(params) { body }

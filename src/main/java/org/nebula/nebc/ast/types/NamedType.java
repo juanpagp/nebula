@@ -8,24 +8,14 @@ import java.util.List;
 
 public class NamedType extends Type
 {
-	private final String qualifiedName;
-	private final List<Type> genericArguments;
+	public final String qualifiedName;
+	public final List<Type> genericArguments;
 
 	public NamedType(SourceSpan span, String qualifiedName, List<Type> genericArguments)
 	{
 		super(span);
 		this.qualifiedName = qualifiedName;
 		this.genericArguments = genericArguments != null ? genericArguments : Collections.emptyList();
-	}
-
-	public String getQualifiedName()
-	{
-		return qualifiedName;
-	}
-
-	public List<Type> getGenericArguments()
-	{
-		return genericArguments;
 	}
 
 	@Override

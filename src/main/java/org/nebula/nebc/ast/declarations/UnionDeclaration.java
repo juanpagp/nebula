@@ -7,8 +7,8 @@ import java.util.List;
 
 public class UnionDeclaration extends Declaration
 {
-	private final String name;
-	private final List<UnionVariant> variants;
+	public final String name;
+	public final List<UnionVariant> variants;
 
 	public UnionDeclaration(SourceSpan span, String name, List<UnionVariant> variants)
 	{

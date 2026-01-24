@@ -7,7 +7,7 @@ import java.util.List;
 
 public class ArrayLiteralExpression extends Expression
 {
-	private final List<Expression> elements;
+	public final List<Expression> elements;
 
 	public ArrayLiteralExpression(SourceSpan span, List<Expression> elements)
 	{

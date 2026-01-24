@@ -6,9 +6,9 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class BinaryExpression extends Expression
 {
-	private final Expression left;
-	private final BinaryOperator operator;
-	private final Expression right;
+	public final Expression left;
+	public final BinaryOperator operator;
+	public final Expression right;
 
 	public BinaryExpression(SourceSpan span, Expression left, BinaryOperator operator, Expression right)
 	{

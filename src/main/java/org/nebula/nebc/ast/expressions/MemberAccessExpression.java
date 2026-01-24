@@ -5,8 +5,8 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class MemberAccessExpression extends Expression
 {
-	private final Expression target;
-	private final String memberName;
+	public final Expression target;
+	public final String memberName;
 
 	public MemberAccessExpression(SourceSpan span, Expression target, String memberName)
 	{

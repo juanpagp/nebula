@@ -6,17 +6,12 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class TagAtom extends TagExpression
 {
-	private final Type type;
+	public final Type type;
 
 	public TagAtom(SourceSpan span, Type type)
 	{
 		super(span);
 		this.type = type;
-	}
-
-	public Type getType()
-	{
-		return type;
 	}
 
 	@Override

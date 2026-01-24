@@ -8,9 +8,9 @@ import java.util.List;
 
 public class ClassDeclaration extends Declaration
 {
-	private final String name;
-	private final List<Type> inheritance;
-	private final List<Declaration> members;
+	public final String name;
+	public final List<Type> inheritance;
+	public final List<Declaration> members;
 
 	public ClassDeclaration(SourceSpan span, String name, List<Type> inheritance, List<Declaration> members)
 	{

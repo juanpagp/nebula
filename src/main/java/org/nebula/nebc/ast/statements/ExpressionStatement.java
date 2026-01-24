@@ -6,7 +6,7 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class ExpressionStatement extends Statement
 {
-	private final Expression expression;
+	public final Expression expression;
 
 	public ExpressionStatement(SourceSpan span, Expression expression)
 	{

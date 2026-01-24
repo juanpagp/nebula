@@ -6,17 +6,12 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class LiteralPattern extends Pattern
 {
-	private final LiteralExpression value;
+	public final LiteralExpression value;
 
 	public LiteralPattern(SourceSpan span, LiteralExpression value)
 	{
 		super(span);
 		this.value = value;
-	}
-
-	public LiteralExpression getValue()
-	{
-		return value;
 	}
 
 	@Override

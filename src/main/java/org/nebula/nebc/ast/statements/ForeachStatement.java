@@ -7,10 +7,10 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class ForeachStatement extends Statement
 {
-	private final Type variableType; // null if 'var'
-	private final String variableName;
-	private final Expression iterable;
-	private final Statement body;
+	public final Type variableType; // null if 'var'
+	public final String variableName;
+	public final Expression iterable;
+	public final Statement body;
 
 	public ForeachStatement(SourceSpan span, Type variableType, String variableName, Expression iterable, Statement body)
 	{

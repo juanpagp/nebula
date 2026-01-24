@@ -7,8 +7,8 @@ import java.util.List;
 
 public class NewExpression extends Expression
 {
-	private final String typeName;
-	private final List<Expression> arguments;
+	public final String typeName;
+	public final List<Expression> arguments;
 
 	public NewExpression(SourceSpan span, String typeName, List<Expression> arguments)
 	{

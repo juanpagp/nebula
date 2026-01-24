@@ -5,17 +5,12 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class IdentifierExpression extends Expression
 {
-	private final String name;
+	public final String name;
 
 	public IdentifierExpression(SourceSpan span, String name)
 	{
 		super(span);
 		this.name = name;
-	}
-
-	public String getName()
-	{
-		return name;
 	}
 
 	@Override

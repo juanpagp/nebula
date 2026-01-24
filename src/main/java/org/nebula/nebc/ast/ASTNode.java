@@ -26,4 +26,13 @@ public abstract class ASTNode
 	 * Visitor pattern entry point.
 	 */
 	public abstract <R> R accept(ASTVisitor<R> visitor);
+
+	/**
+	 * @return A tree-structured string representation of this node and its children.
+	 */
+	@Override
+	public String toString()
+	{
+		return org.nebula.nebc.ast.util.ASTPrinter.print(this);
+	}
 }

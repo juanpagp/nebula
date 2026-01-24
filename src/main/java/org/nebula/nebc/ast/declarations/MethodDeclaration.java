@@ -8,11 +8,11 @@ import java.util.List;
 
 public class MethodDeclaration extends Declaration
 {
-	private final List<Modifier> modifiers;
-	private final Type returnType; // null for void
-	private final String name;
-	private final List<Parameter> parameters;
-	private final ASTNode body; // Can be a Block or an Expression (for =>)
+	public final List<Modifier> modifiers;
+	public final Type returnType; // null for void
+	public final String name;
+	public final List<Parameter> parameters;
+	public final ASTNode body; // Can be a Block or an Expression (for =>)
 
 	public MethodDeclaration(SourceSpan span, List<Modifier> modifiers, Type returnType, String name, List<Parameter> parameters, ASTNode body)
 	{

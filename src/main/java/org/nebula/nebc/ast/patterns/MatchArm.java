@@ -7,24 +7,14 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class MatchArm extends ASTNode
 {
-	private final Pattern pattern;
-	private final Expression result;
+	public final Pattern pattern;
+	public final Expression result;
 
 	public MatchArm(SourceSpan span, Pattern pattern, Expression result)
 	{
 		super(span);
 		this.pattern = pattern;
 		this.result = result;
-	}
-
-	public Pattern getPattern()
-	{
-		return pattern;
-	}
-
-	public Expression getResult()
-	{
-		return result;
 	}
 
 	@Override

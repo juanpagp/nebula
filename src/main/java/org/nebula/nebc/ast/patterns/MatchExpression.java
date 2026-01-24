@@ -9,24 +9,14 @@ import java.util.List;
 
 public class MatchExpression extends Expression
 {
-	private final Expression selector;
-	private final List<MatchArm> arms;
+	public final Expression selector;
+	public final List<MatchArm> arms;
 
 	public MatchExpression(SourceSpan span, Expression selector, List<MatchArm> arms)
 	{
 		super(span);
 		this.selector = selector;
 		this.arms = arms;
-	}
-
-	public Expression getSelector()
-	{
-		return selector;
-	}
-
-	public List<MatchArm> getArms()
-	{
-		return Collections.unmodifiableList(arms);
 	}
 
 	@Override

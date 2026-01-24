@@ -7,8 +7,8 @@ import java.util.List;
 
 public class IndexExpression extends Expression
 {
-	private final Expression target;     // The array/map
-	private final List<Expression> indices; // Supports arr[x, y] if grammar allows, or just List.of(index)
+	public final Expression target;     // The array/map
+	public final List<Expression> indices; // Supports arr[x, y] if grammar allows, or just List.of(index)
 
 	public IndexExpression(SourceSpan span, Expression target, List<Expression> indices)
 	{

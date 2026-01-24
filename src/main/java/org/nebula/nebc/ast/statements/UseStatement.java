@@ -5,8 +5,8 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class UseStatement extends Statement
 {
-	private final String qualifiedName;
-	private final String alias;
+	public final String qualifiedName;
+	public final String alias;
 
 	public UseStatement(SourceSpan span, String qualifiedName, String alias)
 	{

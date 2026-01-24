@@ -12,17 +12,12 @@ import java.util.List;
  */
 public class OrPattern extends Pattern
 {
-	private final List<Pattern> alternatives;
+	public final List<Pattern> alternatives;
 
 	public OrPattern(SourceSpan span, List<Pattern> alternatives)
 	{
 		super(span);
 		this.alternatives = alternatives;
-	}
-
-	public List<Pattern> getAlternatives()
-	{
-		return Collections.unmodifiableList(alternatives);
 	}
 
 	@Override

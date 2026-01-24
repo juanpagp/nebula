@@ -8,9 +8,9 @@ import java.util.List;
 
 public class StructDeclaration extends Declaration
 {
-	private final String name;
-	private final List<Type> inheritance;
-	private final List<Declaration> members;
+	public final String name;
+	public final List<Type> inheritance;
+	public final List<Declaration> members;
 
 	public StructDeclaration(SourceSpan span, String name, List<Type> inheritance, List<Declaration> members)
 	{

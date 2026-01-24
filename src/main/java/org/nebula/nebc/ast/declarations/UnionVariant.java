@@ -7,8 +7,8 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class UnionVariant extends ASTNode
 {
-	private final String name;
-	private final Type payload; // null if no payload
+	public final String name;
+	public final Type payload; // null if no payload
 
 	public UnionVariant(SourceSpan span, String name, Type payload)
 	{

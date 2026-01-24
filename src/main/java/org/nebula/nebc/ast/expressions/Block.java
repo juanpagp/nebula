@@ -14,27 +14,14 @@ import java.util.Optional;
  */
 public class Block extends Expression
 {
-	private final List<Statement> statements;
-	private final Expression tail; // The optional result expression (block_tail)
+	public final List<Statement> statements;
+	public final Expression tail; // The optional result expression (block_tail)
 
 	public Block(SourceSpan span, List<Statement> statements, Expression tail)
 	{
 		super(span);
 		this.statements = statements;
 		this.tail = tail;
-	}
-
-	public List<Statement> getStatements()
-	{
-		return Collections.unmodifiableList(statements);
-	}
-
-	/**
-	 * @return The trailing expression, if it exists.
-	 */
-	public Optional<Expression> getTail()
-	{
-		return Optional.ofNullable(tail);
 	}
 
 	public boolean hasTail()

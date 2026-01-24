@@ -6,9 +6,9 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class UnaryExpression extends Expression
 {
-	private final UnaryOperator operator;
-	private final Expression operand;
-	private final boolean isPostfix;
+	public final UnaryOperator operator;
+	public final Expression operand;
+	public final boolean isPostfix;
 
 	public UnaryExpression(SourceSpan span, UnaryOperator operator, Expression operand, boolean isPostfix)
 	{

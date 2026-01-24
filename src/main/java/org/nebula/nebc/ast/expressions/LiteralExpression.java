@@ -5,8 +5,8 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class LiteralExpression extends Expression
 {
-	private final Object value;
-	private final LiteralType type;
+	public final Object value;
+	public final LiteralType type;
 
 	public enum LiteralType
 	{INT, FLOAT, STRING, BOOL, CHAR, NULL}

@@ -7,7 +7,7 @@ import java.util.List;
 
 public class TupleType extends Type
 {
-	private final List<Type> elementTypes;
+	public final List<Type> elementTypes;
 
 	public TupleType(SourceSpan span, List<Type> elementTypes)
 	{

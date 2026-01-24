@@ -27,6 +27,10 @@ public class Compiler
 
 		// 2. Build the AST for each parse tree
 		this.compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
+		for (var cu : compilationUnits)
+		{
+			System.out.println(cu);
+		}
 
 		// TODO: 2. Semantic Analysis (Type checking, symbol resolution)
 		// TODO: 3. Code Generation (LLVM IR)

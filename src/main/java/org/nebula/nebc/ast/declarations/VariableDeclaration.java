@@ -8,18 +8,16 @@ import java.util.List;
 
 public class VariableDeclaration extends Declaration
 {
-	private final Type type; // null if using 'var'
-	private final List<VariableDeclarator> declarators;
-	private final boolean isVar; // true if 'var' was used
-	private final boolean isConst;
+	public final Type type; // null if using 'var'
+	public final List<VariableDeclarator> declarators;
+	public final boolean isVar; // true if 'var' was used
 
-	public VariableDeclaration(SourceSpan span, Type type, List<VariableDeclarator> declarators, boolean isVar, boolean isConst)
+	public VariableDeclaration(SourceSpan span, Type type, List<VariableDeclarator> declarators, boolean isVar)
 	{
 		super(span);
 		this.type = type;
 		this.declarators = declarators;
 		this.isVar = isVar;
-		this.isConst = isConst;
 	}
 
 	public Type getType()
@@ -35,11 +33,6 @@ public class VariableDeclaration extends Declaration
 	public boolean isVar()
 	{
 		return isVar;
-	}
-
-	public boolean isConst()
-	{
-		return isConst;
 	}
 
 	@Override

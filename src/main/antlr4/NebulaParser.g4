@@ -38,9 +38,9 @@ tag_statement
     ;
 
 tag_declaration
-    : type                                  # tagSingle
-    | OPEN_BRACE tag_enumeration CLOSE_BRACE # tagEnumList
-    | OPEN_BRACE tag_expression CLOSE_BRACE  # tagExpr
+    : type
+    | OPEN_BRACE tag_enumeration CLOSE_BRACE
+    | OPEN_BRACE tag_expression CLOSE_BRACE
     ;
 
 tag_enumeration
@@ -48,11 +48,11 @@ tag_enumeration
     ;
 
 tag_expression
-    : OPEN_PARENS tag_expression CLOSE_PARENS       # tagExprParens
-    | BANG tag_expression                           # tagExprNot
-    | tag_expression ('&' | AMP) tag_expression     # tagExprIntersect
-    | tag_expression ('|' | PIPE) tag_expression    # tagExprUnion
-    | type                                          # tagExprAtom
+    : OPEN_PARENS tag_expression CLOSE_PARENS
+    | BANG tag_expression
+    | tag_expression (AMP) tag_expression
+    | tag_expression (PIPE) tag_expression
+    | type
     ;
 
 namespace_declaration
@@ -223,7 +223,7 @@ method_declaration
     ;
 
 constructor_declaration
-    : IDENTIFIER parameters block
+    : visibility_modifier IDENTIFIER parameters block
     ;
 
 parameters

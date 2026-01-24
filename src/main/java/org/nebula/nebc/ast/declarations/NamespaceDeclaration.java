@@ -9,24 +9,14 @@ import java.util.List;
 
 public class NamespaceDeclaration extends Declaration
 {
-	private final String name;
-	private final List<ASTNode> members; // Null or empty implies file-scoped
+	public final String name;
+	public final List<ASTNode> members; // Null or empty implies file-scoped
 
 	public NamespaceDeclaration(SourceSpan span, String name, List<ASTNode> members)
 	{
 		super(span);
 		this.name = name;
 		this.members = members;
-	}
-
-	public String getName()
-	{
-		return name;
-	}
-
-	public List<ASTNode> getMembers()
-	{
-		return members == null ? Collections.emptyList() : Collections.unmodifiableList(members);
 	}
 
 	public boolean isFileScoped()

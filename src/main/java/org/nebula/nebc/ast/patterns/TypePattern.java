@@ -10,24 +10,14 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
  */
 public class TypePattern extends Pattern
 {
-	private final Type type;
-	private final String variableName; // Nullable (if just checking type without binding)
+	public final Type type;
+	public final String variableName; // Nullable (if just checking type without binding)
 
 	public TypePattern(SourceSpan span, Type type, String variableName)
 	{
 		super(span);
 		this.type = type;
 		this.variableName = variableName;
-	}
-
-	public Type getType()
-	{
-		return type;
-	}
-
-	public String getVariableName()
-	{
-		return variableName;
 	}
 
 	public boolean isBinding()

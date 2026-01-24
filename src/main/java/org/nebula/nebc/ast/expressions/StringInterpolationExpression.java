@@ -7,7 +7,7 @@ import java.util.List;
 
 public class StringInterpolationExpression extends Expression
 {
-	private final List<Expression> parts; // A mix of LiteralExpressions (strings) and other Expressions (variables)
+	public final List<Expression> parts; // A mix of LiteralExpressions (strings) and other Expressions (variables)
 
 	public StringInterpolationExpression(SourceSpan span, List<Expression> parts)
 	{

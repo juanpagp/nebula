@@ -6,8 +6,8 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 public class CastExpression extends Expression
 {
-	private final Type targetType;
-	private final Expression expression;
+	public final Type targetType;
+	public final Expression expression;
 
 	public CastExpression(SourceSpan span, Type targetType, Expression expression)
 	{

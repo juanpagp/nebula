@@ -1,8 +1,17 @@
 package org.nebula.nebc.ast;
 
-import org.nebula.nebc.ast.declarations.VariableDeclaration;
-import org.nebula.nebc.ast.declarations.VariableDeclarator;
-import org.nebula.nebc.ast.expressions.Expression;
+import org.nebula.nebc.ast.declarations.*;
+import org.nebula.nebc.ast.expressions.*;
+import org.nebula.nebc.ast.expressions.LiteralExpression.LiteralType;
+import org.nebula.nebc.ast.patterns.*;
+import org.nebula.nebc.ast.statements.*;
+import org.nebula.nebc.ast.tags.TagAtom;
+import org.nebula.nebc.ast.tags.TagExpression;
+import org.nebula.nebc.ast.tags.TagOperation;
+import org.nebula.nebc.ast.tags.TagStatement;
+import org.nebula.nebc.ast.types.ArrayType;
+import org.nebula.nebc.ast.types.NamedType;
+import org.nebula.nebc.ast.types.TupleType;
 import org.nebula.nebc.ast.types.Type;
 import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 import org.nebula.nebc.frontend.diagnostics.SourceUtil;
@@ -11,10 +20,11 @@ import org.nebula.nebc.frontend.parser.generated.NebulaParser;
 import org.nebula.nebc.frontend.parser.generated.NebulaParserBaseVisitor;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
- * Utility visitor to convert an ANTLR Parse Tree into a Nebula AST.
+ * Converts the ANTLR Parse Tree into the Nebula Abstract Syntax Tree (AST).
  */
 public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 {
@@ -49,41 +59,1071 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		List<ASTNode> directives = new ArrayList<>();
 		List<ASTNode> declarations = new ArrayList<>();
 
-		for (NebulaParser.DirectiveContext dirCtx : ctx.directive())
+		for (var declCtx : ctx.top_level_declaration())
 		{
-			directives.add(visit(dirCtx));
-		}
-		for (NebulaParser.Top_level_declarationContext declCtx : ctx.top_level_declaration())
-		{
-			declarations.add(visit(declCtx));
+			ASTNode node = visit(declCtx);
+			if (node instanceof UseStatement || node instanceof TagStatement)
+			{
+				directives.add(node);
+			}
+			else if (node instanceof Declaration)
+			{
+				declarations.add(node);
+			}
+			else if (node instanceof NamespaceDeclaration)
+			{
+				declarations.add(node);
+			}
 		}
 
-		return new CompilationUnit(directives, declarations);
+		return new CompilationUnit(SourceUtil.createSpan(ctx, currentFileName), directives, declarations);
+	}
+
+	// =========================================================================
+	// 1. Declarations & Top Level
+	// =========================================================================
+
+	@Override
+	public ASTNode visitNamespace_declaration(NebulaParser.Namespace_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String name = ctx.qualified_name().getText();
+		List<ASTNode> members = new ArrayList<>();
+
+		if (ctx.top_level_declaration() != null)
+		{
+			for (var decl : ctx.top_level_declaration())
+			{
+				members.add(visit(decl));
+			}
+		}
+
+		return new NamespaceDeclaration(span, name, members);
+	}
+
+	@Override
+	public ASTNode visitUse_statement(NebulaParser.Use_statementContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String qualifiedName = ctx.qualified_name().getText();
+		String alias = null;
+
+		if (ctx.use_tail() != null)
+		{
+			if (ctx.use_tail().use_alias() != null)
+			{
+				alias = ctx.use_tail().use_alias().IDENTIFIER().getText();
+			}
+			else if (ctx.use_tail().IDENTIFIER() != null)
+			{
+				alias = ctx.use_tail().IDENTIFIER().getText();
+			}
+		}
+
+		return new UseStatement(span, qualifiedName, alias);
+	}
+
+	@Override
+	public ASTNode visitClass_declaration(NebulaParser.Class_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String name = ctx.IDENTIFIER().getText();
+
+		List<Type> inheritance = new ArrayList<>();
+		if (ctx.inheritance_clause() != null)
+		{
+			for (var typeCtx : ctx.inheritance_clause().type())
+			{
+				inheritance.add((Type) visit(typeCtx));
+			}
+		}
+
+		List<Declaration> members = new ArrayList<>();
+		for (var memberCtx : ctx.class_body().class_member())
+		{
+			members.add((Declaration) visit(memberCtx.getChild(0)));
+		}
+
+		return new ClassDeclaration(span, name, inheritance, members);
+	}
+
+	@Override
+	public ASTNode visitStruct_declaration(NebulaParser.Struct_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String name = ctx.IDENTIFIER().getText();
+
+		List<Type> inheritance = new ArrayList<>();
+		if (ctx.inheritance_clause() != null)
+		{
+			for (var typeCtx : ctx.inheritance_clause().type())
+			{
+				inheritance.add((Type) visit(typeCtx));
+			}
+		}
+
+		List<Declaration> members = new ArrayList<>();
+		for (var memberCtx : ctx.struct_body().struct_member())
+		{
+			members.add((Declaration) visit(memberCtx.getChild(0)));
+		}
+
+		return new StructDeclaration(span, name, inheritance, members);
+	}
+
+	@Override
+	public ASTNode visitTrait_declaration(NebulaParser.Trait_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String name = ctx.IDENTIFIER().getText();
+		List<MethodDeclaration> members = new ArrayList<>();
+
+		// Trait body can be a block or single method in grammar, handling block here
+		if (ctx.trait_body().trait_block() != null)
+		{
+			for (var member : ctx.trait_body().trait_block().trait_member())
+			{
+				members.add((MethodDeclaration) visit(member.method_declaration()));
+			}
+		}
+		else if (ctx.trait_body().method_declaration() != null)
+		{
+			members.add((MethodDeclaration) visit(ctx.trait_body().method_declaration()));
+		}
+
+		return new TraitDeclaration(span, name, members);
+	}
+
+	@Override
+	public ASTNode visitUnion_declaration(NebulaParser.Union_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String name = ctx.IDENTIFIER().getText();
+
+		List<UnionVariant> variants = new ArrayList<>();
+		if (ctx.union_body() != null)
+		{
+			for (var variantCtx : ctx.union_body().union_variant())
+			{
+				String vName = variantCtx.IDENTIFIER().getText();
+				Type payload = null;
+				if (variantCtx.union_payload() != null && variantCtx.union_payload().type() != null)
+				{
+					payload = (Type) visit(variantCtx.union_payload().type());
+				}
+				variants.add(new UnionVariant(SourceUtil.createSpan(variantCtx, currentFileName), vName, payload));
+			}
+		}
+
+		return new UnionDeclaration(span, name, variants);
+	}
+
+	@Override
+	public ASTNode visitMethod_declaration(NebulaParser.Method_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		List<Modifier> modifiers = getModifiers(ctx.modifiers());
+
+		Type returnType = null;
+		if (ctx.return_type().type() != null)
+		{
+			returnType = (Type) visit(ctx.return_type().type());
+		}
+
+		String name = ctx.IDENTIFIER().getText();
+		List<Parameter> parameters = getParameters(ctx.parameters());
+
+		ASTNode body = getMethodBody(ctx.method_body());
+
+		return new MethodDeclaration(span, modifiers, returnType, name, parameters, body);
+	}
+
+	@Override
+	public ASTNode visitConstructor_declaration(NebulaParser.Constructor_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String name = ctx.IDENTIFIER().getText();
+		List<Parameter> parameters = getParameters(ctx.parameters());
+		Block body = (Block) visit(ctx.block());
+
+		return new ConstructorDeclaration(span, name, parameters, body);
+	}
+
+	@Override
+	public ASTNode visitOperator_declaration(NebulaParser.Operator_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String operatorToken = ctx.overloadable_operator().getText();
+		List<Parameter> parameters = getParameters(ctx.parameters());
+		ASTNode body = getMethodBody(ctx.method_body());
+
+		return new OperatorDeclaration(span, operatorToken, parameters, body);
 	}
 
 	@Override
 	public ASTNode visitVariable_declaration(NebulaParser.Variable_declarationContext ctx)
 	{
+		// This handles "var x = 1;" or "int x = 1;" as a statement
+		return buildVariableDeclaration(ctx, ctx.modifiers(), ctx.VAR() != null, ctx.type(), ctx.variable_declarators());
+	}
+
+	@Override
+	public ASTNode visitField_declaration(NebulaParser.Field_declarationContext ctx)
+	{
+		// Field declaration in class context, usually has no modifiers in this specific grammar rule
+		// (modifiers are higher up in top-level, but fields inside structs/classes use this rule)
+		// If modifiers are needed for fields, the grammar might pass them down or they are implicit.
+		// Based on the grammar provided: field_declaration : type variable_declarators SEMICOLON
+		// It lacks explicit modifiers in the rule, defaulting to private/none.
+		return buildVariableDeclaration(ctx, new NebulaParser.ModifiersContext(null, -1), false, ctx.type(), ctx.variable_declarators());
+	}
+
+	@Override
+	public ASTNode visitConst_declaration(NebulaParser.Const_declarationContext ctx)
+	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		VariableDeclaration varDecl = (VariableDeclaration) visitVariable_declaration(ctx.variable_declaration());
+		return new ConstDeclaration(span, varDecl);
+	}
 
-		boolean isVar = ctx.VAR() != null;
-		Type type = isVar ? null : (Type) visit(ctx.type());
+	private VariableDeclaration buildVariableDeclaration(org.antlr.v4.runtime.ParserRuleContext ctx,
+														 NebulaParser.ModifiersContext modCtx,
+														 boolean isVar,
+														 NebulaParser.TypeContext typeCtx,
+														 NebulaParser.Variable_declaratorsContext declsCtx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		// Modifiers are strictly for MethodDeclaration in this specific grammar version usually,
+		// but if VariableDeclaration supports them in AST, we parse them.
+		// The AST Node VariableDeclaration currently doesn't store Modifiers (based on ast.txt),
+		// so we skip them here or you need to update ASTNode.
+		// Assuming we just want the type and declarators:
 
-		// 2. Collect all declarators (name + expression)
+		Type type = isVar ? null : (Type) visit(typeCtx);
 		List<VariableDeclarator> declarators = new ArrayList<>();
-		for (NebulaParser.Variable_declaratorContext declCtx : ctx.variable_declarators().variable_declarator())
+
+		for (var decl : declsCtx.variable_declarator())
 		{
-			String name = declCtx.IDENTIFIER().getText();
-
-			Expression initializer = null;
-			if (declCtx.nonAssignmentExpression() != null)
+			String name = decl.IDENTIFIER().getText();
+			Expression init = null;
+			if (decl.nonAssignmentExpression() != null)
 			{
-				initializer = (Expression) visit(declCtx.nonAssignmentExpression());
+				init = (Expression) visit(decl.nonAssignmentExpression());
 			}
-
-			declarators.add(new VariableDeclarator(name, initializer));
+			declarators.add(new VariableDeclarator(name, init));
 		}
 
 		return new VariableDeclaration(span, type, declarators, isVar);
+	}
+
+	// =========================================================================
+	// 2. Statements
+	// =========================================================================
+
+	@Override
+	public ASTNode visitBlock(NebulaParser.BlockContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		List<Statement> statements = new ArrayList<>();
+
+		if (ctx.block_statements() != null)
+		{
+			for (var stmt : ctx.block_statements().statement())
+			{
+				statements.add((Statement) visit(stmt));
+			}
+		}
+
+		Expression tail = null;
+		if (ctx.block_tail() != null && ctx.block_tail().expression() != null)
+		{
+			tail = (Expression) visit(ctx.block_tail().expression());
+		}
+
+		return new Block(span, statements, tail);
+	}
+
+	@Override
+	public ASTNode visitIf_statement(NebulaParser.If_statementContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Expression condition = (Expression) visit(ctx.parenthesized_expression().expression());
+		Statement thenBranch = (Statement) visit(ctx.statement(0));
+		Statement elseBranch = ctx.statement().size() > 1 ? (Statement) visit(ctx.statement(1)) : null;
+
+		return new IfStatement(span, condition, thenBranch, elseBranch);
+	}
+
+	@Override
+	public ASTNode visitFor_statement(NebulaParser.For_statementContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		Statement initializer = null;
+		Expression condition = null;
+		List<Expression> iterators = new ArrayList<>();
+
+		if (ctx.traditional_for_control() != null)
+		{
+			var control = ctx.traditional_for_control();
+
+			// Initializer
+			if (control.for_initializer() != null)
+			{
+				if (control.for_initializer().variable_declaration() != null)
+				{
+					initializer = (Statement) visit(control.for_initializer().variable_declaration());
+				}
+				else if (control.for_initializer().expression_list() != null)
+				{
+					// Wrap expression list in an ExpressionStatement (or Block if multiple? simplified to first for now or single expr stmt)
+					// Usually for-loops allow comma separated expressions.
+					// Nebula AST ForStatement expects a 'Statement initializer'.
+					// We can wrap the first expression or create a block if needed.
+					// For simplicity, taking the first expression as a statement.
+					Expression expr = (Expression) visit(control.for_initializer().expression_list().expression(0));
+					initializer = new ExpressionStatement(expr.getSpan(), expr);
+				}
+			}
+
+			// Condition
+			if (control.expression() != null)
+			{
+				condition = (Expression) visit(control.expression());
+			}
+
+			// Iterators
+			if (control.for_iterator() != null && control.for_iterator().expression_list() != null)
+			{
+				for (var exprCtx : control.for_iterator().expression_list().expression())
+				{
+					iterators.add((Expression) visit(exprCtx));
+				}
+			}
+		}
+		else if (ctx.parenthesized_expression() != null)
+		{
+			// "for (condition) stmt" style (while loop)
+			condition = (Expression) visit(ctx.parenthesized_expression().expression());
+		}
+
+		Statement body = (Statement) visit(ctx.statement());
+		return new ForStatement(span, initializer, condition, iterators, body);
+	}
+
+	@Override
+	public ASTNode visitForeach_statement(NebulaParser.Foreach_statementContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		var control = ctx.foreach_control();
+
+		Type type = control.VAR() != null ? null : (Type) visit(control.type());
+		String name = control.IDENTIFIER().getText();
+		Expression iterable = (Expression) visit(control.expression());
+		Statement body = (Statement) visit(ctx.statement());
+
+		return new ForeachStatement(span, type, name, iterable, body);
+	}
+
+	@Override
+	public ASTNode visitReturn_statement(NebulaParser.Return_statementContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Expression value = ctx.expression() != null ? (Expression) visit(ctx.expression()) : null;
+		return new ReturnStatement(span, value);
+	}
+
+	@Override
+	public ASTNode visitExpression_statement(NebulaParser.Expression_statementContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Expression expression = (Expression) visit(ctx.expression());
+		return new ExpressionStatement(span, expression);
+	}
+
+	@Override
+	public ASTNode visitTag_statement(NebulaParser.Tag_statementContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Modifier visibility = mapVisibility(ctx.visibility_modifier());
+		String alias = ctx.IDENTIFIER().getText();
+
+		// Tag Declaration visiting
+		TagExpression tagExpr = visitTagDeclaration(ctx.tag_declaration());
+
+		return new TagStatement(span, visibility, tagExpr, alias);
+	}
+
+	// =========================================================================
+	// 3. Expressions
+	// =========================================================================
+
+	@Override
+	public ASTNode visitExpression(NebulaParser.ExpressionContext ctx)
+	{
+		return visit(ctx.assignment_expression());
+	}
+
+	@Override
+	public ASTNode visitAssignment_expression(NebulaParser.Assignment_expressionContext ctx)
+	{
+		if (ctx.assignment_expression() == null)
+		{
+			return visit(ctx.binary_or_expression());
+		}
+
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Expression target = (Expression) visit(ctx.binary_or_expression());
+		Expression value = (Expression) visit(ctx.assignment_expression());
+		String operator = ctx.assignment_operator().getText();
+
+		return new AssignmentExpression(span, target, operator, value);
+	}
+
+	// --- Binary Expressions (Cascading) ---
+
+	@Override
+	public ASTNode visitBinary_or_expression(NebulaParser.Binary_or_expressionContext ctx)
+	{
+		return buildBinaryChain(ctx.binary_and_expression(), ctx.OP_OR(), ctx);
+	}
+
+	@Override
+	public ASTNode visitBinary_and_expression(NebulaParser.Binary_and_expressionContext ctx)
+	{
+		return buildBinaryChain(ctx.inclusive_or_expression(), ctx.OP_AND(), ctx);
+	}
+
+	@Override
+	public ASTNode visitInclusive_or_expression(NebulaParser.Inclusive_or_expressionContext ctx)
+	{
+		// Manually handle tokens '|' and PIPE
+		if (ctx.exclusive_or_expression().size() == 1)
+			return visit(ctx.exclusive_or_expression(0));
+		Expression left = (Expression) visit(ctx.exclusive_or_expression(0));
+		for (int i = 1; i < ctx.exclusive_or_expression().size(); i++)
+		{
+			Expression right = (Expression) visit(ctx.exclusive_or_expression(i));
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_OR, right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitExclusive_or_expression(NebulaParser.Exclusive_or_expressionContext ctx)
+	{
+		// Manually handle token '^'
+		if (ctx.and_expression().size() == 1)
+			return visit(ctx.and_expression(0));
+		Expression left = (Expression) visit(ctx.and_expression(0));
+		for (int i = 1; i < ctx.and_expression().size(); i++)
+		{
+			Expression right = (Expression) visit(ctx.and_expression(i));
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_XOR, right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitAnd_expression(NebulaParser.And_expressionContext ctx)
+	{
+		// Manually handle token '&'
+		if (ctx.equality_expression().size() == 1)
+			return visit(ctx.equality_expression(0));
+		Expression left = (Expression) visit(ctx.equality_expression(0));
+		for (int i = 1; i < ctx.equality_expression().size(); i++)
+		{
+			Expression right = (Expression) visit(ctx.equality_expression(i));
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_AND, right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitEquality_expression(NebulaParser.Equality_expressionContext ctx)
+	{
+		if (ctx.relational_expression().size() == 1)
+			return visit(ctx.relational_expression(0));
+		Expression left = (Expression) visit(ctx.relational_expression(0));
+		for (int i = 1; i < ctx.relational_expression().size(); i++)
+		{
+			String op = ctx.getChild(2 * i - 1).getText(); // OP_EQ or OP_NE
+			Expression right = (Expression) visit(ctx.relational_expression(i));
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitRelational_expression(NebulaParser.Relational_expressionContext ctx)
+	{
+		if (ctx.shift_expression().size() == 1)
+			return visit(ctx.shift_expression(0));
+		Expression left = (Expression) visit(ctx.shift_expression(0));
+
+		// This rule is tricky because it mixes binary ops (<, >) and 'IS type'.
+		// Simplified: iterating children to find operators/operands.
+		int childIndex = 1;
+		while (childIndex < ctx.getChildCount())
+		{
+			var child = ctx.getChild(childIndex);
+			String text = child.getText();
+
+			if (text.equals("is"))
+			{
+				// Handle IS expression (often a Type check or pattern match)
+				// For simplicity mapping to BinaryOperator.IS if exists, or treating as special expression.
+				// Assuming "IS" logic isn't in BinaryOperator yet, ignoring or treating as EQ for structure.
+				// *Correction*: Your BinaryOperator enum does not have IS.
+				// This would typically be an 'InstanceCheckExpression'.
+				// Since AST.txt doesn't have it, I'll return left (skip) or throw.
+				childIndex += 2; // skip "is" and "type"
+			}
+			else
+			{
+				BinaryOperator op = mapBinaryOperator(text);
+				Expression right = (Expression) visit(ctx.getChild(childIndex + 1));
+				left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, op, right);
+				childIndex += 2;
+			}
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitShift_expression(NebulaParser.Shift_expressionContext ctx)
+	{
+		// Similar manual loop for shift
+		if (ctx.additive_expression().size() == 1)
+			return visit(ctx.additive_expression(0));
+		Expression left = (Expression) visit(ctx.additive_expression(0));
+		for (int i = 1; i < ctx.additive_expression().size(); i++)
+		{
+			String op = ctx.getChild(2 * i - 1).getText();
+			Expression right = (Expression) visit(ctx.additive_expression(i));
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitAdditive_expression(NebulaParser.Additive_expressionContext ctx)
+	{
+		if (ctx.multiplicative_expression().size() == 1)
+			return visit(ctx.multiplicative_expression(0));
+		Expression left = (Expression) visit(ctx.multiplicative_expression(0));
+		for (int i = 1; i < ctx.multiplicative_expression().size(); i++)
+		{
+			String op = ctx.getChild(2 * i - 1).getText();
+			Expression right = (Expression) visit(ctx.multiplicative_expression(i));
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitMultiplicative_expression(NebulaParser.Multiplicative_expressionContext ctx)
+	{
+		if (ctx.exponentiation_expression().size() == 1)
+			return visit(ctx.exponentiation_expression(0));
+		Expression left = (Expression) visit(ctx.exponentiation_expression(0));
+		for (int i = 1; i < ctx.exponentiation_expression().size(); i++)
+		{
+			String op = ctx.getChild(2 * i - 1).getText();
+			Expression right = (Expression) visit(ctx.exponentiation_expression(i));
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitExponentiation_expression(NebulaParser.Exponentiation_expressionContext ctx)
+	{
+		Expression left = (Expression) visit(ctx.unary_expression());
+		if (ctx.exponentiation_expression() != null)
+		{
+			Expression right = (Expression) visit(ctx.exponentiation_expression());
+			return new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.POW, right);
+		}
+		return left;
+	}
+
+	private Expression buildBinaryChain(List<? extends org.antlr.v4.runtime.ParserRuleContext> exprs,
+										List<? extends org.antlr.v4.runtime.tree.TerminalNode> ops,
+										org.antlr.v4.runtime.ParserRuleContext ctx)
+	{
+		Expression left = (Expression) visit(exprs.get(0));
+		for (int i = 0; i < ops.size(); i++)
+		{
+			Expression right = (Expression) visit(exprs.get(i + 1));
+			BinaryOperator op = mapBinaryOperator(ops.get(i).getText());
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, op, right);
+		}
+		return left;
+	}
+
+	// --- Unary & Primary ---
+
+	@Override
+	public ASTNode visitUnary_expression(NebulaParser.Unary_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		if (ctx.primary_expression() != null)
+			return visit(ctx.primary_expression());
+		if (ctx.cast_expression() != null)
+			return visit(ctx.cast_expression());
+
+		// Prefix operators: +, -, !, ~
+		String opText = ctx.getChild(0).getText();
+		UnaryOperator op = mapUnaryOperator(opText);
+		Expression operand = (Expression) visit(ctx.unary_expression());
+		return new UnaryExpression(span, op, operand, false); // isPostfix = false
+	}
+
+	@Override
+	public ASTNode visitCast_expression(NebulaParser.Cast_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Type type = (Type) visit(ctx.type());
+		Expression expr = (Expression) visit(ctx.unary_expression());
+		return new CastExpression(span, type, expr);
+	}
+
+	@Override
+	public ASTNode visitPrimary_expression(NebulaParser.Primary_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		// 1. Visit the start (Identifier, Literal, etc.)
+		Expression current = (Expression) visit(ctx.primary_expression_start());
+
+		// 2. Wrap with postfix operators
+		for (var postfix : ctx.postfix_operator())
+		{
+			if (postfix.DOT() != null)
+			{
+				String member = postfix.IDENTIFIER() != null ? postfix.IDENTIFIER().getText() : postfix.INTEGER_LITERAL().getText();
+				current = new MemberAccessExpression(span, current, member);
+			}
+			else if (postfix.OPEN_PARENS() != null)
+			{
+				// Invocation
+				List<Expression> args = new ArrayList<>();
+				if (postfix.argument_list() != null)
+				{
+					for (var arg : postfix.argument_list().argument())
+					{
+						args.add(extractArgument(arg));
+					}
+				}
+				current = new InvocationExpression(span, current, args);
+			}
+			else if (postfix.OPEN_BRACKET() != null)
+			{
+				// Indexing
+				List<Expression> indices = new ArrayList<>();
+				for (var exprCtx : postfix.expression_list().expression())
+				{
+					indices.add((Expression) visit(exprCtx));
+				}
+				current = new IndexExpression(span, current, indices);
+			}
+			else if (postfix.OP_INC() != null || postfix.OP_DEC() != null)
+			{
+				UnaryOperator op = postfix.OP_INC() != null ? UnaryOperator.INCREMENT : UnaryOperator.DECREMENT;
+				current = new UnaryExpression(span, op, current, true); // isPostfix = true
+			}
+		}
+		return current;
+	}
+
+	@Override
+	public ASTNode visitPrimary_expression_start(NebulaParser.Primary_expression_startContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		if (ctx.literal() != null)
+			return visit(ctx.literal());
+		if (ctx.IDENTIFIER() != null)
+			return new IdentifierExpression(span, ctx.IDENTIFIER().getText());
+		if (ctx.THIS() != null)
+			return new ThisExpression(span);
+		if (ctx.parenthesized_expression() != null)
+			return visit(ctx.parenthesized_expression().expression());
+		if (ctx.tuple_literal() != null)
+		{
+			List<Expression> elements = new ArrayList<>();
+			for (var arg : ctx.tuple_literal().argument())
+				elements.add(extractArgument(arg));
+			return new TupleLiteralExpression(span, elements);
+		}
+		if (ctx.array_literal() != null)
+		{
+			List<Expression> elements = new ArrayList<>();
+			if (ctx.array_literal().expression_list() != null)
+			{
+				for (var e : ctx.array_literal().expression_list().expression())
+					elements.add((Expression) visit(e));
+			}
+			return new ArrayLiteralExpression(span, elements);
+		}
+		if (ctx.if_expression() != null)
+			return visit(ctx.if_expression());
+		if (ctx.match_expression() != null)
+			return visit(ctx.match_expression());
+		if (ctx.block() != null)
+			return visit(ctx.block());
+		if (ctx.new_expression() != null)
+			return visit(ctx.new_expression());
+
+		return null;
+	}
+
+	@Override
+	public ASTNode visitNew_expression(NebulaParser.New_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String typeName = ctx.qualified_name().getText();
+		List<Expression> args = new ArrayList<>();
+		if (ctx.arguments().argument_list() != null)
+		{
+			for (var arg : ctx.arguments().argument_list().argument())
+				args.add(extractArgument(arg));
+		}
+		return new NewExpression(span, typeName, args);
+	}
+
+	@Override
+	public ASTNode visitIf_expression(NebulaParser.If_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Expression condition = (Expression) visit(ctx.parenthesized_expression().expression());
+		Block thenBlock = (Block) visit(ctx.block(0));
+		Block elseBlock = (Block) visit(ctx.block(1));
+		return new IfExpression(span, condition, thenBlock, elseBlock);
+	}
+
+	@Override
+	public ASTNode visitMatch_expression(NebulaParser.Match_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Expression selector = (Expression) visit(ctx.parenthesized_expression().expression());
+		List<MatchArm> arms = new ArrayList<>();
+		for (var armCtx : ctx.match_body().match_arm())
+		{
+			Pattern pat = (Pattern) visit(armCtx.pattern());
+			Expression res = (Expression) visit(armCtx.expression());
+			arms.add(new MatchArm(SourceUtil.createSpan(armCtx, currentFileName), pat, res));
+		}
+		return new MatchExpression(span, selector, arms);
+	}
+
+	// =========================================================================
+	// 4. Patterns
+	// =========================================================================
+
+	@Override
+	public ASTNode visitPattern(NebulaParser.PatternContext ctx)
+	{
+		return visit(ctx.pattern_or());
+	}
+
+	@Override
+	public ASTNode visitPattern_or(NebulaParser.Pattern_orContext ctx)
+	{
+		if (ctx.pattern_atom().size() == 1)
+			return visit(ctx.pattern_atom(0));
+
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		List<Pattern> alts = new ArrayList<>();
+		for (var atom : ctx.pattern_atom())
+		{
+			alts.add((Pattern) visit(atom));
+		}
+		return new OrPattern(span, alts);
+	}
+
+	@Override
+	public ASTNode visitPattern_atom(NebulaParser.Pattern_atomContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		if (ctx.literal() != null)
+		{
+			// Unwrap ASTNode to LiteralExpression if possible, literal() returns LiteralExpression
+			LiteralExpression lit = (LiteralExpression) visit(ctx.literal());
+			return new LiteralPattern(span, lit);
+		}
+		if (ctx.UNDERSCORE() != null)
+		{
+			return new WildcardPattern(span);
+		}
+		if (ctx.IDENTIFIER() != null)
+		{
+			// Could be a variable binding or a type pattern.
+			// In simple grammar, "x" matches anything and binds to x.
+			// "String x" is a type pattern.
+			// Based on grammar, simple IDENTIFIER is likely a binding (Wildcard with name)
+			// But if it's a Type name, we need context. For now, treating as binding/TypePattern with null type?
+			// Or simpler: TypePattern with NamedType and null variable?
+			// Let's assume IDENTIFIER is a NamedType match for now (TypePattern).
+			Type type = new NamedType(span, ctx.IDENTIFIER().getText(), Collections.emptyList());
+			return new TypePattern(span, type, null);
+		}
+		if (ctx.parenthesized_pattern() != null)
+		{
+			return visit(ctx.parenthesized_pattern().pattern());
+		}
+		return null;
+	}
+
+	// =========================================================================
+	// 5. Literals
+	// =========================================================================
+
+	@Override
+	public ASTNode visitLiteral(NebulaParser.LiteralContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		if (ctx.INTEGER_LITERAL() != null)
+			return new LiteralExpression(span, Long.parseLong(ctx.INTEGER_LITERAL().getText()), LiteralType.INT);
+		if (ctx.REAL_LITERAL() != null)
+			return new LiteralExpression(span, Double.parseDouble(ctx.REAL_LITERAL().getText()), LiteralType.FLOAT);
+		if (ctx.TRUE() != null)
+			return new LiteralExpression(span, true, LiteralType.BOOL);
+		if (ctx.FALSE() != null)
+			return new LiteralExpression(span, false, LiteralType.BOOL);
+		if (ctx.string_literal() != null)
+			return new LiteralExpression(span, ctx.string_literal().getText(), LiteralType.STRING);
+		if (ctx.CHARACTER_LITERAL() != null)
+			return new LiteralExpression(span, ctx.CHARACTER_LITERAL().getText(), LiteralType.CHAR);
+		return new LiteralExpression(span, null, LiteralType.NULL);
+	}
+
+	// =========================================================================
+	// 6. Types & Tags
+	// =========================================================================
+
+	@Override
+	public ASTNode visitType(NebulaParser.TypeContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Type base = null;
+
+		if (ctx.predefined_type() != null)
+		{
+			base = new NamedType(span, ctx.predefined_type().getText(), Collections.emptyList());
+		}
+		else if (ctx.class_type() != null)
+		{
+			String name = ctx.class_type().qualified_name().getText();
+			// Generic args logic if present in class_type
+			base = new NamedType(span, name, Collections.emptyList());
+		}
+		else if (ctx.tuple_type() != null)
+		{
+			List<Type> elems = new ArrayList<>();
+			for (var elem : ctx.tuple_type().tuple_type_element())
+			{
+				elems.add((Type) visit(elem.type()));
+			}
+			base = new TupleType(span, elems);
+		}
+
+		if (!ctx.rank_specifier().isEmpty())
+		{
+			// Handling array ranks
+			for (int i = 0; i < ctx.rank_specifier().size(); i++)
+			{
+				base = new ArrayType(span, base, 1);
+			}
+		}
+		return base;
+	}
+
+	public TagExpression visitTagDeclaration(NebulaParser.Tag_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		if (ctx.type() != null)
+		{
+			return new TagAtom(span, (Type) visit(ctx.type()));
+		}
+		if (ctx.tag_expression() != null)
+		{
+			return visitTagExpression(ctx.tag_expression());
+		}
+		// Enum list handling
+		if (ctx.tag_enumeration() != null)
+		{
+			TagExpression current = new TagAtom(span, (Type) visit(ctx.tag_enumeration().type(0)));
+			for (int i = 1; i < ctx.tag_enumeration().type().size(); i++)
+			{
+				TagExpression next = new TagAtom(span, (Type) visit(ctx.tag_enumeration().type(i)));
+				current = new TagOperation(span, TagOperation.Operator.UNION, current, next);
+			}
+			return current;
+		}
+		return null;
+	}
+
+	public TagExpression visitTagExpression(NebulaParser.Tag_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		if (ctx.type() != null)
+		{
+			return new TagAtom(span, (Type) visit(ctx.type()));
+		}
+		if (ctx.tag_expression().size() == 1)
+		{
+			if (ctx.BANG() != null)
+			{
+				return new TagOperation(span, TagOperation.Operator.NOT, visitTagExpression(ctx.tag_expression(0)), null);
+			}
+			if (ctx.OPEN_PARENS() != null)
+			{
+				return visitTagExpression(ctx.tag_expression(0));
+			}
+		}
+		if (ctx.tag_expression().size() == 2)
+		{
+			TagExpression left = visitTagExpression(ctx.tag_expression(0));
+			TagExpression right = visitTagExpression(ctx.tag_expression(1));
+			TagOperation.Operator op = (ctx.AMP() != null || ctx.getText().contains("&")) ? TagOperation.Operator.INTERSECT : TagOperation.Operator.UNION;
+			return new TagOperation(span, op, left, right);
+		}
+		return null;
+	}
+
+	// =========================================================================
+	// Helpers
+	// =========================================================================
+
+	private Expression extractArgument(NebulaParser.ArgumentContext ctx)
+	{
+		if (ctx.namedArgument() != null)
+			return (Expression) visit(ctx.namedArgument().expression());
+		return (Expression) visit(ctx.positionalArgument().nonAssignmentExpression());
+	}
+
+	private ASTNode getMethodBody(NebulaParser.Method_bodyContext ctx)
+	{
+		if (ctx.block() != null)
+			return visit(ctx.block());
+		if (ctx.expression() != null)
+			return visit(ctx.expression());
+		return null;
+	}
+
+	private List<Parameter> getParameters(NebulaParser.ParametersContext ctx)
+	{
+		if (ctx.parameter_list() == null)
+			return Collections.emptyList();
+		List<Parameter> params = new ArrayList<>();
+		for (var p : ctx.parameter_list().parameter())
+		{
+			Type t = (Type) visit(p.type());
+			String n = p.IDENTIFIER().getText();
+			Expression def = p.expression() != null ? (Expression) visit(p.expression()) : null;
+			params.add(new Parameter(t, n, def));
+		}
+		return params;
+	}
+
+	private List<Modifier> getModifiers(NebulaParser.ModifiersContext ctx)
+	{
+		if (ctx == null || ctx.children == null)
+			return Collections.emptyList();
+		List<Modifier> mods = new ArrayList<>();
+		if (ctx.visibility_modifier() != null && !ctx.visibility_modifier().isEmpty())
+		{
+			mods.add(mapVisibility(ctx.visibility_modifier().getFirst()));
+		}
+		for (var child : ctx.children)
+		{
+			String txt = child.getText();
+			if (txt.equals("static"))
+				mods.add(Modifier.STATIC);
+			if (txt.equals("override"))
+				mods.add(Modifier.OVERRIDE);
+		}
+		return mods;
+	}
+
+	private Modifier mapVisibility(NebulaParser.Visibility_modifierContext ctx)
+	{
+		if (ctx == null)
+			return Modifier.PRIVATE;
+		if (ctx.PUBLIC() != null)
+			return Modifier.PUBLIC;
+		if (ctx.PROTECTED() != null)
+			return Modifier.PROTECTED;
+		return Modifier.PRIVATE;
+	}
+
+	private BinaryOperator mapBinaryOperator(String op)
+	{
+		switch (op)
+		{
+			case "+":
+				return BinaryOperator.ADD;
+			case "-":
+				return BinaryOperator.SUB;
+			case "*":
+				return BinaryOperator.MUL;
+			case "/":
+				return BinaryOperator.DIV;
+			case "%":
+				return BinaryOperator.MOD;
+			case "**":
+				return BinaryOperator.POW;
+			case "&&":
+				return BinaryOperator.LOGICAL_AND;
+			case "||":
+				return BinaryOperator.LOGICAL_OR;
+			case "&":
+				return BinaryOperator.BIT_AND;
+			case "|":
+				return BinaryOperator.BIT_OR;
+			case "^":
+				return BinaryOperator.BIT_XOR;
+			case "==":
+				return BinaryOperator.EQ;
+			case "!=":
+				return BinaryOperator.NE;
+			case "<":
+				return BinaryOperator.LT;
+			case ">":
+				return BinaryOperator.GT;
+			case "<=":
+				return BinaryOperator.LE;
+			case ">=":
+				return BinaryOperator.GE;
+			case "<<":
+				return BinaryOperator.SHL;
+			case ">>":
+				return BinaryOperator.SHR;
+			default:
+				throw new IllegalArgumentException("Unknown operator: " + op);
+		}
+	}
+
+	private UnaryOperator mapUnaryOperator(String op)
+	{
+		switch (op)
+		{
+			case "!":
+				return UnaryOperator.NOT;
+			case "-":
+				return UnaryOperator.MINUS;
+			case "+":
+				return UnaryOperator.PLUS;
+			case "~":
+				return UnaryOperator.BIT_NOT;
+			default:
+				throw new IllegalArgumentException("Unknown unary operator: " + op);
+		}
 	}
 }

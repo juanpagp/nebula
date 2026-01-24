@@ -7,7 +7,7 @@ import java.util.List;
 
 public class TupleLiteralExpression extends Expression
 {
-	private final List<Expression> elements;
+	public final List<Expression> elements;
 
 	public TupleLiteralExpression(SourceSpan span, List<Expression> elements)
 	{

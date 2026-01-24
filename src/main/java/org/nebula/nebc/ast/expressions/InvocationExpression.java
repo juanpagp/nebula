@@ -7,8 +7,8 @@ import java.util.List;
 
 public class InvocationExpression extends Expression
 {
-	private final Expression target;
-	private final List<Expression> arguments;
+	public final Expression target;
+	public final List<Expression> arguments;
 
 	public InvocationExpression(SourceSpan span, Expression target, List<Expression> arguments)
 	{

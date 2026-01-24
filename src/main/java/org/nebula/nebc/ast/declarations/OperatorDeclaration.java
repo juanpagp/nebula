@@ -2,15 +2,16 @@ package org.nebula.nebc.ast.declarations;
 
 import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.ast.ASTVisitor;
+import org.nebula.nebc.ast.Parameter;
 import org.nebula.nebc.frontend.diagnostics.SourceSpan;
 
 import java.util.List;
 
 public class OperatorDeclaration extends Declaration
 {
-	private final String operatorToken;
-	private final List<Parameter> parameters;
-	private final ASTNode body; // Block or FAT_ARROW expression
+	public final String operatorToken;
+	public final List<Parameter> parameters;
+	public final ASTNode body; // Block or FAT_ARROW expression
 
 	public OperatorDeclaration(SourceSpan span, String operatorToken, List<Parameter> parameters, ASTNode body)
 	{

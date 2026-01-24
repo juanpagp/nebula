@@ -7,8 +7,8 @@ import java.util.List;
 
 public class TraitDeclaration extends Declaration
 {
-	private final String name;
-	private final List<MethodDeclaration> members;
+	public final String name;
+	public final List<MethodDeclaration> members;
 
 	public TraitDeclaration(SourceSpan span, String name, List<MethodDeclaration> members)
 	{

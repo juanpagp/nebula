@@ -652,7 +652,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 										List<? extends org.antlr.v4.runtime.tree.TerminalNode> ops,
 										org.antlr.v4.runtime.ParserRuleContext ctx)
 	{
-		Expression left = (Expression) visit(exprs.get(0));
+		Expression left = (Expression) visit(exprs.getFirst());
 		for (int i = 0; i < ops.size(); i++)
 		{
 			Expression right = (Expression) visit(exprs.get(i + 1));
@@ -1065,65 +1065,40 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 
 	private BinaryOperator mapBinaryOperator(String op)
 	{
-		switch (op)
+		return switch (op)
 		{
-			case "+":
-				return BinaryOperator.ADD;
-			case "-":
-				return BinaryOperator.SUB;
-			case "*":
-				return BinaryOperator.MUL;
-			case "/":
-				return BinaryOperator.DIV;
-			case "%":
-				return BinaryOperator.MOD;
-			case "**":
-				return BinaryOperator.POW;
-			case "&&":
-				return BinaryOperator.LOGICAL_AND;
-			case "||":
-				return BinaryOperator.LOGICAL_OR;
-			case "&":
-				return BinaryOperator.BIT_AND;
-			case "|":
-				return BinaryOperator.BIT_OR;
-			case "^":
-				return BinaryOperator.BIT_XOR;
-			case "==":
-				return BinaryOperator.EQ;
-			case "!=":
-				return BinaryOperator.NE;
-			case "<":
-				return BinaryOperator.LT;
-			case ">":
-				return BinaryOperator.GT;
-			case "<=":
-				return BinaryOperator.LE;
-			case ">=":
-				return BinaryOperator.GE;
-			case "<<":
-				return BinaryOperator.SHL;
-			case ">>":
-				return BinaryOperator.SHR;
-			default:
-				throw new IllegalArgumentException("Unknown operator: " + op);
-		}
+			case "+" -> BinaryOperator.ADD;
+			case "-" -> BinaryOperator.SUB;
+			case "*" -> BinaryOperator.MUL;
+			case "/" -> BinaryOperator.DIV;
+			case "%" -> BinaryOperator.MOD;
+			case "**" -> BinaryOperator.POW;
+			case "&&" -> BinaryOperator.LOGICAL_AND;
+			case "||" -> BinaryOperator.LOGICAL_OR;
+			case "&" -> BinaryOperator.BIT_AND;
+			case "|" -> BinaryOperator.BIT_OR;
+			case "^" -> BinaryOperator.BIT_XOR;
+			case "==" -> BinaryOperator.EQ;
+			case "!=" -> BinaryOperator.NE;
+			case "<" -> BinaryOperator.LT;
+			case ">" -> BinaryOperator.GT;
+			case "<=" -> BinaryOperator.LE;
+			case ">=" -> BinaryOperator.GE;
+			case "<<" -> BinaryOperator.SHL;
+			case ">>" -> BinaryOperator.SHR;
+			default -> throw new IllegalArgumentException("Unknown operator: " + op);
+		};
 	}
 
 	private UnaryOperator mapUnaryOperator(String op)
 	{
-		switch (op)
+		return switch (op)
 		{
-			case "!":
-				return UnaryOperator.NOT;
-			case "-":
-				return UnaryOperator.MINUS;
-			case "+":
-				return UnaryOperator.PLUS;
-			case "~":
-				return UnaryOperator.BIT_NOT;
-			default:
-				throw new IllegalArgumentException("Unknown unary operator: " + op);
-		}
+			case "!" -> UnaryOperator.NOT;
+			case "-" -> UnaryOperator.MINUS;
+			case "+" -> UnaryOperator.PLUS;
+			case "~" -> UnaryOperator.BIT_NOT;
+			default -> throw new IllegalArgumentException("Unknown unary operator: " + op);
+		};
 	}
 }

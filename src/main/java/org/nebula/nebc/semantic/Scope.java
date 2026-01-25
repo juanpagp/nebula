@@ -5,7 +5,7 @@ import org.nebula.nebc.semantic.types.Type;
 import java.util.HashMap;
 import java.util.Map;
 
-public class Scope
+class Scope
 {
 	private final Scope parent;
 	private final Map<String, Type> symbols = new HashMap<>();
@@ -15,9 +15,12 @@ public class Scope
 		this.parent = parent;
 	}
 
-	public void define(String name, Type type)
+	public boolean define(String name, Type type)
 	{
+		if (symbols.containsKey(name))
+			return false; // Duplicate!
 		symbols.put(name, type);
+		return true;
 	}
 
 	public Type resolve(String name)

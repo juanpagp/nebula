@@ -1,4 +1,7 @@
-i32 main()
+namespace a;
+class A{}
+namespace b;
+void main()
 {
-    i32 a = false;
+    var a = new B();
 }

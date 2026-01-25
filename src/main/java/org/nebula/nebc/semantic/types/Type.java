@@ -14,15 +14,19 @@ public abstract class Type
 	public static final Type F64 = new PrimitiveType("f64");
 	public static final Type BOOL = new PrimitiveType("bool");
 	public static final Type VOID = new PrimitiveType("void");
+	public static final Type STRING = new PrimitiveType("string");
 	public static final Type ERROR = new PrimitiveType("<error>"); // The "Recovery" type
 	public static final Type ANY = new PrimitiveType("<any>"); // For wildcards
 
 	public abstract String name();
 
-	// Helper to check compatibility
-	public boolean isAssignableTo(Type other)
+	public boolean isAssignableTo(Type destination)
 	{
-		return this.equals(other) || other == Type.ANY;
+		if (this == ERROR || destination == ERROR)
+			return true; // Prevent cascading errors
+		if (destination == ANY)
+			return true;
+		return this.name().equals(destination.name()); // Simple name-based equality for now
 	}
 }
 

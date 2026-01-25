@@ -1,4 +1,4 @@
-package org.nebula.nebc.frontend.diagnostics;
+package org.nebula.nebc.frontend.diagnostic;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;

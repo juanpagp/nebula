@@ -176,11 +176,6 @@ public class Parser
 				totalErrors += errorCounter.getErrorCount();
 				Log.err("Parsing failed for " + sourceFile.fileName() + " with " + errorCounter.getErrorCount() + " errors.");
 			}
-			else
-			{
-				parsingResultList.add(new ParsingResult(sourceFile, tree));
-			}
-
 
 			System.out.println(Trees.toStringTree(tree, parser));
             parsingResultList.add(new ParsingResult(sourceFile, tree));

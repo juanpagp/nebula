@@ -1,15 +1,15 @@
 package org.nebula.nebc.ast.types;
 
 import org.nebula.nebc.ast.ASTNode;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 /**
  * Base class for all type-related nodes in the AST.
  * Used in declarations, casts, and generic arguments.
  */
-public abstract class Type extends ASTNode
+public abstract class TypeNode extends ASTNode
 {
-	protected Type(SourceSpan span)
+	protected TypeNode(SourceSpan span)
 	{
 		super(span);
 	}

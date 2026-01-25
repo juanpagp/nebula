@@ -1,9 +1,8 @@
 package org.nebula.nebc.ast.patterns;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
-import java.util.Collections;
 import java.util.List;
 
 /**

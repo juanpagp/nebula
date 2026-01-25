@@ -1,7 +1,7 @@
 package org.nebula.nebc.ast.expressions;
 
 import org.nebula.nebc.ast.ASTNode;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 /**
  * Represents a construct that evaluates to a value.

@@ -5,7 +5,7 @@ import org.nebula.nebc.ast.expressions.*;
 import org.nebula.nebc.ast.patterns.*;
 import org.nebula.nebc.ast.statements.*;
 import org.nebula.nebc.ast.tags.*;
-import org.nebula.nebc.ast.types.Type;
+import org.nebula.nebc.ast.types.TypeNode;
 
 /**
  * Interface for the Visitor pattern that allows AST traversal.
@@ -258,5 +258,5 @@ public interface ASTVisitor<R>
 	/**
 	 * Used for type references (e.g., in variable declarations or casts).
 	 */
-	R visitTypeReference(Type node);
+	R visitTypeReference(TypeNode node);
 }

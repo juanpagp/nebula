@@ -1,8 +1,8 @@
 package org.nebula.nebc.ast.patterns;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.ast.types.Type;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.ast.types.TypeNode;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 /**
  * Matches a specific type and optionally binds it to a variable.
@@ -10,10 +10,10 @@ import org.nebula.nebc.frontend.diagnostics.SourceSpan;
  */
 public class TypePattern extends Pattern
 {
-	public final Type type;
+	public final TypeNode type;
 	public final String variableName; // Nullable (if just checking type without binding)
 
-	public TypePattern(SourceSpan span, Type type, String variableName)
+	public TypePattern(SourceSpan span, TypeNode type, String variableName)
 	{
 		super(span);
 		this.type = type;

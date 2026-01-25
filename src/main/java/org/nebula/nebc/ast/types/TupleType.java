@@ -1,15 +1,15 @@
 package org.nebula.nebc.ast.types;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 import java.util.List;
 
-public class TupleType extends Type
+public class TupleType extends TypeNode
 {
-	public final List<Type> elementTypes;
+	public final List<TypeNode> elementTypes;
 
-	public TupleType(SourceSpan span, List<Type> elementTypes)
+	public TupleType(SourceSpan span, List<TypeNode> elementTypes)
 	{
 		super(span);
 		this.elementTypes = elementTypes;

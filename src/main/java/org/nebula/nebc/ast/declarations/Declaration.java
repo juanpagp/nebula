@@ -1,7 +1,7 @@
 package org.nebula.nebc.ast.declarations;
 
 import org.nebula.nebc.ast.statements.Statement;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 /**
  * Represents the definition of a new symbol (Variable, Class, Method, etc.).

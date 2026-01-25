@@ -1,17 +1,17 @@
 package org.nebula.nebc.ast.types;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 import java.util.Collections;
 import java.util.List;
 
-public class NamedType extends Type
+public class NamedType extends TypeNode
 {
 	public final String qualifiedName;
-	public final List<Type> genericArguments;
+	public final List<TypeNode> genericArguments;
 
-	public NamedType(SourceSpan span, String qualifiedName, List<Type> genericArguments)
+	public NamedType(SourceSpan span, String qualifiedName, List<TypeNode> genericArguments)
 	{
 		super(span);
 		this.qualifiedName = qualifiedName;

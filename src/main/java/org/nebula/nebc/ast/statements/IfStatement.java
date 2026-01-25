@@ -2,7 +2,7 @@ package org.nebula.nebc.ast.statements;
 
 import org.nebula.nebc.ast.ASTVisitor;
 import org.nebula.nebc.ast.expressions.Expression;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 public class IfStatement extends Statement
 {

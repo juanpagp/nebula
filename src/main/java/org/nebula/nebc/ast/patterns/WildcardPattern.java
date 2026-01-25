@@ -1,7 +1,7 @@
 package org.nebula.nebc.ast.patterns;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 /**
  * Represents the `_` pattern which matches anything but binds nothing.

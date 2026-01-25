@@ -2,15 +2,15 @@ package org.nebula.nebc.ast.declarations;
 
 import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.ast.types.Type;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.ast.types.TypeNode;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 public class UnionVariant extends ASTNode
 {
 	public final String name;
-	public final Type payload; // null if no payload
+	public final TypeNode payload; // null if no payload
 
-	public UnionVariant(SourceSpan span, String name, Type payload)
+	public UnionVariant(SourceSpan span, String name, TypeNode payload)
 	{
 		super(span);
 		this.name = name;

@@ -2,11 +2,9 @@ package org.nebula.nebc.ast.expressions;
 
 import org.nebula.nebc.ast.ASTVisitor;
 import org.nebula.nebc.ast.statements.Statement;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Represents a sequence of statements followed by an optional trailing expression.

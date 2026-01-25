@@ -5,16 +5,9 @@ import org.nebula.nebc.ast.expressions.*;
 import org.nebula.nebc.ast.expressions.LiteralExpression.LiteralType;
 import org.nebula.nebc.ast.patterns.*;
 import org.nebula.nebc.ast.statements.*;
-import org.nebula.nebc.ast.tags.TagAtom;
-import org.nebula.nebc.ast.tags.TagExpression;
-import org.nebula.nebc.ast.tags.TagOperation;
-import org.nebula.nebc.ast.tags.TagStatement;
-import org.nebula.nebc.ast.types.ArrayType;
-import org.nebula.nebc.ast.types.NamedType;
-import org.nebula.nebc.ast.types.TupleType;
-import org.nebula.nebc.ast.types.Type;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
-import org.nebula.nebc.frontend.diagnostics.SourceUtil;
+import org.nebula.nebc.ast.tags.*;
+import org.nebula.nebc.ast.types.*;
+import org.nebula.nebc.frontend.diagnostic.*;
 import org.nebula.nebc.frontend.parser.ParsingResult;
 import org.nebula.nebc.frontend.parser.generated.NebulaParser;
 import org.nebula.nebc.frontend.parser.generated.NebulaParserBaseVisitor;
@@ -129,12 +122,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		String name = ctx.IDENTIFIER().getText();
 
-		List<Type> inheritance = new ArrayList<>();
+		List<TypeNode> inheritance = new ArrayList<>();
 		if (ctx.inheritance_clause() != null)
 		{
 			for (var typeCtx : ctx.inheritance_clause().type())
 			{
-				inheritance.add((Type) visit(typeCtx));
+				inheritance.add((TypeNode) visit(typeCtx));
 			}
 		}
 
@@ -153,12 +146,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		String name = ctx.IDENTIFIER().getText();
 
-		List<Type> inheritance = new ArrayList<>();
+		List<TypeNode> inheritance = new ArrayList<>();
 		if (ctx.inheritance_clause() != null)
 		{
 			for (var typeCtx : ctx.inheritance_clause().type())
 			{
-				inheritance.add((Type) visit(typeCtx));
+				inheritance.add((TypeNode) visit(typeCtx));
 			}
 		}
 
@@ -206,10 +199,10 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			for (var variantCtx : ctx.union_body().union_variant())
 			{
 				String vName = variantCtx.IDENTIFIER().getText();
-				Type payload = null;
+				TypeNode payload = null;
 				if (variantCtx.union_payload() != null && variantCtx.union_payload().type() != null)
 				{
-					payload = (Type) visit(variantCtx.union_payload().type());
+					payload = (TypeNode) visit(variantCtx.union_payload().type());
 				}
 				variants.add(new UnionVariant(SourceUtil.createSpan(variantCtx, currentFileName), vName, payload));
 			}
@@ -224,10 +217,10 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		List<Modifier> modifiers = getModifiers(ctx.modifiers());
 
-		Type returnType = null;
+		TypeNode returnType = null;
 		if (ctx.return_type().type() != null)
 		{
-			returnType = (Type) visit(ctx.return_type().type());
+			returnType = (TypeNode) visit(ctx.return_type().type());
 		}
 
 		String name = ctx.IDENTIFIER().getText();
@@ -299,7 +292,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		// so we skip them here or you need to update ASTNode.
 		// Assuming we just want the type and declarators:
 
-		Type type = isVar ? null : (Type) visit(typeCtx);
+		TypeNode type = isVar ? null : (TypeNode) visit(typeCtx);
 		List<VariableDeclarator> declarators = new ArrayList<>();
 
 		for (var decl : declsCtx.variable_declarator())
@@ -417,7 +410,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		var control = ctx.foreach_control();
 
-		Type type = control.VAR() != null ? null : (Type) visit(control.type());
+		TypeNode type = control.VAR() != null ? null : (TypeNode) visit(control.type());
 		String name = control.IDENTIFIER().getText();
 		Expression iterable = (Expression) visit(control.expression());
 		Statement body = (Statement) visit(ctx.statement());
@@ -685,7 +678,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	public ASTNode visitCast_expression(NebulaParser.Cast_expressionContext ctx)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-		Type type = (Type) visit(ctx.type());
+		TypeNode type = (TypeNode) visit(ctx.type());
 		Expression expr = (Expression) visit(ctx.unary_expression());
 		return new CastExpression(span, type, expr);
 	}
@@ -868,7 +861,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			// But if it's a Type name, we need context. For now, treating as binding/TypePattern with null type?
 			// Or simpler: TypePattern with NamedType and null variable?
 			// Let's assume IDENTIFIER is a NamedType match for now (TypePattern).
-			Type type = new NamedType(span, ctx.IDENTIFIER().getText(), Collections.emptyList());
+			TypeNode type = new NamedType(span, ctx.IDENTIFIER().getText(), Collections.emptyList());
 			return new TypePattern(span, type, null);
 		}
 		if (ctx.parenthesized_pattern() != null)
@@ -909,7 +902,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	public ASTNode visitType(NebulaParser.TypeContext ctx)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-		Type base = null;
+		TypeNode base = null;
 
 		if (ctx.predefined_type() != null)
 		{
@@ -923,10 +916,10 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		}
 		else if (ctx.tuple_type() != null)
 		{
-			List<Type> elems = new ArrayList<>();
+			List<TypeNode> elems = new ArrayList<>();
 			for (var elem : ctx.tuple_type().tuple_type_element())
 			{
-				elems.add((Type) visit(elem.type()));
+				elems.add((TypeNode) visit(elem.type()));
 			}
 			base = new TupleType(span, elems);
 		}
@@ -948,7 +941,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 
 		if (ctx.type() != null)
 		{
-			return new TagAtom(span, (Type) visit(ctx.type()));
+			return new TagAtom(span, (TypeNode) visit(ctx.type()));
 		}
 		if (ctx.tag_expression() != null)
 		{
@@ -957,10 +950,10 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		// Enum list handling
 		if (ctx.tag_enumeration() != null)
 		{
-			TagExpression current = new TagAtom(span, (Type) visit(ctx.tag_enumeration().type(0)));
+			TagExpression current = new TagAtom(span, (TypeNode) visit(ctx.tag_enumeration().type(0)));
 			for (int i = 1; i < ctx.tag_enumeration().type().size(); i++)
 			{
-				TagExpression next = new TagAtom(span, (Type) visit(ctx.tag_enumeration().type(i)));
+				TagExpression next = new TagAtom(span, (TypeNode) visit(ctx.tag_enumeration().type(i)));
 				current = new TagOperation(span, TagOperation.Operator.UNION, current, next);
 			}
 			return current;
@@ -974,7 +967,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 
 		if (ctx.type() != null)
 		{
-			return new TagAtom(span, (Type) visit(ctx.type()));
+			return new TagAtom(span, (TypeNode) visit(ctx.type()));
 		}
 		if (ctx.tag_expression().size() == 1)
 		{
@@ -1024,7 +1017,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		List<Parameter> params = new ArrayList<>();
 		for (var p : ctx.parameter_list().parameter())
 		{
-			Type t = (Type) visit(p.type());
+			TypeNode t = (TypeNode) visit(p.type());
 			String n = p.IDENTIFIER().getText();
 			Expression def = p.expression() != null ? (Expression) visit(p.expression()) : null;
 			params.add(new Parameter(t, n, def));

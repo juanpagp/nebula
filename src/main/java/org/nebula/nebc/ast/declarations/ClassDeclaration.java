@@ -1,18 +1,18 @@
 package org.nebula.nebc.ast.declarations;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.ast.types.Type;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.ast.types.TypeNode;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 import java.util.List;
 
 public class ClassDeclaration extends Declaration
 {
 	public final String name;
-	public final List<Type> inheritance;
+	public final List<TypeNode> inheritance;
 	public final List<Declaration> members;
 
-	public ClassDeclaration(SourceSpan span, String name, List<Type> inheritance, List<Declaration> members)
+	public ClassDeclaration(SourceSpan span, String name, List<TypeNode> inheritance, List<Declaration> members)
 	{
 		super(span);
 		this.name = name;

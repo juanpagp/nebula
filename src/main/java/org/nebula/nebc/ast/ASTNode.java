@@ -1,6 +1,6 @@
 package org.nebula.nebc.ast;
 
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 /**
  * Base class for all nodes in the Nebula Abstract Syntax Tree (AST).

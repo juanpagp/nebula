@@ -1,14 +1,14 @@
 package org.nebula.nebc.ast.types;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
-public class ArrayType extends Type
+public class ArrayType extends TypeNode
 {
-	public final Type baseType; // e.g., 'int' in 'int[]'
+	public final TypeNode baseType; // e.g., 'int' in 'int[]'
 	public final int dimensions;        // 1 for [], 2 for [][], etc.
 
-	public ArrayType(SourceSpan span, Type baseType, int dimensions)
+	public ArrayType(SourceSpan span, TypeNode baseType, int dimensions)
 	{
 		super(span);
 		this.baseType = baseType;

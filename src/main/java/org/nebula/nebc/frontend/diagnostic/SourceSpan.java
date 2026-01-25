@@ -1,4 +1,4 @@
-package org.nebula.nebc.frontend.diagnostics;
+package org.nebula.nebc.frontend.diagnostic;
 
 public record SourceSpan(
 		String file,

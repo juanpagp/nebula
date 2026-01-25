@@ -1,18 +1,18 @@
 package org.nebula.nebc.ast.statements;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.ast.types.Type;
+import org.nebula.nebc.ast.types.TypeNode;
 import org.nebula.nebc.ast.expressions.Expression;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 public class ForeachStatement extends Statement
 {
-	public final Type variableType; // null if 'var'
+	public final TypeNode variableType; // null if 'var'
 	public final String variableName;
 	public final Expression iterable;
 	public final Statement body;
 
-	public ForeachStatement(SourceSpan span, Type variableType, String variableName, Expression iterable, Statement body)
+	public ForeachStatement(SourceSpan span, TypeNode variableType, String variableName, Expression iterable, Statement body)
 	{
 		super(span);
 		this.variableType = variableType;

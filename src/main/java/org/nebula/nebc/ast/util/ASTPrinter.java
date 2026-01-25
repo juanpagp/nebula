@@ -14,7 +14,7 @@ import org.nebula.nebc.ast.tags.TagStatement;
 import org.nebula.nebc.ast.types.ArrayType;
 import org.nebula.nebc.ast.types.NamedType;
 import org.nebula.nebc.ast.types.TupleType;
-import org.nebula.nebc.ast.types.Type;
+import org.nebula.nebc.ast.types.TypeNode;
 
 import java.util.List;
 
@@ -395,7 +395,7 @@ public class ASTPrinter implements ASTVisitor<String>
 	}
 
 	@Override
-	public String visitTypeReference(Type node)
+	public String visitTypeReference(TypeNode node)
 	{
 		if (node instanceof NamedType t)
 			return line("NamedType: " + t.qualifiedName);

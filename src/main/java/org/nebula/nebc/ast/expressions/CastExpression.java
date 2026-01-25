@@ -1,15 +1,15 @@
 package org.nebula.nebc.ast.expressions;
 
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.ast.types.Type;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.ast.types.TypeNode;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 public class CastExpression extends Expression
 {
-	public final Type targetType;
+	public final TypeNode targetType;
 	public final Expression expression;
 
-	public CastExpression(SourceSpan span, Type targetType, Expression expression)
+	public CastExpression(SourceSpan span, TypeNode targetType, Expression expression)
 	{
 		super(span);
 		this.targetType = targetType;

@@ -1,1 +1,4 @@
-i32 main() => 0
+i32 main()
+{
+    i32 a = false;
+}

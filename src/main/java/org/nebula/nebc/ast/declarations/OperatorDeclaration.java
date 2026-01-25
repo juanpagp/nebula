@@ -3,7 +3,7 @@ package org.nebula.nebc.ast.declarations;
 import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.ast.ASTVisitor;
 import org.nebula.nebc.ast.Parameter;
-import org.nebula.nebc.frontend.diagnostics.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
 import java.util.List;
 

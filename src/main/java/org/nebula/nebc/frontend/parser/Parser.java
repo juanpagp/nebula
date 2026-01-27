@@ -177,7 +177,7 @@ public class Parser
 				Log.err("Parsing failed for " + sourceFile.fileName() + " with " + errorCounter.getErrorCount() + " errors.");
 			}
 
-			System.out.println(Trees.toStringTree(tree, parser));
+			// System.out.println(Trees.toStringTree(tree, parser));
             parsingResultList.add(new ParsingResult(sourceFile, tree));
 		}
 

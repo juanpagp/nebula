@@ -33,7 +33,7 @@ public class Compiler
 		this.compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
 		for (var cu : compilationUnits)
 		{
-			System.out.println(cu);
+			//System.out.println(cu);
 		}
 
 		// 2. Semantic Analysis (Type checking, symbol resolution)

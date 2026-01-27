@@ -14,6 +14,7 @@ import org.nebula.nebc.ast.tags.TagStatement;
 import org.nebula.nebc.ast.types.NamedType;
 import org.nebula.nebc.ast.types.TypeNode;
 import org.nebula.nebc.semantic.types.ClassType;
+import org.nebula.nebc.semantic.types.NamespaceType;
 import org.nebula.nebc.semantic.types.Type;
 
 import java.util.ArrayList;
@@ -100,11 +101,25 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitNamespaceDeclaration(NamespaceDeclaration node)
 	{
-		// 1. Enter Namespace Scope
-		// Note: Real compilers might merge scopes if namespace is repeated.
-		enterScope();
+		// 1. Check if namespace already exists (for partial namespaces)
+		Type existing = currentScope.resolve(node.name);
+		NamespaceType ns;
 
-		// 2. Visit all members
+		if (existing instanceof NamespaceType e)
+		{
+			ns = e;
+		}
+		else
+		{
+			ns = new NamespaceType(node.name, currentScope);
+			currentScope.define(node.name, ns); // Persist 'nest' in the parent scope
+		}
+
+		// 2. Switch to the namespace's internal scope
+		Scope previousScope = currentScope;
+		currentScope = ns.getMemberScope();
+
+		// 3. Visit members
 		if (node.members != null)
 		{
 			for (ASTNode member : node.members)
@@ -113,8 +128,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			}
 		}
 
-		// 3. Exit
-		exitScope();
+		// 4. Restore
+		currentScope = previousScope;
 		return Type.VOID;
 	}
 
@@ -124,7 +139,6 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitClassDeclaration(ClassDeclaration node)
 	{
-		System.out.println("________________________ VISITING CLASS DECLARATION: " + node.name);
 		// 1. Define the class name in the CURRENT scope (so others can see it)
 		Type classType = new ClassType(node.name);
 		boolean defined = currentScope.define(node.name, classType);

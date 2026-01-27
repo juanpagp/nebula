@@ -6,21 +6,15 @@ package org.nebula.nebc.util;
  */
 public final class Log
 {
+	public static final String RED = "\u001B[31m";
+	public static final String RESET = "\u001B[0m";
+	// Default log level (changeable)
+	private static Level currentLevel = Level.INFO;
+
 	// prevent instantiation
 	private Log()
 	{
 	}
-
-	public enum Level
-	{
-		ERROR,
-		WARNING,
-		INFO,
-		DEBUG
-	}
-
-	// Default log level (changeable)
-	private static Level currentLevel = Level.INFO;
 
 	public static void setLevel(Level level)
 	{
@@ -29,8 +23,7 @@ public final class Log
 
 	public static void err(String msg)
 	{
-		// Cannot hide errors
-		System.err.println("[ERR] " + msg);
+		System.err.println(RED + "[ERR] " + msg + RESET);
 	}
 
 	public static void warn(String msg)
@@ -55,5 +48,13 @@ public final class Log
 		{
 			System.out.println("[DEB] " + msg);
 		}
+	}
+
+	public enum Level
+	{
+		ERROR,
+		WARNING,
+		INFO,
+		DEBUG
 	}
 }

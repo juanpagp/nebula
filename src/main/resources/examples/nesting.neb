@@ -1,0 +1,3 @@
+class User {}
+namespace nest;
+nest::User main() => 0

@@ -66,6 +66,13 @@ qualified_name
     : IDENTIFIER (DOUBLE_COLON IDENTIFIER)*
     ;
 
+enum_declaration
+    : ENUM IDENTIFIER enum_block
+    ;
+
+enum_block
+    : OPEN_BRACE IDENTIFIER (COMMA IDENTIFIER)* CLOSE_BRACE
+    ;
 
 //=============================================================================
 // Top-Level Declarations
@@ -74,6 +81,7 @@ qualified_name
 top_level_declaration
     : use_statement
     | tag_statement
+    | enum_declaration
     | const_declaration
     | method_declaration
     | class_declaration
@@ -223,7 +231,7 @@ method_declaration
     ;
 
 constructor_declaration
-    : visibility_modifier IDENTIFIER parameters block
+    : visibility_modifier? IDENTIFIER parameters block
     ;
 
 parameters
@@ -319,7 +327,7 @@ trait_member
     ;
 
 union_declaration
-    : TAGGED UNION IDENTIFIER type_parameters? union_body
+    : TAGGED? UNION IDENTIFIER type_parameters? union_body
     ;
 
 union_body

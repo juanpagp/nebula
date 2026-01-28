@@ -13,6 +13,18 @@ compilation_unit
     : top_level_declaration* EOF
     ;
 
+// ------------------------------
+// Extern Declarations
+// ------------------------------
+
+extern_declaration
+    : modifiers? EXTERN REGULAR_STRING OPEN_BRACE extern_member* CLOSE_BRACE
+    ;
+
+extern_member
+    : method_declaration
+    ;
+
 //=============================================================================
 // Namespace Directives (Use, Namespace)
 // =============================================================================
@@ -89,6 +101,7 @@ top_level_declaration
     | trait_declaration
     | union_declaration
     | namespace_declaration
+    | extern_declaration
     ;
 
 //=============================================================================
@@ -100,7 +113,7 @@ statement
     | tag_statement
     | const_declaration
     | variable_declaration
-    | block
+    | statement_block
     | if_statement
     | for_statement
     | foreach_statement
@@ -113,8 +126,14 @@ expression_statement
     : expression SEMICOLON
     ;
 
-block
+// Used for function bodies and anywhere a value is expected
+expression_block
     : OPEN_BRACE block_statements? block_tail? CLOSE_BRACE
+    ;
+
+// Used for loops, if-statements (when used as statements), etc.
+statement_block
+    : OPEN_BRACE block_statements? CLOSE_BRACE
     ;
 
 block_statements
@@ -126,7 +145,7 @@ block_tail
     ;
 
 if_expression
-    : IF parenthesized_expression block ELSE block
+    : IF parenthesized_expression expression_block ELSE expression_block
     ;
 
 if_statement
@@ -210,6 +229,11 @@ visibility_modifier
     | PROTECTED
     ;
 
+cvt_modifier
+    : KEEPS
+    | DROPS
+    ;
+
 modifiers
     : (visibility_modifier | STATIC | OVERRIDE)*
     ;
@@ -231,7 +255,7 @@ method_declaration
     ;
 
 constructor_declaration
-    : visibility_modifier? IDENTIFIER parameters block
+    : visibility_modifier? IDENTIFIER parameters statement_block
     ;
 
 parameters
@@ -243,11 +267,11 @@ parameter_list
     ;
 
 parameter
-    : type IDENTIFIER (ASSIGNMENT expression)?
+    : cvt_modifier? type IDENTIFIER (ASSIGNMENT expression)?
     ;
 
 method_body
-    : block
+    : expression_block
     | FAT_ARROW expression
     | SEMICOLON
     ;
@@ -413,11 +437,15 @@ constraint
     ;
 
 type_parameters
-    : '<' generic_parameter (COMMA generic_parameter)* '>'
-	;
-
+    : LT generic_parameter (COMMA generic_parameter)* GT  // same as type_argument_list
+    ;
 type_argument_list
-    : '<' type (COMMA type)* '>'
+    : LT type (COMMA type)* nested_gt
+    ;
+
+nested_gt
+    : GT          // Closes one level
+    | GT nested_gt // Recursively closes multiple levels
     ;
 
 //=============================================================================
@@ -445,7 +473,7 @@ assignment_expression
     ;
 
 new_expression
-    : NEW qualified_name arguments
+    : NEW type arguments
     ;
 
 assignment_operator
@@ -489,14 +517,17 @@ relational_expression
     : shift_expression (
         (LT | GT | OP_LE | OP_GE) shift_expression
         | IS type (IDENTIFIER)?
-    )*
+    )?
     ;
 
 shift_expression
     : additive_expression (
-        (OP_LEFT_SHIFT | OP_RIGHT_SHIFT) additive_expression
+        (left_shift | right_shift) additive_expression
     )*
     ;
+
+left_shift: LT LT;
+right_shift: GT GT;
 
 additive_expression
     : multiplicative_expression (('+' | '-') multiplicative_expression)*
@@ -530,7 +561,7 @@ primary_expression_start
     | tuple_literal
     | if_expression
     | match_expression
-    | block
+    | expression_block
     | THIS
     | array_literal
     | new_expression
@@ -596,8 +627,6 @@ literal
     ;
 
 string_literal
-
-
     : REGULAR_STRING
     | interpolated_regular_string
     ;

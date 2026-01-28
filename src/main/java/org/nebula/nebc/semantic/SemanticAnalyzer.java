@@ -15,6 +15,7 @@ import org.nebula.nebc.ast.types.NamedType;
 import org.nebula.nebc.ast.types.TypeNode;
 import org.nebula.nebc.semantic.types.ClassType;
 import org.nebula.nebc.semantic.types.NamespaceType;
+import org.nebula.nebc.semantic.types.PrimitiveType;
 import org.nebula.nebc.semantic.types.Type;
 
 import java.util.ArrayList;
@@ -31,11 +32,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	public List<SemanticError> analyze(CompilationUnit unit)
 	{
 		// Pre-define primitives in global scope
-		currentScope.define("i32", Type.I32);
-		currentScope.define("string", Type.STRING);
-		currentScope.define("bool", Type.BOOL);
-		currentScope.define("void", Type.VOID);
-
+		PrimitiveType.defineAll(currentScope);
 		unit.accept(this);
 		return errors;
 	}
@@ -62,7 +59,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	private Type resolveType(TypeNode astType)
 	{
 		if (astType == null)
-			return Type.VOID; // Should handle 'var' logic elsewhere
+			return PrimitiveType.VOID; // Should handle 'var' logic elsewhere
 
 		// This is where you connect 'Int' (string in AST) to Type.INT (object)
 		if (astType instanceof NamedType nt)
@@ -87,11 +84,22 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitCompilationUnit(CompilationUnit node)
 	{
+		boolean fileScopedFound = false;
+
 		for (ASTNode decl : node.declarations)
 		{
+			if (decl instanceof NamespaceDeclaration ns && ns.isFileScoped())
+			{
+				if (fileScopedFound)
+				{
+					error("Only one file-scoped namespace is allowed per file.", ns);
+					continue;
+				}
+				fileScopedFound = true;
+			}
 			decl.accept(this);
 		}
-		return Type.VOID;
+		return null;
 	}
 
 	/**
@@ -100,9 +108,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitNamespaceDeclaration(NamespaceDeclaration node)
 	{
-		// 1. Check if namespace already exists (for partial namespaces)
-		Type existing = currentScope.resolve(node.name);
+		// 1. Resolve or create the namespace
 		NamespaceType ns;
+		Type existing = currentScope.resolve(node.name);
 
 		if (existing instanceof NamespaceType e)
 		{
@@ -111,25 +119,35 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		else
 		{
 			ns = new NamespaceType(node.name, currentScope);
-			currentScope.define(node.name, ns); // Persist 'nest' in the parent scope
+			currentScope.define(node.name, ns);
 		}
 
-		// 2. Switch to the namespace's internal scope
-		Scope previousScope = currentScope;
-		currentScope = ns.getMemberScope();
-
-		// 3. Visit members
-		if (node.members != null)
+		if (node.isFileScoped())
 		{
-			for (ASTNode member : node.members)
+			// RULE: Directive (namespace a;)
+			// Permanently move the 'currentScope' forward for this file.
+			// We do NOT restore previousScope here.
+			currentScope = ns.getMemberScope();
+		}
+		else
+		{
+			// RULE: Block (namespace a { ... })
+			Scope previousScope = currentScope;
+			currentScope = ns.getMemberScope();
+
+			if (node.members != null)
 			{
-				member.accept(this);
+				for (ASTNode member : node.members)
+				{
+					member.accept(this);
+				}
 			}
+
+			// Restore scope after the block ends
+			currentScope = previousScope;
 		}
 
-		// 4. Restore
-		currentScope = previousScope;
-		return Type.VOID;
+		return null;
 	}
 
 	/**
@@ -172,7 +190,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		// 5. Exit
 		exitScope();
-		return Type.VOID;
+		return null;
 	}
 
 	@Override
@@ -254,7 +272,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		{
 			explicitType = resolveType(node.type);
 			if (explicitType == Type.ERROR)
-				return Type.VOID; // Stop if type doesn't exist
+				return null; // Stop if type doesn't exist
 		}
 
 		// 2. Iterate over declarators (e.g., int x = 1, y = 2;)
@@ -270,9 +288,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				if (node.isVar)
 				{
 					// Type Inference
-					if (exprType == Type.VOID || exprType == Type.ERROR)
+					if (exprType == null || exprType == Type.ERROR)
 					{
-						error("Cannot infer type for variable '" + declarator.name() + "' from void or error.", node);
+						error("Cannot infer type for variable '" + declarator.name() + "' from null or error.", node);
 						actualType = Type.ERROR;
 					}
 					else
@@ -310,7 +328,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			}
 		}
 
-		return Type.VOID;
+		return PrimitiveType.VOID;
 	}
 
 	@Override
@@ -326,7 +344,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	public Type visitMethodDeclaration(MethodDeclaration node)
 	{
 		// 1. Resolve Return Type
-		Type returnType = (node.returnType == null) ? Type.VOID : resolveType(node.returnType);
+		Type returnType = (node.returnType == null) ? PrimitiveType.VOID : resolveType(node.returnType);
 
 		// 2. Define Method in CURRENT scope (so it can be called recursively)
 		// Note: For full function types (Func<A,B>), you'd create a FunctionType here. 
@@ -380,14 +398,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		// 6. Restore Context and Exit
 		currentMethodReturnType = previousReturnType;
 		exitScope();
-		return Type.VOID;
+		return PrimitiveType.VOID;
 	}
 
 	// Stub for ReturnStatement (vital for Method semantics)
 	@Override
 	public Type visitReturnStatement(org.nebula.nebc.ast.statements.ReturnStatement node)
 	{
-		Type valType = (node.value == null) ? Type.VOID : node.value.accept(this);
+		Type valType = (node.value == null) ? PrimitiveType.VOID : node.value.accept(this);
 
 		if (currentMethodReturnType == null)
 		{
@@ -397,7 +415,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		{
 			error("Return type mismatch. Expected " + currentMethodReturnType.name() + ", got " + valType.name(), node);
 		}
-		return Type.VOID;
+		return PrimitiveType.VOID;
 	}
 
 	@Override
@@ -411,13 +429,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitExpressionBlock(ExpressionBlock node)
 	{
-		return Type.VOID;
+		return PrimitiveType.VOID;
 	}
 
 	@Override
 	public Type visitStatementBlock(StatementBlock node)
 	{
-		return Type.VOID;
+		return PrimitiveType.VOID;
 	}
 
 	@Override
@@ -561,6 +579,6 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitLiteralExpression(org.nebula.nebc.ast.expressions.LiteralExpression node)
 	{
-		return Type.I32;
+		return node.getType();
 	}
 }

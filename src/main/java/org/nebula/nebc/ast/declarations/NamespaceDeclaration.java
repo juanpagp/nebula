@@ -10,17 +10,19 @@ public class NamespaceDeclaration extends Declaration
 {
 	public final String name;
 	public final List<ASTNode> members; // Null or empty implies file-scoped
+	public final boolean isBlockDeclaration;
 
-	public NamespaceDeclaration(SourceSpan span, String name, List<ASTNode> members)
+	public NamespaceDeclaration(SourceSpan span, String name, List<ASTNode> members, boolean isBlockDeclaration)
 	{
 		super(span);
 		this.name = name;
 		this.members = members;
+		this.isBlockDeclaration = isBlockDeclaration;
 	}
 
 	public boolean isFileScoped()
 	{
-		return members == null || members.isEmpty();
+		return !isBlockDeclaration;
 	}
 
 	@Override

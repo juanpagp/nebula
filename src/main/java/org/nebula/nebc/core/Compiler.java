@@ -43,7 +43,6 @@ public class Compiler
 			List<SemanticError> errors = analyzer.analyze(cu);
 			if (!errors.isEmpty())
 			{
-				Log.err("Semantic analysis finished with " + errors.size() + " errors.");
 				for (var e : errors)
 					Log.err(e.toString());
 				return ExitCode.SEMANTIC_ERROR;

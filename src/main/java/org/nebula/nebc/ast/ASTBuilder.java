@@ -84,6 +84,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		String name = ctx.qualified_name().getText();
 		List<ASTNode> members = new ArrayList<>();
 
+		boolean isBlockDeclaration = ctx.SEMICOLON() == null;
+
 		if (ctx.top_level_declaration() != null)
 		{
 			for (var decl : ctx.top_level_declaration())
@@ -92,7 +94,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			}
 		}
 
-		return new NamespaceDeclaration(span, name, members);
+		return new NamespaceDeclaration(span, name, members, isBlockDeclaration);
 	}
 
 	@Override
@@ -908,7 +910,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			return new LiteralExpression(span, ctx.string_literal().getText(), LiteralType.STRING);
 		if (ctx.CHARACTER_LITERAL() != null)
 			return new LiteralExpression(span, ctx.CHARACTER_LITERAL().getText(), LiteralType.CHAR);
-		return new LiteralExpression(span, null, LiteralType.NULL);
+		return null;
 	}
 
 	// =========================================================================

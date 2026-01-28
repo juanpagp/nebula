@@ -1,3 +1,5 @@
-class User {}
-namespace nest;
-nest::User main() => 0
+class User
+{
+    i8 age = "asdf";
+    string name;
+}

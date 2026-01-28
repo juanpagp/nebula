@@ -12,6 +12,7 @@ import org.nebula.nebc.frontend.parser.ParsingResult;
 import org.nebula.nebc.frontend.parser.generated.NebulaParser;
 import org.nebula.nebc.frontend.parser.generated.NebulaParserBaseVisitor;
 
+import javax.swing.plaf.nimbus.State;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -237,7 +238,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		String name = ctx.IDENTIFIER().getText();
 		List<Parameter> parameters = getParameters(ctx.parameters());
-		Block body = (Block) visit(ctx.block());
+		StatementBlock body = (StatementBlock) visit(ctx.statement_block());
 
 		return new ConstructorDeclaration(span, name, parameters, body);
 	}
@@ -314,7 +315,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	// =========================================================================
 
 	@Override
-	public ASTNode visitBlock(NebulaParser.BlockContext ctx)
+	public ASTNode visitExpression_block(NebulaParser.Expression_blockContext ctx)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		List<Statement> statements = new ArrayList<>();
@@ -333,7 +334,23 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			tail = (Expression) visit(ctx.block_tail().expression());
 		}
 
-		return new Block(span, statements, tail);
+		return new ExpressionBlock(span, statements, tail);
+	}
+
+	@Override
+	public ASTNode visitStatement_block(NebulaParser.Statement_blockContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		List<Statement> statements = new ArrayList<>();
+
+		if (ctx.block_statements() != null)
+		{
+			for (var stmt : ctx.block_statements().statement())
+			{
+				statements.add((Statement) visit(stmt));
+			}
+		}
+		return new StatementBlock(span, statements);
 	}
 
 	@Override
@@ -765,8 +782,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			return visit(ctx.if_expression());
 		if (ctx.match_expression() != null)
 			return visit(ctx.match_expression());
-		if (ctx.block() != null)
-			return visit(ctx.block());
+		if (ctx.expression_block() != null)
+			return visit(ctx.expression_block());
 		if (ctx.new_expression() != null)
 			return visit(ctx.new_expression());
 
@@ -777,7 +794,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	public ASTNode visitNew_expression(NebulaParser.New_expressionContext ctx)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-		String typeName = ctx.qualified_name().getText();
+		String typeName = ctx.type().getText();
 		List<Expression> args = new ArrayList<>();
 		if (ctx.arguments().argument_list() != null)
 		{
@@ -792,9 +809,9 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		Expression condition = (Expression) visit(ctx.parenthesized_expression().expression());
-		Block thenBlock = (Block) visit(ctx.block(0));
-		Block elseBlock = (Block) visit(ctx.block(1));
-		return new IfExpression(span, condition, thenBlock, elseBlock);
+		ExpressionBlock thenExpressionBlock = (ExpressionBlock) visit(ctx.expression_block(0));
+		ExpressionBlock elseExpressionBlock = (ExpressionBlock) visit(ctx.expression_block(1));
+		return new IfExpression(span, condition, thenExpressionBlock, elseExpressionBlock);
 	}
 
 	@Override
@@ -1003,8 +1020,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 
 	private ASTNode getMethodBody(NebulaParser.Method_bodyContext ctx)
 	{
-		if (ctx.block() != null)
-			return visit(ctx.block());
+		if (ctx.expression_block() != null)
+			return visit(ctx.expression_block());
 		if (ctx.expression() != null)
 			return visit(ctx.expression());
 		return null;

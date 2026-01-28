@@ -2,8 +2,8 @@ package org.nebula.nebc.ast.util;
 
 import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.ast.ASTVisitor;
-import org.nebula.nebc.ast.Parameter;
 import org.nebula.nebc.ast.CompilationUnit;
+import org.nebula.nebc.ast.Parameter;
 import org.nebula.nebc.ast.declarations.*;
 import org.nebula.nebc.ast.expressions.*;
 import org.nebula.nebc.ast.patterns.*;
@@ -195,15 +195,21 @@ public class ASTPrinter implements ASTVisitor<String>
 	// =========================================================================
 
 	@Override
-	public String visitBlock(Block node)
+	public String visitExpressionBlock(ExpressionBlock node)
 	{
-		StringBuilder sb = new StringBuilder(line("Block"));
+		StringBuilder sb = new StringBuilder(line("ExprBlock"));
 		sb.append(visitNodes("Statements", node.statements));
 		if (node.hasTail())
 		{
 			sb.append(visitNode("TailExpr", node.tail));
 		}
 		return sb.toString();
+	}
+
+	@Override
+	public String visitStatementBlock(StatementBlock node)
+	{
+		return line("StmtBlock") + visitNodes("Statements", node.statements);
 	}
 
 	@Override
@@ -303,7 +309,7 @@ public class ASTPrinter implements ASTVisitor<String>
 	@Override
 	public String visitIfExpression(IfExpression node)
 	{
-		return line("IfExpr") + visitNode("Cond", node.condition) + visitNode("Then", node.thenBlock) + visitNode("Else", node.elseBlock);
+		return line("IfExpr") + visitNode("Cond", node.condition) + visitNode("Then", node.thenExpressionBlock) + visitNode("Else", node.elseExpressionBlock);
 	}
 
 	@Override

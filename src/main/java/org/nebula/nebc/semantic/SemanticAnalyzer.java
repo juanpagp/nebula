@@ -22,7 +22,6 @@ import java.util.List;
 
 public class SemanticAnalyzer implements ASTVisitor<Type>
 {
-
 	private final List<SemanticError> errors = new ArrayList<>();
 	private Scope currentScope = new Scope(null); // Global Scope
 
@@ -410,7 +409,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	// --- Boilerplate stubs to make it compile if you paste this ---
 	// You will implement these next!
 	@Override
-	public Type visitBlock(org.nebula.nebc.ast.expressions.Block node)
+	public Type visitExpressionBlock(ExpressionBlock node)
+	{
+		return Type.VOID;
+	}
+
+	@Override
+	public Type visitStatementBlock(StatementBlock node)
 	{
 		return Type.VOID;
 	}

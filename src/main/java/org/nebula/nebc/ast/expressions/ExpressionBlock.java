@@ -10,12 +10,12 @@ import java.util.List;
  * Represents a sequence of statements followed by an optional trailing expression.
  * In Nebula, a block is an expression. If no tail exists, it evaluates to void and is discarded.
  */
-public class Block extends Expression
+public class ExpressionBlock extends Expression
 {
 	public final List<Statement> statements;
 	public final Expression tail; // The optional result expression (block_tail)
 
-	public Block(SourceSpan span, List<Statement> statements, Expression tail)
+	public ExpressionBlock(SourceSpan span, List<Statement> statements, Expression tail)
 	{
 		super(span);
 		this.statements = statements;
@@ -30,6 +30,6 @@ public class Block extends Expression
 	@Override
 	public <R> R accept(ASTVisitor<R> visitor)
 	{
-		return visitor.visitBlock(this);
+		return visitor.visitExpressionBlock(this);
 	}
 }

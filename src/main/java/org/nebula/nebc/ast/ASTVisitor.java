@@ -85,6 +85,12 @@ public interface ASTVisitor<R>
 	// --------------------
 
 	/**
+	 * @grammar { statements; }
+	 */
+	R visitStatementBlock(StatementBlock node);
+
+
+	/**
 	 * @grammar [visibility] tag declaration as Identifier;
 	 */
 	R visitTagStatement(TagStatement node);
@@ -126,7 +132,7 @@ public interface ASTVisitor<R>
 	/**
 	 * @grammar { statements; optionalExpression }
 	 */
-	R visitBlock(Block node);
+	R visitExpressionBlock(ExpressionBlock node);
 
 	/**
 	 * Collapses additive, multiplicative, relational, etc.

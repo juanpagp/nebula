@@ -174,7 +174,7 @@ for_iterator
     ;
 
 foreach_statement
-    : FOREACH foreach_control statement
+    : FOREACH foreach_control statement_block
     ;
 
 foreach_control
@@ -220,7 +220,7 @@ const_declaration
     ;
 
 variable_declaration
-    : modifiers (VAR | type) variable_declarators SEMICOLON
+    : modifiers CONST? (VAR | type) variable_declarators SEMICOLON
     ;
 
 visibility_modifier
@@ -239,7 +239,7 @@ modifiers
     ;
 
 field_declaration
-    : type variable_declarators SEMICOLON
+    :  variable_declaration
     ;
 
 variable_declarators
@@ -359,7 +359,7 @@ union_body
     ;
 
 union_payload
-    : OPEN_PARENS type? CLOSE_PARENS
+    : OPEN_PARENS parameter CLOSE_PARENS
     ;
 
 union_variant
@@ -566,6 +566,7 @@ primary_expression_start
     | array_literal
     | new_expression
     | IDENTIFIER
+    | qualified_name
     ;
 
 postfix_operator

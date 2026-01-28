@@ -203,9 +203,9 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			{
 				String vName = variantCtx.IDENTIFIER().getText();
 				TypeNode payload = null;
-				if (variantCtx.union_payload() != null && variantCtx.union_payload().type() != null)
+				if (variantCtx.union_payload() != null && variantCtx.union_payload().parameter() != null)
 				{
-					payload = (TypeNode) visit(variantCtx.union_payload().type());
+					payload = (TypeNode) visit(variantCtx.union_payload().parameter().type());
 				}
 				variants.add(new UnionVariant(SourceUtil.createSpan(variantCtx, currentFileName), vName, payload));
 			}
@@ -271,7 +271,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		// If modifiers are needed for fields, the grammar might pass them down or they are implicit.
 		// Based on the grammar provided: field_declaration : type variable_declarators SEMICOLON
 		// It lacks explicit modifiers in the rule, defaulting to private/none.
-		return buildVariableDeclaration(ctx, new NebulaParser.ModifiersContext(null, -1), false, ctx.type(), ctx.variable_declarators());
+		return buildVariableDeclaration(ctx, ctx.variable_declaration().modifiers(), ctx.variable_declaration().VAR() != null, ctx.variable_declaration().type(), ctx.variable_declaration().variable_declarators());
 	}
 
 	@Override
@@ -432,7 +432,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		TypeNode type = control.VAR() != null ? null : (TypeNode) visit(control.type());
 		String name = control.IDENTIFIER().getText();
 		Expression iterable = (Expression) visit(control.expression());
-		Statement body = (Statement) visit(ctx.statement());
+		StatementBlock body = (StatementBlock) visit(ctx.statement_block());
 
 		return new ForeachStatement(span, type, name, iterable, body);
 	}

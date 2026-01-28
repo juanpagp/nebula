@@ -2,9 +2,9 @@ package org.nebula.nebc.semantic.types;
 
 import org.nebula.nebc.semantic.Scope;
 
-public class ClassType extends CompositeType
+public class StructType extends CompositeType
 {
-	public ClassType(String name, Scope parentScope)
+	public StructType(String name, Scope parentScope)
 	{
 		super(name, parentScope);
 	}

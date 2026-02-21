@@ -40,7 +40,20 @@ public class Compiler
 			System.out.println(cu);
 		}
 
-		// 3. Semantic Analysis (Type checking, symbol resolution)
+		// 3. Desugaring (Lowering pseudo-while, syntactical sugar loops, traits)
+		org.nebula.nebc.pass.Desugarer desugarer = new org.nebula.nebc.pass.Desugarer();
+		for (var cu : compilationUnits)
+		{
+			List<Diagnostic> desugarErrors = desugarer.process(cu);
+			if (!desugarErrors.isEmpty())
+			{
+				for (var e : desugarErrors)
+					Log.err(e.toString());
+				return ExitCode.SEMANTIC_ERROR;
+			}
+		}
+
+		// 4. Semantic Analysis (Type checking, symbol resolution)
 		SemanticAnalyzer analyzer = new SemanticAnalyzer(config);
 		for (var cu : compilationUnits)
 		{

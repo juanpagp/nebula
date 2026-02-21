@@ -361,6 +361,15 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	}
 
 	@Override
+	public LLVMValueRef visitEnumDeclaration(EnumDeclaration node)
+	{
+		// Enums are typically just type definitions and do not generate code directly
+		// at the declaration,
+		// unless they have methods or we need to generate runtime type information.
+		return null;
+	}
+
+	@Override
 	public LLVMValueRef visitUnionDeclaration(UnionDeclaration node)
 	{
 		// TODO: Emit tagged union type

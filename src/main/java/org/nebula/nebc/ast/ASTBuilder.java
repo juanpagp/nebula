@@ -174,6 +174,24 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	}
 
 	@Override
+	public ASTNode visitEnum_declaration(NebulaParser.Enum_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String name = ctx.IDENTIFIER().getText();
+
+		List<String> variants = new ArrayList<>();
+		if (ctx.enum_block() != null)
+		{
+			for (var idCtx : ctx.enum_block().IDENTIFIER())
+			{
+				variants.add(idCtx.getText());
+			}
+		}
+
+		return new EnumDeclaration(span, name, variants);
+	}
+
+	@Override
 	public ASTNode visitTrait_declaration(NebulaParser.Trait_declarationContext ctx)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
@@ -931,7 +949,14 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		if (ctx.INTEGER_LITERAL() != null)
 			return new LiteralExpression(span, Long.parseLong(ctx.INTEGER_LITERAL().getText()), LiteralType.INT);
 		if (ctx.REAL_LITERAL() != null)
-			return new LiteralExpression(span, Double.parseDouble(ctx.REAL_LITERAL().getText()), LiteralType.FLOAT);
+		{
+			String text = ctx.REAL_LITERAL().getText();
+			if (text.endsWith("f") || text.endsWith("F"))
+			{
+				return new LiteralExpression(span, Float.parseFloat(text), LiteralType.FLOAT);
+			}
+			return new LiteralExpression(span, Double.parseDouble(text), LiteralType.FLOAT);
+		}
 		if (ctx.TRUE() != null)
 			return new LiteralExpression(span, true, LiteralType.BOOL);
 		if (ctx.FALSE() != null)

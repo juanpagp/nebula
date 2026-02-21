@@ -4,7 +4,9 @@ import org.nebula.nebc.ast.declarations.*;
 import org.nebula.nebc.ast.expressions.*;
 import org.nebula.nebc.ast.patterns.*;
 import org.nebula.nebc.ast.statements.*;
-import org.nebula.nebc.ast.tags.*;
+import org.nebula.nebc.ast.tags.TagAtom;
+import org.nebula.nebc.ast.tags.TagOperation;
+import org.nebula.nebc.ast.tags.TagStatement;
 import org.nebula.nebc.ast.types.TypeNode;
 
 /**
@@ -39,7 +41,6 @@ public interface ASTVisitor<R>
 	 */
 	R visitConstDeclaration(ConstDeclaration constDeclaration);
 
-
 	/**
 	 * @grammar modifiers returnType name<T>(params) { body }
 	 */
@@ -59,6 +60,11 @@ public interface ASTVisitor<R>
 	 * @grammar trait name { members }
 	 */
 	R visitTraitDeclaration(TraitDeclaration node);
+
+	/**
+	 * @grammar enum name { Variant1, Variant2 }
+	 */
+	R visitEnumDeclaration(EnumDeclaration node);
 
 	/**
 	 * @grammar tagged union name { Variant(Type), ... }
@@ -88,7 +94,6 @@ public interface ASTVisitor<R>
 	 * @grammar { statements; }
 	 */
 	R visitStatementBlock(StatementBlock node);
-
 
 	/**
 	 * @grammar [visibility] tag declaration as Identifier;

@@ -161,7 +161,7 @@ for_statement
     ;
 
 traditional_for_control
-    : OPEN_PARENS for_initializer? SEMICOLON expression? SEMICOLON for_iterator? CLOSE_PARENS
+    : OPEN_PARENS for_initializer? expression? SEMICOLON for_iterator? CLOSE_PARENS
     ;
 
 for_initializer

@@ -62,6 +62,53 @@ public class PrimitiveType extends Type
 	}
 
 	@Override
+	public boolean isAssignableTo(Type target)
+	{
+		if (this.equals(target))
+			return true;
+
+		if (target instanceof PrimitiveType pTarget)
+		{
+			// Permissive numeric system: any numeric can be assigned to any other numeric
+			// (widening, narrowing, float<->int)
+			if ((this.isInteger() || this.isFloat()) && (pTarget.isInteger() || pTarget.isFloat()))
+			{
+				return true;
+			}
+		}
+
+		return super.isAssignableTo(target);
+	}
+
+	public boolean isInteger()
+	{
+		return this == I8 || this == U8 || this == I16 || this == U16 ||
+				this == I32 || this == U32 || this == I64 || this == U64;
+	}
+
+	public boolean isFloat()
+	{
+		return this == F32 || this == F64;
+	}
+
+	public int getBitWidth()
+	{
+		return switch (this.name)
+		{
+			case "i8", "u8" ->
+					8;
+			case "i16", "u16" ->
+					16;
+			case "i32", "u32", "f32" ->
+					32;
+			case "i64", "u64", "f64" ->
+					64;
+			default ->
+					0;
+		};
+	}
+
+	@Override
 	public String name()
 	{
 		return name;

@@ -168,7 +168,34 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, sd, sd.name);
 				}
 			}
-			// TODO: Forward-declare unions, traits, etc.
+			else if (decl instanceof EnumDeclaration ed)
+			{
+				EnumType enumType = new EnumType(ed.name, currentScope);
+				TypeSymbol sym = new TypeSymbol(ed.name, enumType, ed);
+				if (!currentScope.define(sym))
+				{
+					error(DiagnosticCode.TYPE_ALREADY_DEFINED, ed, ed.name);
+				}
+			}
+			else if (decl instanceof UnionDeclaration ud)
+			{
+				UnionType unionType = new UnionType(ud.name, currentScope);
+				TypeSymbol sym = new TypeSymbol(ud.name, unionType, ud);
+				if (!currentScope.define(sym))
+				{
+					error(DiagnosticCode.TYPE_ALREADY_DEFINED, ud, ud.name);
+				}
+			}
+			// TODO: Forward-declare traits, etc.
+		}
+
+		// Phase 1.5: Pre-declare global methods
+		for (ASTNode decl : node.declarations)
+		{
+			if (decl instanceof MethodDeclaration md)
+			{
+				defineMethodSignature(md);
+			}
 		}
 
 		// Phase 2: Full visitation — resolve bodies, check types.
@@ -199,6 +226,15 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		SymbolTable previousScope = currentScope;
 		currentScope = nsSym.getMemberTable();
+
+		// Pre-pass methods
+		for (ASTNode member : node.members)
+		{
+			if (member instanceof MethodDeclaration md)
+			{
+				defineMethodSignature(md);
+			}
+		}
 
 		for (ASTNode member : node.members)
 		{
@@ -259,6 +295,15 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		// Define 'this' as a variable symbol pointing to the type
 		currentScope.define(new VariableSymbol("this", type, false, node));
 
+		// Pre-pass methods
+		for (Declaration member : members)
+		{
+			if (member instanceof MethodDeclaration md)
+			{
+				defineMethodSignature(md);
+			}
+		}
+
 		// Visit members
 		for (Declaration member : members)
 		{
@@ -272,7 +317,74 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	}
 
 	@Override
-	public Type visitMethodDeclaration(MethodDeclaration node)
+	public Type visitEnumDeclaration(EnumDeclaration node)
+	{
+		TypeSymbol existingSym = currentScope.resolveType(node.name);
+		if (existingSym == null)
+			return null;
+		EnumType enumType = (EnumType) existingSym.getType();
+
+		SymbolTable outerScope = currentScope;
+		CompositeType prevTypeDef = currentTypeDefinition;
+
+		currentScope = enumType.getMemberScope();
+		currentTypeDefinition = enumType;
+
+		for (String variant : node.variants)
+		{
+			VariableSymbol variantSym = new VariableSymbol(variant, enumType, false, node);
+			currentScope.define(variantSym);
+		}
+
+		currentTypeDefinition = prevTypeDef;
+		currentScope = outerScope;
+		return null;
+	}
+
+	@Override
+	public Type visitUnionDeclaration(UnionDeclaration node)
+	{
+		TypeSymbol existingSym = currentScope.resolveType(node.name);
+		if (existingSym == null)
+			return null;
+		UnionType unionType = (UnionType) existingSym.getType();
+
+		SymbolTable outerScope = currentScope;
+		CompositeType prevTypeDef = currentTypeDefinition;
+
+		currentScope = unionType.getMemberScope();
+		currentTypeDefinition = unionType;
+
+		for (UnionVariant variant : node.variants)
+		{
+			Type payloadType = (variant.payload == null) ? PrimitiveType.VOID : resolveType(variant.payload);
+
+			if (payloadType == PrimitiveType.VOID)
+			{
+				VariableSymbol variantSym = new VariableSymbol(variant.name, unionType, false, node);
+				currentScope.define(variantSym);
+			}
+			else
+			{
+				FunctionType ctorType = new FunctionType(unionType, java.util.List.of(payloadType));
+				MethodSymbol variantSym = new MethodSymbol(variant.name, ctorType, java.util.Collections.emptyList(),
+						node);
+				currentScope.define(variantSym);
+			}
+		}
+
+		currentTypeDefinition = prevTypeDef;
+		currentScope = outerScope;
+		return null;
+	}
+
+	@Override
+	public Type visitUnionVariant(UnionVariant node)
+	{
+		return null; // Handled in visitUnionDeclaration
+	}
+
+	private void defineMethodSignature(MethodDeclaration node)
 	{
 		Type returnType = (node.returnType == null) ? PrimitiveType.VOID : resolveType(node.returnType);
 
@@ -314,6 +426,21 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				mainMethodReturnType = returnType;
 			}
 		}
+	}
+
+	@Override
+	public Type visitMethodDeclaration(MethodDeclaration node)
+	{
+		MethodSymbol methodSym = getSymbol(node, MethodSymbol.class);
+		if (methodSym == null)
+		{
+			defineMethodSignature(node);
+			methodSym = getSymbol(node, MethodSymbol.class);
+			if (methodSym == null)
+				return PrimitiveType.VOID;
+		}
+
+		Type returnType = ((FunctionType) methodSym.getType()).getReturnType();
 
 		// 3. Analyze body
 		enterScope();
@@ -342,7 +469,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		if (node.body != null)
 		{
-			node.body.accept(this);
+			Type bodyType = node.body.accept(this);
+			if (returnType != PrimitiveType.VOID && !bodyType.isAssignableTo(returnType))
+			{
+				error(DiagnosticCode.TYPE_MISMATCH, node.body, returnType.name(), bodyType.name());
+			}
 		}
 
 		currentMethodReturnType = prevRet;
@@ -487,6 +618,23 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		// In a real implementation, checking if iterableType implements Iterable<T>
 		Type itemType = Type.ANY; // Should extract T from Iterable<T>
 
+		if (iterableType instanceof ArrayType arr)
+		{
+			itemType = arr.baseType;
+		}
+		else if (iterableType instanceof ClassType || iterableType instanceof StructType)
+		{
+			if (iterableType.name().startsWith("List<"))
+			{
+				String innerName = iterableType.name().substring(5, iterableType.name().length() - 1);
+				TypeSymbol ts = currentScope.resolveType(innerName);
+				if (ts != null)
+				{
+					itemType = ts.getType();
+				}
+			}
+		}
+
 		if (node.variableType != null)
 		{
 			itemType = resolveType(node.variableType);
@@ -526,14 +674,18 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case DIV:
 			case MOD:
 			case POW:
-				if (left.equals(right) && isNumeric(left))
-					return left;
+				if (isNumeric(left) && isNumeric(right))
+				{
+					PrimitiveType pLeft = (PrimitiveType) left;
+					PrimitiveType pRight = (PrimitiveType) right;
+					return (pLeft.getBitWidth() >= pRight.getBitWidth()) ? pLeft : pRight;
+				}
 				error(DiagnosticCode.OPERATOR_NOT_DEFINED, node, node.operator, left.name(), right.name());
 				return Type.ERROR;
 
 			case EQ:
 			case NE:
-				if (!left.equals(right))
+				if (!left.equals(right) && !(isNumeric(left) && isNumeric(right)))
 				{
 					error(DiagnosticCode.COMPARING_DISTINCT_TYPES, node, left.name(), right.name());
 				}
@@ -543,7 +695,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case GT:
 			case LE:
 			case GE:
-				if (left.equals(right) && isNumeric(left))
+				if (isNumeric(left) && isNumeric(right))
 					return PrimitiveType.BOOL;
 				error(DiagnosticCode.RELATIONAL_NUMERIC, node);
 				return Type.ERROR;
@@ -732,9 +884,24 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		return switch (node.type)
 		{
 			case INT ->
-					PrimitiveType.I64;
+			{
+				if (node.value instanceof Long l)
+				{
+					if (l >= Byte.MIN_VALUE && l <= Byte.MAX_VALUE)
+						yield PrimitiveType.I8;
+					if (l >= Short.MIN_VALUE && l <= Short.MAX_VALUE)
+						yield PrimitiveType.I16;
+					if (l >= Integer.MIN_VALUE && l <= Integer.MAX_VALUE)
+						yield PrimitiveType.I32;
+				}
+				yield PrimitiveType.I64;
+			}
 			case FLOAT ->
-					PrimitiveType.F64;
+			{
+				if (node.value instanceof Float)
+					yield PrimitiveType.F32;
+				yield PrimitiveType.F64;
+			}
 			case BOOL ->
 					PrimitiveType.BOOL;
 			case CHAR ->
@@ -766,9 +933,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 	private boolean isNumeric(Type t)
 	{
-		return t == PrimitiveType.I32 || t == PrimitiveType.F64 ||
-				t == PrimitiveType.I64 || t == PrimitiveType.F32 ||
-				t == PrimitiveType.U8 || t == PrimitiveType.I8;
+		if (t instanceof PrimitiveType p)
+		{
+			return p.isInteger() || p.isFloat();
+		}
+		return false;
 	}
 
 	// --- Stubs for features not yet fully implemented ---
@@ -882,18 +1051,6 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 	@Override
 	public Type visitTraitDeclaration(TraitDeclaration node)
-	{
-		return null;
-	}
-
-	@Override
-	public Type visitUnionDeclaration(UnionDeclaration node)
-	{
-		return null;
-	}
-
-	@Override
-	public Type visitUnionVariant(UnionVariant node)
 	{
 		return null;
 	}

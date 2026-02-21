@@ -192,8 +192,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 		else
 		{
-			SymbolTable nsTable = new SymbolTable(currentScope);
-			nsSym = new NamespaceSymbol(node.name, nsTable, node);
+			NamespaceType nsType = new NamespaceType(node.name, currentScope);
+			nsSym = new NamespaceSymbol(node.name, nsType, node);
 			currentScope.define(nsSym);
 		}
 
@@ -601,7 +601,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				Type paramType = fn.parameterTypes.get(i);
 				if (!argType.isAssignableTo(paramType))
 				{
-					error(DiagnosticCode.ARGUMENT_TYPE_MISMATCH, args.get(i), (i + 1), paramType.name(), argType.name());
+					error(DiagnosticCode.ARGUMENT_TYPE_MISMATCH, args.get(i), (i + 1), paramType.name(),
+							argType.name());
 				}
 			}
 			return fn.returnType;
@@ -625,6 +626,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		else if (objectType instanceof NamespaceType nt)
 		{
 			memberScope = nt.getMemberScope();
+		}
+
+		if (memberScope == null)
+		{
 			error(DiagnosticCode.NO_MEMBERS, node.target, objectType.name());
 			return Type.ERROR;
 		}

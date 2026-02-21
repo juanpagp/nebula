@@ -2,25 +2,21 @@ package org.nebula.nebc.semantic.symbol;
 
 import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.semantic.SymbolTable;
+import org.nebula.nebc.semantic.types.NamespaceType;
 
 /**
  * Represents a namespace declaration.
- * Namespaces are not values — they have no type. They exist purely as scoping
- * containers that hold their own {@link SymbolTable}.
+ * Namespaces are scoping containers that hold their own {@link SymbolTable}.
  */
 public final class NamespaceSymbol extends Symbol
 {
-
-	private final SymbolTable memberTable;
-
-	public NamespaceSymbol(String name, SymbolTable memberTable, ASTNode declarationNode)
+	public NamespaceSymbol(String name, NamespaceType type, ASTNode declarationNode)
 	{
-		super(name, null, declarationNode); // no type — namespaces aren't values
-		this.memberTable = memberTable;
+		super(name, type, declarationNode);
 	}
 
 	public SymbolTable getMemberTable()
 	{
-		return memberTable;
+		return ((NamespaceType) getType()).getMemberScope();
 	}
 }

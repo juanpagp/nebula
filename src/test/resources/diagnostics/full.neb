@@ -1,0 +1,270 @@
+namespace nebula::core;
+
+// --- FFI & Low Level Logic ---
+private extern "C"
+{
+    // We tell the compiler this C function won't touch our memory validity
+    void lib_log(keeps Ref<string> message);
+    // This function explicitly consumes the pointer
+    void lib_dispose_raw(drops Ref<i64> handle);
+}
+
+// --- Traits & Tags ---
+
+// One-liner syntactic sugar
+trait Identifiable i64 getId();
+
+/*
+Is exactly the same as writing it like this:
+
+trait Identifiable
+{
+    i64 getId();
+}
+*/
+
+tag { Task, User } as SystemEntity;
+tag { i8, i16, i32, i64 } as Signed;
+// Tag arithmetic
+tag { Signed & !i8 } as LargeSigned;
+
+// --- Data Structures ---
+enum Priority { Low, Medium, High, Critical }
+
+union TaskStatus
+{
+    Pending,
+    Running(f32 progress),
+    Completed(string result),
+    Failed(i32 errorCode)
+}
+
+class Task : Identifiable
+{
+    const i64 id;
+    string name;
+    Priority priority;
+    TaskStatus status = TaskStatus.Pending;
+
+    User(i64 id, string name = "Anonymous Task", Priority priority = Priority.Low)
+    {
+        this.id = id;
+        this.name = name;
+        this.priority = priority;
+    }
+
+    override i64 getId() => this.id
+}
+
+// --- The Scheduler ---
+class Scheduler
+{
+    List<Task> queue = new List<Task>();
+
+    // Return-type based overloading
+    i32 getCount() => queue.length
+    f32 getCount() => (f32)queue.length
+
+    void addTask(Task t)
+    {
+        queue.add(t);
+        log($"Task {t.name} added to queue.");
+    }
+
+    // Demonstrating CVT and Match
+    void processNext()
+    {
+        if (queue.isEmpty()) return;
+
+        var current = queue.pop();
+
+        match (current.status)
+        {
+            Pending =>
+            {
+                current.status = TaskStatus.Running(0.5f);
+                log("Processing...");
+            },
+            _ => log("Task in invalid state.")
+        }
+
+        // 'current' is automatically freed here by CVT because it's the last use
+    }
+
+    void processAllParallel()
+    {
+        if (queue.isEmpty()) return;
+
+        log($"Dispatching {queue.length} tasks...");
+
+        // Use the foreach_statement from your grammar
+        foreach (var t in queue)
+        {
+            // We pass 't' (which will be dropped) and a reference
+            // to the static method that will execute the work.
+            std::thread.spawn(t, Scheduler.executeTask);
+        }
+
+        // After the loop, all 't' regions in the list are Invalid.
+        queue.clear();
+    }
+
+    // A static method to serve as the thread entry point
+    // This matches your 'method_declaration' rule perfectly.
+    static void executeTask(Task t)
+    {
+        t.status = TaskStatus.Running(0.1f);
+        log($"Thread {t.id} started: {t.name}");
+
+        // Heavy lifting...
+        t.status = TaskStatus.Completed("Done");
+
+        // CVT automatically injects free(t) annotation here, so that when lowering to LLVM's IR it gets inserted at the correct place and, cruacially MOMENT in the program flow
+        // because it's the last use of 't' in this branch.
+    }
+}
+
+// --- Entry Point ---
+i32 main()
+{
+    var scheduler = new Scheduler();
+
+    // Named parameters & default values
+    scheduler.addTask(new Task(priority: Priority.High, id: 101)); // Mixed positional
+    scheduler.addTask(new Task(202, "Database Cleanup"));
+
+    // Named Tuples
+    (string label, i32 count) stats = ("Active Tasks", scheduler.getCount());
+    std::println($"{stats.label}: {stats.count}");
+
+    // Using the unique Nebula loop syntax
+    for(i < stats.count)
+    {
+        scheduler.processNext();
+    }
+
+    // Manual Invalidation Example
+    var manualTask = new Task(999, "Volatile Task");
+
+    // Explicitly dropping the task via a wrapper
+    free(manualTask);
+
+    // std::println(manualTask.name); // ERROR: region invalidated
+
+    0 // Return 0
+}
+
+// --- Helpers ---
+// Drops is not needed to be put here, in the 'Task t' parameter, as it's already put in the 'lib_dispose_raw' declaration, so the cvt can find it.
+void free(Task t)
+{
+    lib_dispose_raw(Ref.of(t.getId()));
+    // t is dropped here
+}
+
+void log(string message)
+{
+    lib_log(Ref.of(message));
+}
+
+// =============================================================================
+// CORE PRIMITIVES IMPLEMENTATION SKETCHES
+// =============================================================================
+
+/*
+  Ref<T> is a "Compiler-Magic" primitive.
+  It acts as the bridge between Nebula's safe Regions and C's raw pointers.
+*/
+struct Ref<T>
+{
+    private u64 raw_address;
+
+    // Static constructor: Captures the address of a Region.
+    // In Nebula-land, 'keeps' is implicit here as we are just viewing.
+    static Ref<T> of(keeps T instance)
+    {
+        // Compiler intrinsic: returns the raw memory address
+        return intrinsic::get_addr(instance);
+    }
+}
+
+/*
+  std::thread interfaces with the OS (pthreads/windows threads).
+  The CVT 'drops' keyword is the load-bearer here.
+*/
+namespace std::thread
+{
+    // The signature uses a Generic 'drops T' to enforce handover.
+    // 'entry' is a function pointer that accepts the dropped type.
+    void spawn<T>(drops T payload, void(T) entry)
+    {
+        // 1. Compiler marks 'payload' as INVALID in the caller's scope.
+        // 2. A new OS thread is allocated.
+        // 3. The 'payload' View is initialized as VALID in the new thread's stack.
+
+        u64 handle = platform::thread_create(payload, entry);
+
+        if (handle == 0)
+        {
+            // If thread creation fails, CVT would transition 'payload'
+            // to 'MaybeInvalid' unless we handle the error or 'assume' validity.
+            panic("Failed to spawn thread");
+        }
+    }
+
+    // Returns the unique hardware thread ID
+    i64 id() => platform::get_current_thread_id()
+}
+
+/*
+  HOW IT WORKS UNDER THE HOOD:
+
+  1. ADRESSING: Ref.of(t) doesn't just return a pointer; it registers
+     a "Dependency" in the CVT graph. Even though lib_log uses a Ref,
+     Nebula knows it points to 't'.
+
+  2. HANDOVER: When std::thread.spawn(t, ...) is called, the compiler
+     generates an LLVM Move. The actual pointer doesn't change, but the
+     "Permission to Access" moves to a different thread's Analysis Context.
+
+  3. LLVM LOWERING:
+     - 'keeps' becomes a standard pointer in IR.
+     - 'drops' triggers the insertion of the deallocator (free) at the
+       tail of the lifetime branch.
+     - Tag Arithmetic is lowered to bitwise mask checks or compile-time
+       type-safety constraints.
+*/
+
+/*
+ =============================================================================
+ NEBULA LANGUAGE SPECIFICATION: SUMMARY OF DESIGN & PARADIGM
+ =============================================================================
+
+ 1. CAUSAL VALIDITY TRACKING (CVT):
+    Nebula replaces traditional Ownership/Borrowing with Causal Analysis.
+    Memory is managed via Regions (heap storage) and Views (stack pointers).
+    Safety is guaranteed by ensuring no View is accessed once its Region
+    transitions to an 'Invalid' or 'MaybeInvalid' state.
+
+ 2. DETERMINISTIC DEALLOCATION:
+    Nebula is runtime-free and GC-free. The compiler performs Last-Usage
+    Analysis on the Control Flow Graph (CFG) to inject 'free' calls at the
+    precise moment a Region is no longer reachable, providing C-level
+    performance with Java-level ergonomics.
+
+ 3. ZERO-COPY MULTI-THREADING:
+    Threading is handled via Causal Handover. Passing a variable to
+    'Thread.spawn' with a 'drops' signature (like 't' above) severs the link
+    in the parent thread and validates it in the worker thread. This prevents
+    Data Races at compile-time without requiring expensive locks or copies.
+
+ 4. TAG SYSTEM & TYPE ALGEBRA:
+    Nebula uses 'tags' for ad-hoc polymorphism. Tag arithmetic (AMP/PIPE/BANG)
+    allows developers to define complex type constraints (e.g., LargeSigned)
+    without the boilerplate of traditional interface hierarchies.
+
+ 5. EXPRESSION-ORIENTED PARADIGM:
+    Blocks in Nebula evaluate to expressions. The trailing expression in a
+    block is its return value. This enforces strict type-safety and
+    intentionality, especially in resource management and CVT state transitions.
+*/

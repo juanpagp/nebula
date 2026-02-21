@@ -5,14 +5,20 @@ import org.nebula.nebc.ast.expressions.*;
 import org.nebula.nebc.ast.expressions.LiteralExpression.LiteralType;
 import org.nebula.nebc.ast.patterns.*;
 import org.nebula.nebc.ast.statements.*;
-import org.nebula.nebc.ast.tags.*;
-import org.nebula.nebc.ast.types.*;
-import org.nebula.nebc.frontend.diagnostic.*;
+import org.nebula.nebc.ast.tags.TagAtom;
+import org.nebula.nebc.ast.tags.TagExpression;
+import org.nebula.nebc.ast.tags.TagOperation;
+import org.nebula.nebc.ast.tags.TagStatement;
+import org.nebula.nebc.ast.types.ArrayType;
+import org.nebula.nebc.ast.types.NamedType;
+import org.nebula.nebc.ast.types.TupleType;
+import org.nebula.nebc.ast.types.TypeNode;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
+import org.nebula.nebc.frontend.diagnostic.SourceUtil;
 import org.nebula.nebc.frontend.parser.ParsingResult;
 import org.nebula.nebc.frontend.parser.generated.NebulaParser;
 import org.nebula.nebc.frontend.parser.generated.NebulaParserBaseVisitor;
 
-import javax.swing.plaf.nimbus.State;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -260,18 +266,25 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	public ASTNode visitVariable_declaration(NebulaParser.Variable_declarationContext ctx)
 	{
 		// This handles "var x = 1;" or "int x = 1;" as a statement
-		return buildVariableDeclaration(ctx, ctx.modifiers(), ctx.VAR() != null, ctx.type(), ctx.variable_declarators());
+		return buildVariableDeclaration(ctx, ctx.modifiers(), ctx.VAR() != null, ctx.type(),
+				ctx.variable_declarators());
 	}
 
 	@Override
 	public ASTNode visitField_declaration(NebulaParser.Field_declarationContext ctx)
 	{
-		// Field declaration in class context, usually has no modifiers in this specific grammar rule
-		// (modifiers are higher up in top-level, but fields inside structs/classes use this rule)
-		// If modifiers are needed for fields, the grammar might pass them down or they are implicit.
-		// Based on the grammar provided: field_declaration : type variable_declarators SEMICOLON
+		// Field declaration in class context, usually has no modifiers in this specific
+		// grammar rule
+		// (modifiers are higher up in top-level, but fields inside structs/classes use
+		// this rule)
+		// If modifiers are needed for fields, the grammar might pass them down or they
+		// are implicit.
+		// Based on the grammar provided: field_declaration : type variable_declarators
+		// SEMICOLON
 		// It lacks explicit modifiers in the rule, defaulting to private/none.
-		return buildVariableDeclaration(ctx, ctx.variable_declaration().modifiers(), ctx.variable_declaration().VAR() != null, ctx.variable_declaration().type(), ctx.variable_declaration().variable_declarators());
+		return buildVariableDeclaration(ctx, ctx.variable_declaration().modifiers(),
+				ctx.variable_declaration().VAR() != null, ctx.variable_declaration().type(),
+				ctx.variable_declaration().variable_declarators());
 	}
 
 	@Override
@@ -289,9 +302,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 														 NebulaParser.Variable_declaratorsContext declsCtx)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-		// Modifiers are strictly for MethodDeclaration in this specific grammar version usually,
+		// Modifiers are strictly for MethodDeclaration in this specific grammar version
+		// usually,
 		// but if VariableDeclaration supports them in AST, we parse them.
-		// The AST Node VariableDeclaration currently doesn't store Modifiers (based on ast.txt),
+		// The AST Node VariableDeclaration currently doesn't store Modifiers (based on
+		// ast.txt),
 		// so we skip them here or you need to update ASTNode.
 		// Assuming we just want the type and declarators:
 
@@ -388,7 +403,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 				}
 				else if (control.for_initializer().expression_list() != null)
 				{
-					// Wrap expression list in an ExpressionStatement (or Block if multiple? simplified to first for now or single expr stmt)
+					// Wrap expression list in an ExpressionStatement (or Block if multiple?
+					// simplified to first for now or single expr stmt)
 					// Usually for-loops allow comma separated expressions.
 					// Nebula AST ForStatement expects a 'Statement initializer'.
 					// We can wrap the first expression or create a block if needed.
@@ -516,7 +532,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		for (int i = 1; i < ctx.exclusive_or_expression().size(); i++)
 		{
 			Expression right = (Expression) visit(ctx.exclusive_or_expression(i));
-			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_OR, right);
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_OR,
+					right);
 		}
 		return left;
 	}
@@ -531,7 +548,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		for (int i = 1; i < ctx.and_expression().size(); i++)
 		{
 			Expression right = (Expression) visit(ctx.and_expression(i));
-			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_XOR, right);
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_XOR,
+					right);
 		}
 		return left;
 	}
@@ -546,7 +564,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		for (int i = 1; i < ctx.equality_expression().size(); i++)
 		{
 			Expression right = (Expression) visit(ctx.equality_expression(i));
-			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_AND, right);
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_AND,
+					right);
 		}
 		return left;
 	}
@@ -561,7 +580,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			String op = ctx.getChild(2 * i - 1).getText(); // OP_EQ or OP_NE
 			Expression right = (Expression) visit(ctx.relational_expression(i));
-			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+					right);
 		}
 		return left;
 	}
@@ -584,8 +604,10 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			if (text.equals("is"))
 			{
 				// Handle IS expression (often a Type check or pattern match)
-				// For simplicity mapping to BinaryOperator.IS if exists, or treating as special expression.
-				// Assuming "IS" logic isn't in BinaryOperator yet, ignoring or treating as EQ for structure.
+				// For simplicity mapping to BinaryOperator.IS if exists, or treating as special
+				// expression.
+				// Assuming "IS" logic isn't in BinaryOperator yet, ignoring or treating as EQ
+				// for structure.
 				// *Correction*: Your BinaryOperator enum does not have IS.
 				// This would typically be an 'InstanceCheckExpression'.
 				// Since AST.txt doesn't have it, I'll return left (skip) or throw.
@@ -613,7 +635,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			String op = ctx.getChild(2 * i - 1).getText();
 			Expression right = (Expression) visit(ctx.additive_expression(i));
-			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+					right);
 		}
 		return left;
 	}
@@ -628,7 +651,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			String op = ctx.getChild(2 * i - 1).getText();
 			Expression right = (Expression) visit(ctx.multiplicative_expression(i));
-			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+					right);
 		}
 		return left;
 	}
@@ -643,7 +667,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			String op = ctx.getChild(2 * i - 1).getText();
 			Expression right = (Expression) visit(ctx.exponentiation_expression(i));
-			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op), right);
+			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+					right);
 		}
 		return left;
 	}
@@ -715,7 +740,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			if (postfix.DOT() != null)
 			{
-				String member = postfix.IDENTIFIER() != null ? postfix.IDENTIFIER().getText() : postfix.INTEGER_LITERAL().getText();
+				String member = postfix.IDENTIFIER() != null ? postfix.IDENTIFIER().getText()
+						: postfix.INTEGER_LITERAL().getText();
 				current = new MemberAccessExpression(span, current, member);
 			}
 			else if (postfix.OPEN_PARENS() != null)
@@ -759,6 +785,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			return visit(ctx.literal());
 		if (ctx.IDENTIFIER() != null)
 			return new IdentifierExpression(span, ctx.IDENTIFIER().getText());
+		if (ctx.qualified_name() != null)
+			return new IdentifierExpression(span, ctx.qualified_name().getText());
 		if (ctx.THIS() != null)
 			return new ThisExpression(span);
 		if (ctx.parenthesized_expression() != null)
@@ -863,7 +891,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 
 		if (ctx.literal() != null)
 		{
-			// Unwrap ASTNode to LiteralExpression if possible, literal() returns LiteralExpression
+			// Unwrap ASTNode to LiteralExpression if possible, literal() returns
+			// LiteralExpression
 			LiteralExpression lit = (LiteralExpression) visit(ctx.literal());
 			return new LiteralPattern(span, lit);
 		}
@@ -877,7 +906,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			// In simple grammar, "x" matches anything and binds to x.
 			// "String x" is a type pattern.
 			// Based on grammar, simple IDENTIFIER is likely a binding (Wildcard with name)
-			// But if it's a Type name, we need context. For now, treating as binding/TypePattern with null type?
+			// But if it's a Type name, we need context. For now, treating as
+			// binding/TypePattern with null type?
 			// Or simpler: TypePattern with NamedType and null variable?
 			// Let's assume IDENTIFIER is a NamedType match for now (TypePattern).
 			TypeNode type = new NamedType(span, ctx.IDENTIFIER().getText(), Collections.emptyList());
@@ -992,7 +1022,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			if (ctx.BANG() != null)
 			{
-				return new TagOperation(span, TagOperation.Operator.NOT, visitTagExpression(ctx.tag_expression(0)), null);
+				return new TagOperation(span, TagOperation.Operator.NOT, visitTagExpression(ctx.tag_expression(0)),
+						null);
 			}
 			if (ctx.OPEN_PARENS() != null)
 			{
@@ -1003,7 +1034,9 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			TagExpression left = visitTagExpression(ctx.tag_expression(0));
 			TagExpression right = visitTagExpression(ctx.tag_expression(1));
-			TagOperation.Operator op = (ctx.AMP() != null || ctx.getText().contains("&")) ? TagOperation.Operator.INTERSECT : TagOperation.Operator.UNION;
+			TagOperation.Operator op = (ctx.AMP() != null || ctx.getText().contains("&"))
+					? TagOperation.Operator.INTERSECT
+					: TagOperation.Operator.UNION;
 			return new TagOperation(span, op, left, right);
 		}
 		return null;
@@ -1079,26 +1112,46 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	{
 		return switch (op)
 		{
-			case "+" -> BinaryOperator.ADD;
-			case "-" -> BinaryOperator.SUB;
-			case "*" -> BinaryOperator.MUL;
-			case "/" -> BinaryOperator.DIV;
-			case "%" -> BinaryOperator.MOD;
-			case "**" -> BinaryOperator.POW;
-			case "&&" -> BinaryOperator.LOGICAL_AND;
-			case "||" -> BinaryOperator.LOGICAL_OR;
-			case "&" -> BinaryOperator.BIT_AND;
-			case "|" -> BinaryOperator.BIT_OR;
-			case "^" -> BinaryOperator.BIT_XOR;
-			case "==" -> BinaryOperator.EQ;
-			case "!=" -> BinaryOperator.NE;
-			case "<" -> BinaryOperator.LT;
-			case ">" -> BinaryOperator.GT;
-			case "<=" -> BinaryOperator.LE;
-			case ">=" -> BinaryOperator.GE;
-			case "<<" -> BinaryOperator.SHL;
-			case ">>" -> BinaryOperator.SHR;
-			default -> throw new IllegalArgumentException("Unknown operator: " + op);
+			case "+" ->
+					BinaryOperator.ADD;
+			case "-" ->
+					BinaryOperator.SUB;
+			case "*" ->
+					BinaryOperator.MUL;
+			case "/" ->
+					BinaryOperator.DIV;
+			case "%" ->
+					BinaryOperator.MOD;
+			case "**" ->
+					BinaryOperator.POW;
+			case "&&" ->
+					BinaryOperator.LOGICAL_AND;
+			case "||" ->
+					BinaryOperator.LOGICAL_OR;
+			case "&" ->
+					BinaryOperator.BIT_AND;
+			case "|" ->
+					BinaryOperator.BIT_OR;
+			case "^" ->
+					BinaryOperator.BIT_XOR;
+			case "==" ->
+					BinaryOperator.EQ;
+			case "!=" ->
+					BinaryOperator.NE;
+			case "<" ->
+					BinaryOperator.LT;
+			case ">" ->
+					BinaryOperator.GT;
+			case "<=" ->
+					BinaryOperator.LE;
+			case ">=" ->
+					BinaryOperator.GE;
+			case "<<" ->
+					BinaryOperator.SHL;
+			case ">>" ->
+					BinaryOperator.SHR;
+			default ->
+					throw new IllegalArgumentException("Unknown operator: " + op);
 		};
 	}
 
@@ -1106,11 +1159,16 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	{
 		return switch (op)
 		{
-			case "!" -> UnaryOperator.NOT;
-			case "-" -> UnaryOperator.MINUS;
-			case "+" -> UnaryOperator.PLUS;
-			case "~" -> UnaryOperator.BIT_NOT;
-			default -> throw new IllegalArgumentException("Unknown unary operator: " + op);
+			case "!" ->
+					UnaryOperator.NOT;
+			case "-" ->
+					UnaryOperator.MINUS;
+			case "+" ->
+					UnaryOperator.PLUS;
+			case "~" ->
+					UnaryOperator.BIT_NOT;
+			default ->
+					throw new IllegalArgumentException("Unknown unary operator: " + op);
 		};
 	}
 }

@@ -1,0 +1,11 @@
+class User {}
+class WindowHandle {}
+
+WindowHandle getNewWindowHandle() {
+    return new WindowHandle();
+}
+
+void test_type_inference() {
+    var u = new User();
+    u = getNewWindowHandle(); // ERROR: Cannot assign WindowHandle to User
+}

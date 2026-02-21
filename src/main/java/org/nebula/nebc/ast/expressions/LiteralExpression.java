@@ -2,16 +2,16 @@ package org.nebula.nebc.ast.expressions;
 
 import org.nebula.nebc.ast.ASTVisitor;
 import org.nebula.nebc.frontend.diagnostic.SourceSpan;
-import org.nebula.nebc.semantic.types.PrimitiveType;
-import org.nebula.nebc.semantic.types.Type;
 
+/**
+ * A literal value in the source code (integer, float, string, bool, char).
+ * The semantic type is resolved by the SemanticAnalyzer, not by this AST node.
+ */
 public class LiteralExpression extends Expression
 {
+
 	public final Object value;
 	public final LiteralType type;
-
-	public enum LiteralType
-	{INT, FLOAT, STRING, BOOL, CHAR}
 
 	public LiteralExpression(SourceSpan span, Object value, LiteralType type)
 	{
@@ -26,20 +26,8 @@ public class LiteralExpression extends Expression
 		return visitor.visitLiteralExpression(this);
 	}
 
-	public Type getType()
+	public enum LiteralType
 	{
-		return switch (type)
-		{
-			case INT ->
-					PrimitiveType.I64;
-			case FLOAT ->
-					PrimitiveType.F64;
-			case BOOL ->
-					PrimitiveType.BOOL;
-			case CHAR ->
-					PrimitiveType.CHAR;
-			case STRING ->
-					PrimitiveType.STRING;
-		};
+		INT, FLOAT, STRING, BOOL, CHAR
 	}
 }

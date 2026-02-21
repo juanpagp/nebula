@@ -1,14 +1,7 @@
 package org.nebula.nebc.frontend.parser;
 
-import org.antlr.v4.runtime.BaseErrorListener;
-import org.antlr.v4.runtime.CharStream;
-import org.antlr.v4.runtime.CharStreams;
-import org.antlr.v4.runtime.CommonTokenStream;
-import org.antlr.v4.runtime.RecognitionException;
-import org.antlr.v4.runtime.Recognizer;
-import org.antlr.v4.runtime.Token;
+import org.antlr.v4.runtime.*;
 import org.antlr.v4.runtime.tree.ParseTree;
-import org.antlr.v4.runtime.tree.Trees;
 import org.nebula.nebc.core.CompilerConfig;
 import org.nebula.nebc.frontend.parser.generated.NebulaLexer;
 import org.nebula.nebc.frontend.parser.generated.NebulaParser;
@@ -178,7 +171,7 @@ public class Parser
 			}
 
 			// System.out.println(Trees.toStringTree(tree, parser));
-            parsingResultList.add(new ParsingResult(sourceFile, tree));
+			parsingResultList.add(new ParsingResult(sourceFile, tree));
 		}
 
 		return totalErrors;
@@ -189,8 +182,8 @@ public class Parser
 	 */
 	private static class SyntaxErrorCounter extends BaseErrorListener
 	{
-		private int errorCount = 0;
 		private final String fileName;
+		private int errorCount = 0;
 
 		public SyntaxErrorCounter(String fileName)
 		{

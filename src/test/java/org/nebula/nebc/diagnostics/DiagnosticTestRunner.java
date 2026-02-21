@@ -7,7 +7,7 @@ import org.nebula.nebc.ast.CompilationUnit;
 import org.nebula.nebc.core.CompilerConfig;
 import org.nebula.nebc.frontend.parser.Parser;
 import org.nebula.nebc.semantic.SemanticAnalyzer;
-import org.nebula.nebc.semantic.SemanticError;
+import org.nebula.nebc.frontend.diagnostic.Diagnostic;
 
 import java.io.File;
 import java.io.IOException;
@@ -24,22 +24,20 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 public class DiagnosticTestRunner {
 
+    // Regex to find: // ERROR: <message>
+    private static final Pattern ERROR_PATTERN = Pattern.compile("//\\s*ERROR\\s*:\\s*(.*)", Pattern.CASE_INSENSITIVE);
     private static final String DIAGNOSTICS_DIR = "src/test/resources/diagnostics";
-    private static final Pattern ERROR_PATTERN = Pattern.compile("//\\s*ERROR:\\s*(.*)");
-
-    private record ExpectedError(int line, String messageSubstring) {
-    }
 
     @TestFactory
-    Stream<DynamicTest> runDiagnosticTests() throws IOException {
-        Path dirPath = Paths.get(DIAGNOSTICS_DIR);
-        if (!Files.exists(dirPath)) {
+    Stream<DynamicTest> diagnosticTests() throws IOException {
+        Path startPath = Paths.get(DIAGNOSTICS_DIR);
+        if (!Files.exists(startPath)) {
+            System.out.println("Warning: Diagnostics directory not found: " + startPath.toAbsolutePath());
             return Stream.empty();
         }
 
-        return Files.walk(dirPath)
-                .filter(Files::isRegularFile)
-                .filter(path -> path.toString().endsWith(".neb"))
+        return Files.walk(startPath)
+                .filter(p -> p.toString().endsWith(".neb"))
                 .map(this::createTestForFile);
     }
 
@@ -54,51 +52,58 @@ public class DiagnosticTestRunner {
         List<ExpectedError> expectedErrors = new ArrayList<>();
 
         for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i);
-            Matcher matcher = ERROR_PATTERN.matcher(line);
-            if (matcher.find()) {
-                String expectedMsg = matcher.group(1).trim();
-                expectedErrors.add(new ExpectedError(i + 1, expectedMsg));
+            Matcher m = ERROR_PATTERN.matcher(lines.get(i));
+            if (m.find()) {
+                expectedErrors.add(new ExpectedError(i + 1, m.group(1).trim()));
             }
         }
 
-        CompilerConfig.Builder configBuilder = new CompilerConfig.Builder();
-        configBuilder.addNebSource(file.getAbsolutePath());
-        CompilerConfig config = configBuilder.build();
+        // Dummy CompilerConfig for parsing and semantic analysis
+        CompilerConfig.Builder builder = new CompilerConfig.Builder();
+        builder.addNebSource(file.getAbsolutePath());
+        builder.compileAsLibrary(false);
+        CompilerConfig config = builder.build();
 
         Parser parser = new Parser(config);
-        parser.parse();
+        List<Diagnostic> actualErrors = new ArrayList<>();
+        int parserErrors = parser.parse();
+        if (parserErrors != 0) {
+            fail("Parser failed for " + file.getName() + " with " + parserErrors + " errors.");
+        }
 
         // Even if there are syntax errors, we still try to build AST and semantics
         // because we might be testing syntax error diagnostics eventually.
         // For now, assume syntax is mostly correct or we only test semantic errors.
-        List<CompilationUnit> cus = ASTBuilder.buildAST(parser.getParsingResultList());
+        var compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
 
-        SemanticAnalyzer analyzer = new SemanticAnalyzer();
-        List<SemanticError> actualErrors = new ArrayList<>();
-        for (CompilationUnit cu : cus) {
+        SemanticAnalyzer analyzer = new SemanticAnalyzer(config);
+        for (var cu : compilationUnits) {
             actualErrors.addAll(analyzer.analyze(cu));
         }
 
-        // Check each actual error against expected
-        List<SemanticError> unmatchedActualErrors = new ArrayList<>(actualErrors);
+        // Emulate the entry point check from Compiler.run()
+        if (!config.compileAsLibrary() && analyzer.getMainMethod() == null) {
+            actualErrors.add(Diagnostic.of(org.nebula.nebc.frontend.diagnostic.DiagnosticCode.MISSING_MAIN_METHOD,
+                    org.nebula.nebc.frontend.diagnostic.SourceSpan.unknown()));
+        }
+
         List<ExpectedError> unmatchedExpectedErrors = new ArrayList<>(expectedErrors);
+        List<Diagnostic> unmatchedActualErrors = new ArrayList<>(actualErrors);
 
-        for (int i = unmatchedActualErrors.size() - 1; i >= 0; i--) {
-            SemanticError actual = unmatchedActualErrors.get(i);
-
+        // --- Matching Logic ---
+        // Iterate through expected errors and try to match them with actual errors
+        for (int i = unmatchedExpectedErrors.size() - 1; i >= 0; i--) {
+            ExpectedError expected = unmatchedExpectedErrors.get(i);
             boolean matched = false;
-            for (int j = 0; j < unmatchedExpectedErrors.size(); j++) {
-                ExpectedError expected = unmatchedExpectedErrors.get(j);
+            for (int j = unmatchedActualErrors.size() - 1; j >= 0; j--) {
+                Diagnostic actual = unmatchedActualErrors.get(j);
                 if (actual.span().startLine() == expected.line() &&
                         actual.message().toLowerCase().contains(expected.messageSubstring().toLowerCase())) {
-                    unmatchedExpectedErrors.remove(j);
+                    unmatchedActualErrors.remove(j);
+                    unmatchedExpectedErrors.remove(i);
                     matched = true;
                     break;
                 }
-            }
-            if (matched) {
-                unmatchedActualErrors.remove(i);
             }
         }
 
@@ -129,7 +134,7 @@ public class DiagnosticTestRunner {
 
                 // See if there's an actual unexpected error on that same line
                 boolean foundAltError = false;
-                for (SemanticError unexpected : unmatchedActualErrors) {
+                for (Diagnostic unexpected : unmatchedActualErrors) {
                     if (unexpected.span().startLine() == expected.line()) {
                         System.out.println("                (actual)   " + unexpected.message());
                         foundAltError = true;
@@ -143,9 +148,10 @@ public class DiagnosticTestRunner {
         }
 
         // 2. Process unexpected errors that weren't on an expected line
-        for (SemanticError unexpected : unmatchedActualErrors) {
+        for (Diagnostic unexpected : unmatchedActualErrors) {
             // Don't report it again if we just reported it as an "actual" mismatch above
-            boolean alreadyReported = expectedErrors.stream().anyMatch(e -> e.line() == unexpected.span().startLine());
+            boolean alreadyReported = expectedErrors.stream()
+                    .anyMatch(e -> e.line() == unexpected.span().startLine());
 
             if (!alreadyReported) {
                 allPassed = false;
@@ -160,5 +166,8 @@ public class DiagnosticTestRunner {
         if (!allPassed) {
             fail("Diagnostic test failed for " + file.getName() + " (see console output above)");
         }
+    }
+
+    private record ExpectedError(int line, String messageSubstring) {
     }
 }

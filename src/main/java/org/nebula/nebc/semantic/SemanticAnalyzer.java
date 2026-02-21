@@ -13,30 +13,43 @@ import org.nebula.nebc.ast.tags.TagOperation;
 import org.nebula.nebc.ast.tags.TagStatement;
 import org.nebula.nebc.ast.types.NamedType;
 import org.nebula.nebc.ast.types.TypeNode;
+import org.nebula.nebc.core.CompilerConfig;
+import org.nebula.nebc.frontend.diagnostic.Diagnostic;
+import org.nebula.nebc.frontend.diagnostic.DiagnosticCode;
+import org.nebula.nebc.frontend.diagnostic.SourceSpan;
+import org.nebula.nebc.semantic.symbol.*;
 import org.nebula.nebc.semantic.types.*;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SemanticAnalyzer implements ASTVisitor<Type>
 {
 
-	private final List<SemanticError> errors = new ArrayList<>();
+	private final List<Diagnostic> errors = new ArrayList<>();
 
-	// Global/Root scope
-	private Scope currentScope = new Scope(null);
-
+	// Symbol table (replaces old Scope)
+	private final SymbolTable globalScope = new SymbolTable(null);
+	private final Map<ASTNode, Symbol> nodeSymbols = new HashMap<>();
+	private final CompilerConfig config;
+	private SymbolTable currentScope = globalScope;
+	private MethodDeclaration mainMethod = null;
+	private Type mainMethodReturnType = null;
 	// --- Context Tracking ---
-	// Track the expected return type of the method we are currently inside
 	private Type currentMethodReturnType = null;
-	// Track if we are inside a loop (for break/continue checks - strictness)
 	private boolean insideLoop = false;
-	// Track the current class/struct we are inside (for 'this' resolution)
 	private CompositeType currentTypeDefinition = null;
 
-	public List<SemanticError> analyze(CompilationUnit unit)
+	public SemanticAnalyzer(CompilerConfig config)
 	{
-		// 1. Initialize Primitives (i32, f64, etc.)
+		this.config = config;
+	}
+
+	public List<Diagnostic> analyze(CompilationUnit unit)
+	{
+		// 1. Initialize built-in primitive types as TypeSymbols
 		PrimitiveType.defineAll(currentScope);
 
 		// 2. Visit the AST
@@ -45,18 +58,54 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		return errors;
 	}
 
+	/**
+	 * Associates a symbol with an AST node.
+	 * Called during analysis (e.g., when visiting a MethodDeclaration).
+	 */
+	private void recordSymbol(ASTNode node, Symbol symbol)
+	{
+		nodeSymbols.put(node, symbol);
+	}
+
+	/**
+	 * Helper for the CodeGen to retrieve resolved metadata.
+	 */
+	public <T extends Symbol> T getSymbol(ASTNode node, Class<T> type)
+	{
+		Symbol sym = nodeSymbols.get(node);
+		if (sym == null)
+			return null;
+		return type.isInstance(sym) ? type.cast(sym) : null;
+	}
+
+	/**
+	 * Returns the AST node of the validated 'main' method, or null if none was
+	 * found.
+	 */
+	public MethodDeclaration getMainMethod()
+	{
+		return mainMethod;
+	}
+
+	/**
+	 * Returns the resolved return type of the 'main' method (i32 or void), or null.
+	 */
+	public Type getMainMethodReturnType()
+	{
+		return mainMethodReturnType;
+	}
+
 	// --- Utilities ---
 
-	private void error(String msg, ASTNode node)
+	private void error(DiagnosticCode code, ASTNode node, Object... args)
 	{
-		// If node is null, we can't get a span, fallback to unknown
-		var span = (node != null) ? node.getSpan() : org.nebula.nebc.frontend.diagnostic.SourceSpan.unknown();
-		errors.add(new SemanticError(msg, span));
+		var span = (node != null) ? node.getSpan() : SourceSpan.unknown();
+		errors.add(Diagnostic.of(code, span, args));
 	}
 
 	private void enterScope()
 	{
-		currentScope = new Scope(currentScope);
+		currentScope = new SymbolTable(currentScope);
 	}
 
 	private void exitScope()
@@ -69,6 +118,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 	/**
 	 * Resolves a syntactic AST TypeNode to a semantic Type object.
+	 * Uses the symbol table to find TypeSymbols specifically.
 	 */
 	private Type resolveType(TypeNode astType)
 	{
@@ -77,13 +127,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		if (astType instanceof NamedType nt)
 		{
-			Type t = currentScope.resolve(nt.qualifiedName);
-			if (t == null)
+			TypeSymbol ts = currentScope.resolveType(nt.qualifiedName);
+			if (ts == null)
 			{
-				error("Unknown type '" + nt.qualifiedName + "'", astType);
+				error(DiagnosticCode.UNKNOWN_TYPE, astType, nt.qualifiedName);
 				return Type.ERROR;
 			}
-			return t;
+			return ts.getType();
 		}
 		// TODO: Handle ArrayType and TupleType recursion here
 		return Type.ANY;
@@ -96,8 +146,32 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitCompilationUnit(CompilationUnit node)
 	{
-		// Pre-pass: We could optionally register all types first to handle
-		// out-of-order definitions. For now, we process linearly.
+		// Phase 1: Forward-declare all top-level type names.
+		// This allows classes/structs to reference each other regardless of order.
+		for (ASTNode decl : node.declarations)
+		{
+			if (decl instanceof ClassDeclaration cd)
+			{
+				ClassType classType = new ClassType(cd.name, currentScope);
+				TypeSymbol sym = new TypeSymbol(cd.name, classType, cd);
+				if (!currentScope.define(sym))
+				{
+					error(DiagnosticCode.TYPE_ALREADY_DEFINED, cd, cd.name);
+				}
+			}
+			else if (decl instanceof StructDeclaration sd)
+			{
+				StructType structType = new StructType(sd.name, currentScope);
+				TypeSymbol sym = new TypeSymbol(sd.name, structType, sd);
+				if (!currentScope.define(sym))
+				{
+					error(DiagnosticCode.TYPE_ALREADY_DEFINED, sd, sd.name);
+				}
+			}
+			// TODO: Forward-declare unions, traits, etc.
+		}
+
+		// Phase 2: Full visitation — resolve bodies, check types.
 		for (ASTNode decl : node.declarations)
 		{
 			decl.accept(this);
@@ -108,22 +182,23 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitNamespaceDeclaration(NamespaceDeclaration node)
 	{
-		// Resolve or create namespace scope
-		NamespaceType nsType;
-		Type existing = currentScope.resolve(node.name);
+		// Resolve or create namespace
+		NamespaceSymbol nsSym;
+		Symbol existing = currentScope.resolve(node.name);
 
-		if (existing instanceof NamespaceType ns)
+		if (existing instanceof NamespaceSymbol ns)
 		{
-			nsType = ns;
+			nsSym = ns;
 		}
 		else
 		{
-			nsType = new NamespaceType(node.name, currentScope);
-			currentScope.define(node.name, nsType);
+			SymbolTable nsTable = new SymbolTable(currentScope);
+			nsSym = new NamespaceSymbol(node.name, nsTable, node);
+			currentScope.define(nsSym);
 		}
 
-		Scope previousScope = currentScope;
-		currentScope = nsType.getMemberScope();
+		SymbolTable previousScope = currentScope;
+		currentScope = nsSym.getMemberTable();
 
 		for (ASTNode member : node.members)
 		{
@@ -143,43 +218,54 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitClassDeclaration(ClassDeclaration node)
 	{
-		return visitCompositeDeclaration(node, new ClassType(node.name, currentScope), node.members);
+		// The TypeSymbol was already forward-declared in Phase 1.
+		// Look it up and populate its member scope.
+		TypeSymbol existingSym = currentScope.resolveType(node.name);
+		if (existingSym == null)
+		{
+			error(DiagnosticCode.INTERNAL_ERROR, node, "class '" + node.name + "' was not forward-declared.");
+			return null;
+		}
+		ClassType classType = (ClassType) existingSym.getType();
+		return visitCompositeBody(node, classType, node.members);
 	}
 
 	@Override
 	public Type visitStructDeclaration(StructDeclaration node)
 	{
-		return visitCompositeDeclaration(node, new StructType(node.name, currentScope), node.members);
+		// The TypeSymbol was already forward-declared in Phase 1.
+		TypeSymbol existingSym = currentScope.resolveType(node.name);
+		if (existingSym == null)
+		{
+			error(DiagnosticCode.INTERNAL_ERROR, node, "struct '" + node.name + "' was not forward-declared.");
+			return null;
+		}
+		StructType structType = (StructType) existingSym.getType();
+		return visitCompositeBody(node, structType, node.members);
 	}
 
 	/**
-	 * Shared logic for Classes and Structs
+	 * Shared logic for populating the member scope of Classes and Structs.
 	 */
-	private Type visitCompositeDeclaration(ASTNode node, CompositeType type, List<Declaration> members)
+	private Type visitCompositeBody(ASTNode node, CompositeType type, List<Declaration> members)
 	{
-		// 1. Define Type in current scope
-		if (!currentScope.define(type.name(), type))
-		{
-			error("Type '" + type.name() + "' is already defined.", node);
-		}
-
-		// 2. Enter Member Scope
-		Scope outerScope = currentScope;
+		// Enter member scope
+		SymbolTable outerScope = currentScope;
 		CompositeType prevTypeDef = currentTypeDefinition;
 
 		currentScope = type.getMemberScope();
 		currentTypeDefinition = type;
 
-		// Define 'this'
-		currentScope.define("this", type);
+		// Define 'this' as a variable symbol pointing to the type
+		currentScope.define(new VariableSymbol("this", type, false, node));
 
-		// 3. Visit Members
+		// Visit members
 		for (Declaration member : members)
 		{
 			member.accept(this);
 		}
 
-		// 4. Restore Context
+		// Restore context
 		currentTypeDefinition = prevTypeDef;
 		currentScope = outerScope;
 		return null;
@@ -190,7 +276,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	{
 		Type returnType = (node.returnType == null) ? PrimitiveType.VOID : resolveType(node.returnType);
 
-		// 1. Build Function Signature
+		// 1. Build function signature
 		List<Type> paramTypes = new ArrayList<>();
 		for (Parameter p : node.parameters)
 		{
@@ -199,24 +285,49 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 		FunctionType methodType = new FunctionType(returnType, paramTypes);
 
-		// 2. Define Method in Current Scope (e.g., inside the Class/Struct scope)
-		if (!currentScope.define(node.name, methodType))
+		// 2. Define method as a MethodSymbol in current scope
+		MethodSymbol methodSym = new MethodSymbol(node.name, methodType, node.modifiers, node);
+		recordSymbol(node, methodSym);
+		if (!currentScope.define(methodSym))
 		{
-			error("Method '" + node.name + "' already defined.", node);
+			error(DiagnosticCode.DUPLICATE_SYMBOL, node, node.name);
 		}
 
-		// 3. Analyze Body
+		// 3. Check for entry point
+		if ("main".equals(node.name) && currentTypeDefinition == null)
+		{
+			if (mainMethod != null)
+			{
+				error(DiagnosticCode.DUPLICATE_MAIN_METHOD, node);
+			}
+			else
+			{
+				if (returnType != PrimitiveType.I32 && returnType != PrimitiveType.VOID)
+				{
+					error(DiagnosticCode.INVALID_MAIN_SIGNATURE, node);
+				}
+				if (!node.parameters.isEmpty())
+				{
+					error(DiagnosticCode.INVALID_MAIN_SIGNATURE, node);
+				}
+				mainMethod = node;
+				mainMethodReturnType = returnType;
+			}
+		}
+
+		// 3. Analyze body
 		enterScope();
 		Type prevRet = currentMethodReturnType;
 		currentMethodReturnType = returnType;
 
-		// Define parameters as local variables
+		// Define parameters as variable symbols
 		for (Parameter param : node.parameters)
 		{
 			Type pType = resolveType(param.type());
-			if (!currentScope.define(param.name(), pType))
+			VariableSymbol paramSym = new VariableSymbol(param.name(), pType, false, node);
+			if (!currentScope.define(paramSym))
 			{
-				error("Duplicate parameter '" + param.name() + "'", node);
+				error(DiagnosticCode.DUPLICATE_PARAMETER, node, param.name());
 			}
 			// Check default value type if present
 			if (param.defaultValue() != null)
@@ -224,7 +335,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				Type defType = param.defaultValue().accept(this);
 				if (!defType.isAssignableTo(pType))
 				{
-					error("Default value type mismatch. Expected " + pType.name(), param.defaultValue());
+					error(DiagnosticCode.TYPE_MISMATCH, param.defaultValue(), pType.name(), defType.name());
 				}
 			}
 		}
@@ -232,15 +343,6 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (node.body != null)
 		{
 			node.body.accept(this);
-			// If body is an expression (fat arrow), we might check semantic compatibility here
-			// but the ReturnStatement visitor usually handles void/non-void checks inside blocks.
-			// If it's a direct expression body (=> expr), we need to ensure it matches return type.
-			if (!(node.body instanceof StatementBlock))
-			{
-				// Assuming node.body is an Expression if not a block (depending on AST impl)
-				// The provided ASTNode body is generic, usually we'd cast.
-				// For now, let visitor flow handle it.
-			}
 		}
 
 		currentMethodReturnType = prevRet;
@@ -252,6 +354,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	public Type visitVariableDeclaration(VariableDeclaration node)
 	{
 		Type explicitType = node.isVar ? null : resolveType(node.type);
+		boolean mutable = node.isVar; // var = mutable, explicit type = immutable by default
 
 		for (VariableDeclarator decl : node.declarators)
 		{
@@ -263,29 +366,30 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 				if (node.isVar)
 				{
-					// Type Inference
+					// Type inference
 					actualType = (initType == null || initType == Type.ERROR) ? Type.ERROR : initType;
 				}
 				else
 				{
-					// Type Checking
+					// Type checking
 					if (!initType.isAssignableTo(explicitType))
 					{
-						error("Type mismatch. Expected " + explicitType.name() + ", got " + initType.name(), decl.initializer());
+						error(DiagnosticCode.TYPE_MISMATCH, decl.initializer(), explicitType.name(), initType.name());
 					}
 				}
 			}
 			else if (node.isVar)
 			{
-				error("Implicit variable '" + decl.name() + "' must be initialized.", node);
+				error(DiagnosticCode.UNINITIALIZED_VARIABLE, node, decl.name());
 				actualType = Type.ERROR;
 			}
 
 			if (actualType != Type.ERROR)
 			{
-				if (!currentScope.define(decl.name(), actualType))
+				VariableSymbol varSym = new VariableSymbol(decl.name(), actualType, mutable, node);
+				if (!currentScope.define(varSym))
 				{
-					error("Variable '" + decl.name() + "' already defined.", node);
+					error(DiagnosticCode.DUPLICATE_SYMBOL, node, decl.name());
 				}
 			}
 		}
@@ -315,11 +419,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		if (currentMethodReturnType == null)
 		{
-			error("Return statement outside of method.", node);
+			error(DiagnosticCode.RETURN_OUTSIDE_METHOD, node);
 		}
 		else if (!valType.isAssignableTo(currentMethodReturnType))
 		{
-			error("Return type mismatch. Expected " + currentMethodReturnType.name() + ", got " + valType.name(), node);
+			error(DiagnosticCode.TYPE_MISMATCH, node, currentMethodReturnType.name(), valType.name());
 		}
 		return PrimitiveType.VOID;
 	}
@@ -330,7 +434,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		Type condType = node.condition.accept(this);
 		if (condType != PrimitiveType.BOOL && condType != Type.ERROR)
 		{
-			error("If condition must be boolean, got " + condType.name(), node.condition);
+			error(DiagnosticCode.IF_CONDITION_NOT_BOOL, node.condition, condType.name());
 		}
 		node.thenBranch.accept(this);
 		if (node.elseBranch != null)
@@ -345,22 +449,18 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	{
 		enterScope();
 
-		// 1. Initializer (e.g., int i = 0)
 		if (node.initializer != null)
 			node.initializer.accept(this);
 
-		// 2. Condition
 		if (node.condition != null)
 		{
 			Type cond = node.condition.accept(this);
 			if (cond != PrimitiveType.BOOL && cond != Type.ERROR)
 			{
-				error("For condition must be boolean.", node.condition);
+				error(DiagnosticCode.FOR_CONDITION_NOT_BOOL, node.condition, cond.name());
 			}
 		}
 
-		// 3. Iterators (e.g., i++)
-		// CORRECTED: using 'iterators' list, not 'update'
 		if (node.iterators != null)
 		{
 			for (Expression expr : node.iterators)
@@ -384,19 +484,17 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		enterScope();
 
 		Type iterableType = node.iterable.accept(this);
-		// In a real implementation, checking if iterableType implements Iterable<T> happens here.
-		// For now, we assume it's valid or assume ANY.
-
+		// In a real implementation, checking if iterableType implements Iterable<T>
 		Type itemType = Type.ANY; // Should extract T from Iterable<T>
 
 		if (node.variableType != null)
 		{
-			// Explicit type: foreach(int x in list)
 			itemType = resolveType(node.variableType);
 		}
 
-		// Define the loop variable
-		currentScope.define(node.variableName, itemType);
+		// Define the loop variable as a VariableSymbol
+		VariableSymbol loopVar = new VariableSymbol(node.variableName, itemType, false, node);
+		currentScope.define(loopVar);
 
 		boolean prevLoop = insideLoop;
 		insideLoop = true;
@@ -420,10 +518,6 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (left == Type.ERROR || right == Type.ERROR)
 			return Type.ERROR;
 
-		// Simplified Operator Overloading Logic
-		// In a real compiler, we would look for operator methods on 'left'.
-		// e.g., left.operator+(right)
-
 		switch (node.operator)
 		{
 			case ADD:
@@ -434,16 +528,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case POW:
 				if (left.equals(right) && isNumeric(left))
 					return left;
-				// TODO: Check for custom operator overload here
-				error("Operator '" + node.operator + "' not defined for " + left.name() + " and " + right.name(), node);
+				error(DiagnosticCode.OPERATOR_NOT_DEFINED, node, node.operator, left.name(), right.name());
 				return Type.ERROR;
 
 			case EQ:
 			case NE:
 				if (!left.equals(right))
 				{
-					// Warning usually, unless strict types
-					error("Comparing distinct types " + left.name() + " and " + right.name() + " is always false.", node);
+					error(DiagnosticCode.COMPARING_DISTINCT_TYPES, node, left.name(), right.name());
 				}
 				return PrimitiveType.BOOL;
 
@@ -453,14 +545,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case GE:
 				if (left.equals(right) && isNumeric(left))
 					return PrimitiveType.BOOL;
-				error("Relational operator requires numeric types.", node);
+				error(DiagnosticCode.RELATIONAL_NUMERIC, node);
 				return Type.ERROR;
 
 			case LOGICAL_AND:
 			case LOGICAL_OR:
 				if (left == PrimitiveType.BOOL && right == PrimitiveType.BOOL)
 					return PrimitiveType.BOOL;
-				error("Logical operators require boolean operands.", node);
+				error(DiagnosticCode.LOGICAL_BOOLEAN, node);
 				return Type.ERROR;
 
 			default:
@@ -477,35 +569,29 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		FunctionType fn = null;
 
-		// Case A: It's a proper function type (e.g. a variable holding a lambda, or a resolved method)
 		if (targetType instanceof FunctionType f)
 		{
 			fn = f;
 		}
-		// Case B: It looks like a struct construction? e.g. Vec2(1, 2)
-		// In this case, 'targetType' is the StructType itself.
-		// We need to find if there is a constructor (which acts like a function) or default init.
 		else if (targetType instanceof StructType || targetType instanceof ClassType)
 		{
-			// For simplicity in this analyzer, we treat the type itself as callable
-			// if it implies a constructor call.
-			// We'd ideally look up a special "__init__" or similar in the type's scope.
-			// Let's assume a generic constructor for now that accepts ANY args (placeholder)
+			// Constructor call — return the type itself
+			// TODO: Validate constructor arguments against constructors in the type's scope
 			return targetType;
 		}
 		else
 		{
-			error("Expression of type '" + targetType.name() + "' is not callable.", node.target);
+			error(DiagnosticCode.NOT_CALLABLE, node.target, targetType.name());
 			return Type.ERROR;
 		}
 
-		// Validate Arguments
+		// Validate arguments
 		if (fn != null)
 		{
 			List<Expression> args = node.arguments;
 			if (args.size() != fn.parameterTypes.size())
 			{
-				error("Argument count mismatch. Expected " + fn.parameterTypes.size() + ", got " + args.size(), node);
+				error(DiagnosticCode.ARGUMENT_COUNT_MISMATCH, node, fn.parameterTypes.size(), args.size());
 				return fn.returnType;
 			}
 
@@ -515,7 +601,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				Type paramType = fn.parameterTypes.get(i);
 				if (!argType.isAssignableTo(paramType))
 				{
-					error("Argument " + (i + 1) + ": expected " + paramType.name() + ", got " + argType.name(), args.get(i));
+					error(DiagnosticCode.ARGUMENT_TYPE_MISMATCH, args.get(i), (i + 1), paramType.name(), argType.name());
 				}
 			}
 			return fn.returnType;
@@ -527,13 +613,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitMemberAccessExpression(MemberAccessExpression node)
 	{
-		// 1. Resolve object: e.g., 'obj' in 'obj.field'
 		Type objectType = node.target.accept(this);
 		if (objectType == Type.ERROR)
 			return Type.ERROR;
 
-		// 2. Get the scope of that object
-		Scope memberScope = null;
+		SymbolTable memberScope = null;
 		if (objectType instanceof CompositeType ct)
 		{
 			memberScope = ct.getMemberScope();
@@ -541,56 +625,50 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		else if (objectType instanceof NamespaceType nt)
 		{
 			memberScope = nt.getMemberScope();
-		}
-		else
-		{
-			// Primitives don't have members in this simple pass (unless we add extension methods later)
-			error("Type '" + objectType.name() + "' does not have members.", node.target);
+			error(DiagnosticCode.NO_MEMBERS, node.target, objectType.name());
 			return Type.ERROR;
 		}
 
-		// 3. Resolve member
-		Type memberType = memberScope.resolve(node.memberName);
-		if (memberType == null)
+		// Resolve member as a Symbol, return its type
+		Symbol memberSym = memberScope.resolve(node.memberName);
+		if (memberSym == null)
 		{
-			error("Member '" + node.memberName + "' not found in " + objectType.name(), node);
+			error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
 			return Type.ERROR;
 		}
 
-		return memberType;
+		return memberSym.getType();
 	}
 
 	@Override
 	public Type visitIdentifierExpression(IdentifierExpression node)
 	{
-		Type t = currentScope.resolve(node.name);
-		if (t == null)
+		Symbol sym = currentScope.resolve(node.name);
+		if (sym == null)
 		{
-			error("Undefined symbol '" + node.name + "'", node);
+			error(DiagnosticCode.UNDEFINED_SYMBOL, node, node.name);
 			return Type.ERROR;
 		}
-		return t;
+		return sym.getType();
 	}
 
 	@Override
 	public Type visitNewExpression(NewExpression node)
 	{
-		// node.typeName is a String. In a real AST it should ideally be a TypeNode.
-		Type t = currentScope.resolve(node.typeName);
-		if (t == null)
+		TypeSymbol ts = currentScope.resolveType(node.typeName);
+		if (ts == null)
 		{
-			error("Unknown type '" + node.typeName + "'", node);
+			error(DiagnosticCode.UNKNOWN_TYPE, node, node.typeName);
 			return Type.ERROR;
 		}
 
-		// TODO: Validate constructor arguments against t's constructor
-		// For now, iterate args to ensure they are valid expressions
+		// TODO: Validate constructor arguments against the type's constructors
 		for (Expression arg : node.arguments)
 		{
 			arg.accept(this);
 		}
 
-		return t;
+		return ts.getType();
 	}
 
 	@Override
@@ -604,7 +682,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		if (!valueType.isAssignableTo(targetType))
 		{
-			error("Cannot assign " + valueType.name() + " to " + targetType.name(), node);
+			error(DiagnosticCode.TYPE_MISMATCH, node, targetType.name(), valueType.name());
 			return Type.ERROR;
 		}
 		return targetType;
@@ -623,7 +701,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				if (operand != PrimitiveType.BOOL)
 				{
-					error("Operator '!' requires boolean operand.", node);
+					error(DiagnosticCode.UNARY_NOT_BOOLEAN, node, operand.name());
 					yield Type.ERROR;
 				}
 				yield PrimitiveType.BOOL;
@@ -632,7 +710,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				if (!isNumeric(operand))
 				{
-					error("Unary math requires numeric operand.", node);
+					error(DiagnosticCode.UNARY_MATH_NUMERIC, node, operand.name());
 					yield Type.ERROR;
 				}
 				yield operand;
@@ -645,7 +723,20 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitLiteralExpression(LiteralExpression node)
 	{
-		return node.getType() != null ? node.getType() : Type.ERROR;
+		// Type resolution lives in the analyzer, not in the AST node
+		return switch (node.type)
+		{
+			case INT ->
+					PrimitiveType.I64;
+			case FLOAT ->
+					PrimitiveType.F64;
+			case BOOL ->
+					PrimitiveType.BOOL;
+			case CHAR ->
+					PrimitiveType.CHAR;
+			case STRING ->
+					PrimitiveType.STRING;
+		};
 	}
 
 	@Override
@@ -670,13 +761,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 	private boolean isNumeric(Type t)
 	{
-		// This is a simplification. A real compiler handles type promotion (i32 -> i64).
 		return t == PrimitiveType.I32 || t == PrimitiveType.F64 ||
 				t == PrimitiveType.I64 || t == PrimitiveType.F32 ||
-				t == PrimitiveType.U8 || t == PrimitiveType.I8; // etc
+				t == PrimitiveType.U8 || t == PrimitiveType.I8;
 	}
 
-	// --- Stubs for unused features to fulfill ASTVisitor interface ---
+	// --- Stubs for features not yet fully implemented ---
+
 	@Override
 	public Type visitExpressionStatement(ExpressionStatement node)
 	{
@@ -693,7 +784,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	public Type visitMatchExpression(MatchExpression node)
 	{
 		return Type.ANY;
-	} // TODO: Implement Match logic
+	}
 
 	@Override
 	public Type visitIfExpression(IfExpression node)
@@ -724,7 +815,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	{
 		if (currentTypeDefinition == null)
 		{
-			error("'this' used outside of class/struct.", node);
+			error(DiagnosticCode.RETURN_OUTSIDE_METHOD, node);
 			return Type.ERROR;
 		}
 		return currentTypeDefinition;

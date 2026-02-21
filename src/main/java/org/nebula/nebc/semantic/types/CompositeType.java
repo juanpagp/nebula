@@ -1,22 +1,25 @@
 package org.nebula.nebc.semantic.types;
 
-import org.nebula.nebc.semantic.Scope;
+import org.nebula.nebc.semantic.SymbolTable;
 
 /**
- * Base class for things that have members: Classes, Structs, Traits, Unions.
+ * Base class for types that have members: Classes, Structs, Traits, Unions.
+ * The member scope is a {@link SymbolTable} that holds field and method
+ * symbols.
  */
 public abstract class CompositeType extends Type
 {
-	protected final String name;
-	protected final Scope memberScope;
 
-	public CompositeType(String name, Scope parentScope)
+	protected final String name;
+	protected final SymbolTable memberScope;
+
+	public CompositeType(String name, SymbolTable parentScope)
 	{
 		this.name = name;
-		this.memberScope = new Scope(parentScope);
+		this.memberScope = new SymbolTable(parentScope);
 	}
 
-	public Scope getMemberScope()
+	public SymbolTable getMemberScope()
 	{
 		return memberScope;
 	}

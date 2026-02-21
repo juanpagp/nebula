@@ -36,4 +36,9 @@ public class FunctionType extends Type
 		}
 		return super.isAssignableTo(destination);
 	}
+
+	public Type getReturnType()
+	{
+		return returnType;
+	}
 }

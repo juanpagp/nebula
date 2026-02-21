@@ -1,11 +1,15 @@
 class User {}
 class WindowHandle {}
 
+void main() {
+    test_type_inference();
+}
+
 WindowHandle getNewWindowHandle() {
     return new WindowHandle();
 }
 
 void test_type_inference() {
     var u = new User();
-    u = getNewWindowHandle(); // ERROR: Cannot assign WindowHandle to User
+    u = getNewWindowHandle(); // ERROR: Type mismatch. Expected 'User', got 'WindowHandle'.
 }

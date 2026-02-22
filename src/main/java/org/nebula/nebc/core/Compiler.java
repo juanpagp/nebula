@@ -83,7 +83,7 @@ public class Compiler
 		}
 
 		// 5. Code Generation (LLVM IR)
-		LLVMCodeGenerator codegen = new LLVMCodeGenerator();
+		LLVMCodeGenerator codegen = new LLVMCodeGenerator(config.bareMetal());
 		try
 		{
 			codegen.generate(compilationUnits, analyzer);
@@ -98,7 +98,7 @@ public class Compiler
 
 			// 6. Emit native binary
 			String outputPath = config.outputFile() != null ? config.outputFile() : "a.out";
-			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform());
+			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.bareMetal());
 
 			Log.info("Compiled successfully: " + outputPath);
 			return ExitCode.SUCCESS;

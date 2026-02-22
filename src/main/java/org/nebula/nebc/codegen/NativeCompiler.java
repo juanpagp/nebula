@@ -9,6 +9,8 @@ import org.bytedeco.llvm.LLVM.LLVMTargetRef;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.bytedeco.llvm.global.LLVM.*;
 
@@ -39,10 +41,11 @@ public final class NativeCompiler
 	 * @param outputPath The desired path for the output binary (e.g. "a.out").
 	 * @param triple     The LLVM target triple, or {@code null} for the host
 	 *                   default.
+	 * @param bareMetal  Whether to link for bare-metal (nostdlib, static).
 	 * @throws CodegenException if target initialisation, object emission, or
 	 *                          linking fails.
 	 */
-	public static void compile(LLVMModuleRef module, String outputPath, String triple)
+	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean bareMetal)
 	{
 		// 1. Initialise LLVM targets
 		LLVMInitializeNativeTarget();
@@ -115,22 +118,33 @@ public final class NativeCompiler
 		LLVMDisposeMessage(defaultTriple);
 
 		// 8. Link with clang
-		link(objectFile, outputPath);
+		link(objectFile, outputPath, bareMetal);
 	}
 
 	/**
 	 * Invokes {@code clang} to link the object file into a native executable.
 	 */
-	private static void link(Path objectFile, String outputPath)
+	private static void link(Path objectFile, String outputPath, boolean bareMetal)
 	{
 		try
 		{
-			ProcessBuilder pb = new ProcessBuilder(
+			List<String> command = new ArrayList<>(List.of(
 					"clang",
-					"-O3",               // add optimization
+					"-O3", // add optimization
 					objectFile.toString(),
-					"-o", outputPath,
-					"-no-pie");
+					"-o", outputPath));
+
+			if (bareMetal)
+			{
+				command.add("-nostdlib");
+				command.add("-static");
+			}
+			else
+			{
+				command.add("-no-pie");
+			}
+
+			ProcessBuilder pb = new ProcessBuilder(command);
 			pb.inheritIO();
 			Process process = pb.start();
 			int exitCode = process.waitFor();

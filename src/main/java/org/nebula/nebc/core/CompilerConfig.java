@@ -1,7 +1,7 @@
 package org.nebula.nebc.core;
 
-import org.nebula.cli.CliParser;
 import org.nebula.cli.ArgParseError;
+import org.nebula.cli.CliParser;
 import org.nebula.nebc.io.FileType;
 import org.nebula.nebc.io.SourceFile;
 import org.nebula.util.Result;
@@ -32,22 +32,9 @@ public record CompilerConfig(
 		boolean compileAsLibrary,
 		boolean checkOnly,
 		boolean ignoreWarnings,
-		CompilerConfig.BorrowCKLevel borrowCheckingLevel
-)
+		CompilerConfig.BorrowCKLevel borrowCheckingLevel,
+		boolean bareMetal)
 {
-
-	@Override
-	public String toString()
-	{
-		return "CompilerConfig{" +
-				"nebSources=" + nebSources +
-				", nebLibraries=" + nebLibraries +
-				", nativeSources=" + nativeSources +
-				", entryPoint='" + entryPoint + '\'' +
-				", outputFile='" + outputFile + '\'' +
-				", borrowChecking=" + borrowCheckingLevel +
-				'}';
-	}
 
 	/**
 	 * Parses CLI arguments into a fully validated {@link CompilerConfig}.
@@ -64,6 +51,20 @@ public record CompilerConfig(
 		CliParser parser = new CliParser();
 		// The parser handles all logic, including printing errors or help.
 		return parser.parse(args);
+	}
+
+	@Override
+	public String toString()
+	{
+		return "CompilerConfig{" +
+				"nebSources=" + nebSources +
+				", nebLibraries=" + nebLibraries +
+				", nativeSources=" + nativeSources +
+				", entryPoint='" + entryPoint + '\'' +
+				", outputFile='" + outputFile + '\'' +
+				", borrowChecking=" + borrowCheckingLevel +
+				", bareMetal=" + bareMetal +
+				'}';
 	}
 
 	/**
@@ -94,6 +95,7 @@ public record CompilerConfig(
 		private boolean checkOnly = false;
 		private boolean ignoreWarnings = false;
 		private BorrowCKLevel borrowCheckingLevel = BorrowCKLevel.allowed; // Default
+		private boolean bareMetal = false;
 
 		// --- Getters for validation ---
 		public List<String> getNebSources()
@@ -156,6 +158,11 @@ public record CompilerConfig(
 		public void ignoreWarnings(boolean v)
 		{
 			this.ignoreWarnings = v;
+		}
+
+		public void bareMetal(boolean v)
+		{
+			this.bareMetal = v;
 		}
 
 		public void borrowCheckingLevel(String level)
@@ -223,8 +230,8 @@ public record CompilerConfig(
 					compileAsLibrary,
 					checkOnly,
 					ignoreWarnings,
-					borrowCheckingLevel
-			);
+					borrowCheckingLevel,
+					bareMetal);
 		}
 	}
 }

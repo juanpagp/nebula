@@ -1,6 +1,7 @@
 package org.nebula.nebc.codegen;
 
 import org.bytedeco.javacpp.BytePointer;
+import org.bytedeco.javacpp.PointerPointer;
 import org.bytedeco.llvm.LLVM.*;
 import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.ast.ASTVisitor;
@@ -53,6 +54,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	 * variables.
 	 */
 	private final Map<String, LLVMValueRef> namedValues = new HashMap<>();
+	private final boolean bareMetal;
 	// ── LLVM Core Handles ───────────────────────────────────────
 	private LLVMContextRef context;
 	private LLVMModuleRef module;
@@ -63,13 +65,21 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	 * The LLVM function currently being built (set during visitMethodDeclaration).
 	 */
 	private LLVMValueRef currentFunction;
-
 	private Type currentMethodReturnType;
-
 	/**
 	 * Whether the current basic block has already been terminated (ret/br).
 	 */
 	private boolean currentBlockTerminated;
+
+	public LLVMCodeGenerator()
+	{
+		this(false);
+	}
+
+	public LLVMCodeGenerator(boolean bareMetal)
+	{
+		this.bareMetal = bareMetal;
+	}
 
 	// =================================================================
 	// PUBLIC API
@@ -275,9 +285,11 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		Type returnType = analyzer.getMainMethodReturnType();
 		LLVMTypeRef i32Type = LLVMInt32TypeInContext(context);
 
-		// Build: i32 @main()
-		LLVMTypeRef mainFnType = LLVMFunctionType(i32Type, new LLVMTypeRef(), 0, 0);
-		LLVMValueRef mainFn = LLVMAddFunction(module, "main", mainFnType);
+		// Build entry point
+		String entryName = bareMetal ? "_start" : "main";
+		LLVMTypeRef entryRetType = bareMetal ? LLVMVoidTypeInContext(context) : i32Type;
+		LLVMTypeRef mainFnType = LLVMFunctionType(entryRetType, (LLVMTypeRef) null, 0, 0);
+		LLVMValueRef mainFn = LLVMAddFunction(module, entryName, mainFnType);
 
 		LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context, mainFn, "entry");
 		LLVMPositionBuilderAtEnd(builder, entry);
@@ -291,22 +303,56 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 		// Build the function type for __nebula_main: either () -> i32 or () -> void
 		LLVMTypeRef nebulaRetType = toLLVMType(returnType);
-		LLVMTypeRef nebulaMainType = LLVMFunctionType(nebulaRetType, new LLVMTypeRef(), 0, 0);
+		LLVMTypeRef nebulaMainType = LLVMFunctionType(nebulaRetType, (LLVMTypeRef) null, 0, 0);
 
 		if (returnType == PrimitiveType.VOID)
 		{
 			// void main → call, then implicit return 0
-			LLVMBuildCall2(builder, nebulaMainType, nebulaMain,
-					new LLVMValueRef(), 0, new BytePointer(""));
-			LLVMBuildRet(builder, LLVMConstInt(i32Type, 0, 0));
+			LLVMBuildCall2(builder, nebulaMainType, nebulaMain, (LLVMValueRef) null, 0, new BytePointer(""));
+			if (bareMetal)
+			{
+				emitExitSyscall(LLVMConstInt(i32Type, 0, 0));
+			}
+			else
+			{
+				LLVMBuildRet(builder, LLVMConstInt(i32Type, 0, 0));
+			}
 		}
 		else
 		{
 			// i32 main → call and return the result
-			LLVMValueRef callResult = LLVMBuildCall2(builder, nebulaMainType, nebulaMain,
-					new LLVMValueRef(), 0, new BytePointer("call"));
-			LLVMBuildRet(builder, callResult);
+			LLVMValueRef callResult = LLVMBuildCall2(builder, nebulaMainType, nebulaMain, (LLVMValueRef) null, 0,
+					new BytePointer("call"));
+			if (bareMetal)
+			{
+				emitExitSyscall(callResult);
+			}
+			else
+			{
+				LLVMBuildRet(builder, callResult);
+			}
 		}
+	}
+
+	private void emitExitSyscall(LLVMValueRef exitCode)
+	{
+		LLVMTypeRef i64Type = LLVMInt64TypeInContext(context);
+		LLVMTypeRef voidType = LLVMVoidTypeInContext(context);
+
+		// Syscall signature: void(i64)
+		LLVMTypeRef functionType = LLVMFunctionType(voidType, i64Type, 1, 0);
+
+		String asmStr = "movq $$60, %rax\nsyscall";
+		String constr = "{rdi}";
+
+		LLVMValueRef inlineAsm = LLVMGetInlineAsm(functionType, new BytePointer(asmStr), asmStr.length(),
+				new BytePointer(constr), constr.length(), 1 /* sideEffect */, 0 /* alignStack */, 0 /* AT&T */,
+				0 /* canThrow */);
+
+		LLVMValueRef status64 = LLVMBuildZExt(builder, exitCode, i64Type, "status64");
+
+		LLVMBuildCall2(builder, functionType, inlineAsm, status64, 1, new BytePointer(""));
+		LLVMBuildRetVoid(builder);
 	}
 	// =================================================================
 	// MODULE VERIFICATION
@@ -376,11 +422,13 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		Type returnType = funcType.getReturnType();
 		LLVMTypeRef llvmFuncType = toLLVMType(funcType);
 
-		// 3. Determine function name (handling main wrapper)
+		// 4. Add the function to the module (or retrieve if already declared)
 		String funcName = "main".equals(node.name) ? "__nebula_main" : node.name;
-
-		// 4. Add the function to the module
-		LLVMValueRef function = LLVMAddFunction(module, funcName, llvmFuncType);
+		LLVMValueRef function = LLVMGetNamedFunction(module, funcName);
+		if (function == null || function.isNull())
+		{
+			function = LLVMAddFunction(module, funcName, llvmFuncType);
+		}
 		LLVMSetLinkage(function, LLVMExternalLinkage);
 
 		// 5. Setup Entry Block
@@ -471,7 +519,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 					org.nebula.nebc.semantic.symbol.VariableSymbol.class);
 			if (sym == null && node.declarators.size() == 1)
 			{ // fallback
-				// Let's try to deduce from init if sym is null (which shouldn't happen)
+				// Let's try to deduce from init if sym is null (which
+				// shouldn't happen)
 				if (decl.hasInitializer())
 				{
 					// skip for now, robust symbol will be fetched below from scope if needed,
@@ -656,19 +705,25 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			case INT ->
 			{
 				long val = ((Number) node.value).longValue();
+
 				yield LLVMConstInt(llvmType, val, /* signExtend */ 1);
 			}
 			case FLOAT ->
+
 			{
 				double val = ((Number) node.value).doubleValue();
+
 				yield LLVMConstReal(llvmType, val);
 			}
 			case BOOL ->
+
 			{
 				boolean val = (Boolean) node.value;
+
 				yield LLVMConstInt(llvmType, val ? 1 : 0, 0);
 			}
 			case CHAR ->
+
 			{
 				// char → i32 codepoint
 				int codePoint;
@@ -680,14 +735,18 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				{
 					codePoint = ((Number) node.value).intValue();
 				}
+
 				yield LLVMConstInt(llvmType, codePoint, 0);
 			}
 			case STRING ->
+
 			{
 				// String → global constant + pointer
 				String str = node.value.toString();
+
 				yield LLVMBuildGlobalStringPtr(builder, str, ".str");
 			}
+
 		};
 	}
 
@@ -731,19 +790,24 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			case DIV ->
 			{
 				if (isFloat)
+
 					yield LLVMBuildFDiv(builder, lVal, rVal, "fdiv");
 				yield isUnsigned ? LLVMBuildUDiv(builder, lVal, rVal, "udiv")
 						: LLVMBuildSDiv(builder, lVal, rVal, "sdiv");
 			}
 			case MOD ->
+
 			{
 				if (isFloat)
+
 					yield LLVMBuildFRem(builder, lVal, rVal, "frem");
 				yield isUnsigned ? LLVMBuildURem(builder, lVal, rVal, "urem")
 						: LLVMBuildSRem(builder, lVal, rVal, "srem");
 			}
 			case EQ ->
-					isFloat ? LLVMBuildFCmp(builder, LLVMRealOEQ, lVal, rVal, "feq")
+					isFloat ?
+
+							LLVMBuildFCmp(builder, LLVMRealOEQ, lVal, rVal, "feq")
 							: LLVMBuildICmp(builder, LLVMIntEQ, lVal, rVal, "eq");
 			case NE ->
 					isFloat ? LLVMBuildFCmp(builder, LLVMRealONE, lVal, rVal, "fne")
@@ -751,27 +815,34 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			case LT ->
 			{
 				if (isFloat)
+
 					yield LLVMBuildFCmp(builder, LLVMRealOLT, lVal, rVal, "flt");
 				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntULT, lVal, rVal, "ult")
 						: LLVMBuildICmp(builder, LLVMIntSLT, lVal, rVal, "slt");
 			}
 			case GT ->
+
 			{
 				if (isFloat)
+
 					yield LLVMBuildFCmp(builder, LLVMRealOGT, lVal, rVal, "fgt");
 				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntUGT, lVal, rVal, "ugt")
 						: LLVMBuildICmp(builder, LLVMIntSGT, lVal, rVal, "sgt");
 			}
 			case LE ->
+
 			{
 				if (isFloat)
+
 					yield LLVMBuildFCmp(builder, LLVMRealOLE, lVal, rVal, "fle");
 				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntULE, lVal, rVal, "ule")
 						: LLVMBuildICmp(builder, LLVMIntSLE, lVal, rVal, "sle");
 			}
 			case GE ->
+
 			{
 				if (isFloat)
+
 					yield LLVMBuildFCmp(builder, LLVMRealOGE, lVal, rVal, "fge");
 				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntUGE, lVal, rVal, "uge")
 						: LLVMBuildICmp(builder, LLVMIntSGE, lVal, rVal, "sge");
@@ -793,6 +864,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			default ->
 					null;
 		};
+
 	}
 
 	@Override
@@ -888,8 +960,24 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		LLVMValueRef pointer = namedValues.get(node.name);
 		if (pointer == null)
 		{
-			// Could be a function reference or global in the future
-			throw new CodegenException("Undeclared variable referenced in codegen: " + node.name);
+			// Could be a function reference
+			org.nebula.nebc.semantic.symbol.Symbol sym = analyzer.getSymbol(node,
+					org.nebula.nebc.semantic.symbol.Symbol.class);
+			if (sym instanceof org.nebula.nebc.semantic.symbol.MethodSymbol)
+			{
+				String actualName = "main".equals(node.name) ? "__nebula_main" : node.name;
+				LLVMValueRef func = LLVMGetNamedFunction(module, actualName);
+				if (func != null)
+				{
+					return func;
+				}
+				// If not found, it might be a forward call. We should declare it.
+				org.nebula.nebc.semantic.types.FunctionType ft = ((org.nebula.nebc.semantic.symbol.MethodSymbol) sym)
+						.getType();
+				return LLVMAddFunction(module, actualName, toLLVMType(ft));
+			}
+
+			throw new CodegenException("Undeclared identifier referenced in codegen: " + node.name);
 		}
 
 		org.nebula.nebc.semantic.symbol.Symbol sym = analyzer.getSymbol(node,
@@ -904,8 +992,36 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitInvocationExpression(InvocationExpression node)
 	{
-		// TODO: Emit function call
-		return null;
+		LLVMValueRef function = node.target.accept(this);
+		if (function == null)
+		{
+			throw new CodegenException("Could not resolve function target for call");
+		}
+
+		Type targetType = analyzer.getType(node.target);
+		if (!(targetType instanceof FunctionType ft))
+		{
+			throw new CodegenException("Target of invocation is not a function: " + targetType.name());
+		}
+
+		LLVMTypeRef llvmFuncType = toLLVMType(ft);
+
+		int argCount = node.arguments.size();
+		LLVMValueRef[] argsArr = new LLVMValueRef[argCount];
+		for (int i = 0; i < argCount; i++)
+		{
+			Expression argNode = node.arguments.get(i);
+			LLVMValueRef argValue = argNode.accept(this);
+
+			Type paramType = ft.parameterTypes.get(i);
+			Type argSemType = analyzer.getType(argNode);
+
+			argsArr[i] = emitImplicitCast(argValue, argSemType, paramType);
+		}
+
+		PointerPointer<LLVMValueRef> args = new PointerPointer<>(argsArr);
+		String callName = ft.returnType == PrimitiveType.VOID ? "" : "call_tmp";
+		return LLVMBuildCall2(builder, llvmFuncType, function, args, argCount, callName);
 	}
 
 	@Override
@@ -1026,4 +1142,5 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		// Type references don't produce runtime values
 		return null;
 	}
+
 }

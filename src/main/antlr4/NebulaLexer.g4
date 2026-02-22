@@ -71,7 +71,7 @@ TAG: 'tag';
 TAGGED: 'tagged';
 THIS: 'this';
 TRAIT: 'trait';
-TRUE: 'TRUE';
+TRUE: 'true';
 UINT8: 'u8';
 UINT16: 'u16';
 UINT32: 'u32';

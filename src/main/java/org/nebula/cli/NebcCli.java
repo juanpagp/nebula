@@ -3,6 +3,7 @@ package org.nebula.cli;
 import org.nebula.nebc.core.Compiler;
 import org.nebula.nebc.core.CompilerConfig;
 import org.nebula.nebc.error.ErrorReporter;
+import org.nebula.nebc.util.Log;
 import org.nebula.util.ExitCode;
 import org.nebula.util.Result;
 
@@ -38,6 +39,13 @@ public class NebcCli
 
 		// 4. Run Compiler
 		CompilerConfig config = result.unwrap();
+
+		// Set log level
+		if (config.verbose())
+		{
+			Log.setLevel(Log.Level.DEBUG);
+		}
+
 		Compiler compiler = new Compiler(config);
 
 		return compiler.run();

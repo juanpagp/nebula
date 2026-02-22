@@ -19,7 +19,9 @@ import org.nebula.nebc.semantic.types.FunctionType;
 import org.nebula.nebc.semantic.types.PrimitiveType;
 import org.nebula.nebc.semantic.types.Type;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.bytedeco.llvm.global.LLVM.*;
 
@@ -46,18 +48,23 @@ import static org.bytedeco.llvm.global.LLVM.*;
 public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 {
 
+	/**
+	 * Tracks requested memory allocations (alloca pointers) per function for local
+	 * variables.
+	 */
+	private final Map<String, LLVMValueRef> namedValues = new HashMap<>();
 	// ── LLVM Core Handles ───────────────────────────────────────
 	private LLVMContextRef context;
 	private LLVMModuleRef module;
 	private LLVMBuilderRef builder;
-
 	// ── Codegen State ───────────────────────────────────────────
 	private SemanticAnalyzer analyzer;
-
 	/**
 	 * The LLVM function currently being built (set during visitMethodDeclaration).
 	 */
 	private LLVMValueRef currentFunction;
+
+	private Type currentMethodReturnType;
 
 	/**
 	 * Whether the current basic block has already been terminated (ret/br).
@@ -67,6 +74,98 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	// =================================================================
 	// PUBLIC API
 	// =================================================================
+
+	private LLVMValueRef emitCast(LLVMValueRef value, Type srcSemType, Type targetSemType)
+	{
+		if (value == null || srcSemType.equals(targetSemType))
+			return value;
+
+		LLVMTypeRef targetType = toLLVMType(targetSemType);
+
+		if (srcSemType instanceof PrimitiveType src && targetSemType instanceof PrimitiveType target)
+		{
+			if (src.isInteger() && target.isInteger())
+			{
+				int srcWidth = src.getBitWidth();
+				int targetWidth = target.getBitWidth();
+
+				if (srcWidth > targetWidth)
+				{
+					return LLVMBuildTrunc(builder, value, targetType, "trunc");
+				}
+				else if (srcWidth < targetWidth)
+				{
+					boolean isUnsigned = src.name().startsWith("u");
+					return isUnsigned ? LLVMBuildZExt(builder, value, targetType, "zext")
+							: LLVMBuildSExt(builder, value, targetType, "sext");
+				}
+			}
+			else if (src.isFloat() && target.isFloat())
+			{
+				int srcWidth = src.getBitWidth();
+				int targetWidth = target.getBitWidth();
+
+				if (srcWidth > targetWidth)
+				{
+					return LLVMBuildFPTrunc(builder, value, targetType, "fptrunc");
+				}
+				else if (srcWidth < targetWidth)
+				{
+					return LLVMBuildFPExt(builder, value, targetType, "fpext");
+				}
+			}
+			else if (src.isInteger() && target.isFloat())
+			{
+				boolean isUnsigned = src.name().startsWith("u");
+				return isUnsigned ? LLVMBuildUIToFP(builder, value, targetType, "uitofp")
+						: LLVMBuildSIToFP(builder, value, targetType, "sitofp");
+			}
+			else if (src.isFloat() && target.isInteger())
+			{
+				boolean targetUnsigned = target.name().startsWith("u");
+				return targetUnsigned ? LLVMBuildFPToUI(builder, value, targetType, "fptoui")
+						: LLVMBuildFPToSI(builder, value, targetType, "fptosi");
+			}
+		}
+
+		return value;
+	}
+
+	private LLVMValueRef emitImplicitCast(LLVMValueRef value, Type srcSemType, Type targetSemType)
+	{
+		return emitCast(value, srcSemType, targetSemType);
+	}
+
+	private Type getPromotedType(Type left, Type right)
+	{
+		if (left.equals(right))
+			return left;
+		if (left instanceof PrimitiveType pLeft && right instanceof PrimitiveType pRight)
+		{
+			if (pLeft.isFloat() || pRight.isFloat())
+			{
+				if (pLeft.isFloat() && pRight.isFloat())
+				{
+					return pLeft.getBitWidth() >= pRight.getBitWidth() ? pLeft : pRight;
+				}
+				return pLeft.isFloat() ? pLeft : pRight;
+			}
+			if (pLeft.isInteger() && pRight.isInteger())
+			{
+				if (pLeft.getBitWidth() > pRight.getBitWidth())
+					return pLeft;
+				if (pRight.getBitWidth() > pLeft.getBitWidth())
+					return pRight;
+				// Same width: if one is signed, prefer signed (match SemanticAnalyzer logic)
+				boolean leftUnsigned = pLeft.name().startsWith("u");
+				boolean rightUnsigned = pRight.name().startsWith("u");
+				if (leftUnsigned && !rightUnsigned)
+					return pRight;
+				return pLeft;
+			}
+		}
+		return left;
+	}
 
 	/**
 	 * Generates an LLVM module from the semantically-validated compilation units.
@@ -293,11 +392,17 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		boolean prevTerminated = currentBlockTerminated;
 		currentFunction = function;
 		currentBlockTerminated = false;
+		Type prevReturnType = currentMethodReturnType;
+		currentMethodReturnType = returnType;
+
+		Map<String, LLVMValueRef> prevNamedValues = new HashMap<>(namedValues);
+		namedValues.clear();
 
 		// 7. Emit Body
+		LLVMValueRef bodyResult = null;
 		if (node.body != null)
 		{
-			node.body.accept(this);
+			bodyResult = node.body.accept(this);
 		}
 
 		// 8. Handle Implicit Returns (Now using the verified returnType object)
@@ -307,10 +412,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			{
 				LLVMBuildRetVoid(builder);
 			}
-			else if (returnType == PrimitiveType.I32)
+			else if (bodyResult != null)
 			{
-				// Robust check: we are comparing Type objects now, not Strings
-				LLVMBuildRet(builder, LLVMConstInt(toLLVMType(PrimitiveType.I32), 2, 0));
+				Type bodySemType = (node.body instanceof ExpressionBlock eb) ? analyzer.getType(eb)
+						: analyzer.getType(node.body);
+				LLVMValueRef castedResult = emitImplicitCast(bodyResult, bodySemType, returnType);
+				LLVMBuildRet(builder, castedResult);
 			}
 			else
 			{
@@ -321,6 +428,10 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		// 9. Restore State
 		currentFunction = prevFunction;
 		currentBlockTerminated = prevTerminated;
+		currentMethodReturnType = prevReturnType;
+
+		namedValues.clear();
+		namedValues.putAll(prevNamedValues);
 
 		return function;
 	}
@@ -342,7 +453,52 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitVariableDeclaration(VariableDeclaration node)
 	{
-		// TODO: Emit alloca + optional store for local variables
+		for (VariableDeclarator decl : node.declarators)
+		{
+			// Semantic analyzer has already verified types.
+			String varName = decl.name();
+
+			// If it's a multi-declaration, we might need a finer getSymbol check per
+			// declarator.
+			// Let's defer to the expression type for now if varType gets tricky, but we
+			// assume
+			// single-declarator for simplicity if there's only one symbol for the entire
+			// VariableDeclaration.
+			// Ideally, VariableSymbol attaches to the declarator or there's a symbol per
+			// name.
+			// Let's assume analyzer.resolve(name) or looking up the exact type.
+			org.nebula.nebc.semantic.symbol.Symbol sym = analyzer.getSymbol(node,
+					org.nebula.nebc.semantic.symbol.VariableSymbol.class);
+			if (sym == null && node.declarators.size() == 1)
+			{ // fallback
+				// Let's try to deduce from init if sym is null (which shouldn't happen)
+				if (decl.hasInitializer())
+				{
+					// skip for now, robust symbol will be fetched below from scope if needed,
+					// but actually we don't have scope access directly.
+					// Let's assume the analyzer attached the varType to the decl? No, it's just
+					// attached to `node`.
+				}
+			}
+
+			Type type = sym != null ? sym.getType() : PrimitiveType.I32; // Fallback
+			LLVMTypeRef llvmType = toLLVMType(type);
+
+			// Emit Alloca in the entry block
+			LLVMValueRef alloca = LLVMBuildAlloca(builder, llvmType, varName);
+			namedValues.put(varName, alloca);
+
+			// Optional Initialization
+			if (decl.hasInitializer())
+			{
+				LLVMValueRef initVal = decl.initializer().accept(this);
+				if (initVal != null)
+				{
+					LLVMValueRef castedVal = emitImplicitCast(initVal, analyzer.getType(decl.initializer()), type);
+					LLVMBuildStore(builder, castedVal, alloca);
+				}
+			}
+		}
 		return null;
 	}
 
@@ -428,7 +584,9 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			LLVMValueRef value = node.value.accept(this);
 			if (value != null)
 			{
-				LLVMBuildRet(builder, value);
+				LLVMValueRef castedResult = emitImplicitCast(value, analyzer.getType(node.value),
+						currentMethodReturnType);
+				LLVMBuildRet(builder, castedResult);
 			}
 			else
 			{
@@ -490,23 +648,25 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitLiteralExpression(LiteralExpression node)
 	{
+		Type semType = analyzer.getType(node);
+		LLVMTypeRef llvmType = toLLVMType(semType);
+
 		return switch (node.type)
 		{
 			case INT ->
 			{
 				long val = ((Number) node.value).longValue();
-				// INT literals are i64 per the semantic analyzer
-				yield LLVMConstInt(LLVMInt64TypeInContext(context), val, /* signExtend */ 1);
+				yield LLVMConstInt(llvmType, val, /* signExtend */ 1);
 			}
 			case FLOAT ->
 			{
 				double val = ((Number) node.value).doubleValue();
-				yield LLVMConstReal(LLVMDoubleTypeInContext(context), val);
+				yield LLVMConstReal(llvmType, val);
 			}
 			case BOOL ->
 			{
 				boolean val = (Boolean) node.value;
-				yield LLVMConstInt(LLVMInt1TypeInContext(context), val ? 1 : 0, 0);
+				yield LLVMConstInt(llvmType, val ? 1 : 0, 0);
 			}
 			case CHAR ->
 			{
@@ -520,7 +680,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				{
 					codePoint = ((Number) node.value).intValue();
 				}
-				yield LLVMConstInt(LLVMInt32TypeInContext(context), codePoint, 0);
+				yield LLVMConstInt(llvmType, codePoint, 0);
 			}
 			case STRING ->
 			{
@@ -534,43 +694,211 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitBinaryExpression(BinaryExpression node)
 	{
-		// TODO: Emit binary operations (add, sub, mul, div, comparisons, logical)
-		return null;
+		LLVMValueRef lVal = node.left.accept(this);
+		LLVMValueRef rVal = node.right.accept(this);
+
+		if (lVal == null || rVal == null)
+			return null;
+
+		Type resultSemType = analyzer.getType(node);
+		Type leftType = analyzer.getType(node.left);
+		Type rightType = analyzer.getType(node.right);
+		Type promotedType;
+
+		switch (node.operator)
+		{
+			case ADD, SUB, MUL, DIV, MOD, POW ->
+					promotedType = resultSemType;
+			default ->
+					promotedType = getPromotedType(leftType, rightType);
+		}
+
+		// Promotion: Cast operands to the promoted type
+		lVal = emitImplicitCast(lVal, leftType, promotedType);
+		rVal = emitImplicitCast(rVal, rightType, promotedType);
+
+		boolean isFloat = promotedType instanceof PrimitiveType p && p.isFloat();
+		boolean isUnsigned = promotedType instanceof PrimitiveType p && p.name().startsWith("u");
+
+		return switch (node.operator)
+		{
+			case ADD ->
+					isFloat ? LLVMBuildFAdd(builder, lVal, rVal, "fadd") : LLVMBuildAdd(builder, lVal, rVal, "add");
+			case SUB ->
+					isFloat ? LLVMBuildFSub(builder, lVal, rVal, "fsub") : LLVMBuildSub(builder, lVal, rVal, "sub");
+			case MUL ->
+					isFloat ? LLVMBuildFMul(builder, lVal, rVal, "fmul") : LLVMBuildMul(builder, lVal, rVal, "mul");
+			case DIV ->
+			{
+				if (isFloat)
+					yield LLVMBuildFDiv(builder, lVal, rVal, "fdiv");
+				yield isUnsigned ? LLVMBuildUDiv(builder, lVal, rVal, "udiv")
+						: LLVMBuildSDiv(builder, lVal, rVal, "sdiv");
+			}
+			case MOD ->
+			{
+				if (isFloat)
+					yield LLVMBuildFRem(builder, lVal, rVal, "frem");
+				yield isUnsigned ? LLVMBuildURem(builder, lVal, rVal, "urem")
+						: LLVMBuildSRem(builder, lVal, rVal, "srem");
+			}
+			case EQ ->
+					isFloat ? LLVMBuildFCmp(builder, LLVMRealOEQ, lVal, rVal, "feq")
+							: LLVMBuildICmp(builder, LLVMIntEQ, lVal, rVal, "eq");
+			case NE ->
+					isFloat ? LLVMBuildFCmp(builder, LLVMRealONE, lVal, rVal, "fne")
+							: LLVMBuildICmp(builder, LLVMIntNE, lVal, rVal, "ne");
+			case LT ->
+			{
+				if (isFloat)
+					yield LLVMBuildFCmp(builder, LLVMRealOLT, lVal, rVal, "flt");
+				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntULT, lVal, rVal, "ult")
+						: LLVMBuildICmp(builder, LLVMIntSLT, lVal, rVal, "slt");
+			}
+			case GT ->
+			{
+				if (isFloat)
+					yield LLVMBuildFCmp(builder, LLVMRealOGT, lVal, rVal, "fgt");
+				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntUGT, lVal, rVal, "ugt")
+						: LLVMBuildICmp(builder, LLVMIntSGT, lVal, rVal, "sgt");
+			}
+			case LE ->
+			{
+				if (isFloat)
+					yield LLVMBuildFCmp(builder, LLVMRealOLE, lVal, rVal, "fle");
+				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntULE, lVal, rVal, "ule")
+						: LLVMBuildICmp(builder, LLVMIntSLE, lVal, rVal, "sle");
+			}
+			case GE ->
+			{
+				if (isFloat)
+					yield LLVMBuildFCmp(builder, LLVMRealOGE, lVal, rVal, "fge");
+				yield isUnsigned ? LLVMBuildICmp(builder, LLVMIntUGE, lVal, rVal, "uge")
+						: LLVMBuildICmp(builder, LLVMIntSGE, lVal, rVal, "sge");
+			}
+			case LOGICAL_AND ->
+					LLVMBuildAnd(builder, lVal, rVal, "land");
+			case LOGICAL_OR ->
+					LLVMBuildOr(builder, lVal, rVal, "lor");
+			case BIT_AND ->
+					LLVMBuildAnd(builder, lVal, rVal, "and");
+			case BIT_OR ->
+					LLVMBuildOr(builder, lVal, rVal, "or");
+			case BIT_XOR ->
+					LLVMBuildXor(builder, lVal, rVal, "xor");
+			case SHL ->
+					LLVMBuildShl(builder, lVal, rVal, "shl");
+			case SHR ->
+					isUnsigned ? LLVMBuildLShr(builder, lVal, rVal, "lshr") : LLVMBuildAShr(builder, lVal, rVal, "ashr");
+			default ->
+					null;
+		};
 	}
 
 	@Override
 	public LLVMValueRef visitUnaryExpression(UnaryExpression node)
 	{
-		// TODO: Emit unary operations (neg, not, pre/post increment/decrement)
-		return null;
+		LLVMValueRef operand = node.operand.accept(this);
+		if (operand == null)
+			return null;
+
+		Type semType = analyzer.getType(node.operand);
+		boolean isFloat = semType instanceof PrimitiveType p && p.isFloat();
+
+		return switch (node.operator)
+		{
+			case MINUS ->
+					isFloat ? LLVMBuildFNeg(builder, operand, "fneg") : LLVMBuildNeg(builder, operand, "neg");
+			case PLUS ->
+					operand;
+			case NOT ->
+					LLVMBuildNot(builder, operand, "not");
+			case BIT_NOT ->
+					LLVMBuildNot(builder, operand, "bitnot");
+			// TODO: INCREMENT/DECREMENT require loading/storing
+			default ->
+					operand;
+		};
 	}
 
 	@Override
 	public LLVMValueRef visitAssignmentExpression(AssignmentExpression node)
 	{
-		// TODO: Emit store to alloca'd variable
+		// We only support assigning to IdentifierExpressions right now
+		if (node.target instanceof IdentifierExpression idExpr)
+		{
+			LLVMValueRef pointer = namedValues.get(idExpr.name);
+			if (pointer == null)
+			{
+				throw new CodegenException("Cannot assign to undeclared variable: " + idExpr.name);
+			}
+
+			LLVMValueRef value = node.value.accept(this);
+			if (value != null)
+			{
+				// Pointer element type retrieval is difficult in LLVM 15+ opaque pointers,
+				// but since we allocate them, the type is exactly what we requested.
+				// For the cast, we need the stored type. We can get it from the
+				// SemanticAnalyzer via symbol.
+				org.nebula.nebc.semantic.symbol.Symbol sym = analyzer.getSymbol(node.target,
+						org.nebula.nebc.semantic.symbol.VariableSymbol.class);
+				Type targetSemType = sym != null ? sym.getType() : PrimitiveType.I32;
+				LLVMValueRef castedVal = emitImplicitCast(value, analyzer.getType(node.value), targetSemType);
+				LLVMBuildStore(builder, castedVal, pointer);
+				return castedVal; // Assignment returns the assigned value in Nebula
+			}
+		}
 		return null;
 	}
 
 	@Override
 	public LLVMValueRef visitCastExpression(CastExpression node)
 	{
-		// TODO: Emit type cast (trunc, zext, sext, fpcast, bitcast, etc.)
-		return null;
+		LLVMValueRef val = node.expression.accept(this);
+		if (val == null)
+			return null;
+
+		Type srcSemType = analyzer.getType(node.expression);
+		Type targetSemType = analyzer.getType(node);
+
+		return emitCast(val, srcSemType, targetSemType);
 	}
 
 	@Override
 	public LLVMValueRef visitExpressionBlock(ExpressionBlock node)
 	{
-		// TODO: Emit block expression (statements + optional tail expression)
+		for (Statement stmt : node.statements)
+		{
+			if (currentBlockTerminated)
+				break; // Dead code
+			stmt.accept(this);
+		}
+
+		if (!currentBlockTerminated && node.hasTail())
+		{
+			return node.tail.accept(this);
+		}
+
 		return null;
 	}
 
 	@Override
 	public LLVMValueRef visitIdentifierExpression(IdentifierExpression node)
 	{
-		// TODO: Emit load from alloca'd variable
-		return null;
+		LLVMValueRef pointer = namedValues.get(node.name);
+		if (pointer == null)
+		{
+			// Could be a function reference or global in the future
+			throw new CodegenException("Undeclared variable referenced in codegen: " + node.name);
+		}
+
+		org.nebula.nebc.semantic.symbol.Symbol sym = analyzer.getSymbol(node,
+				org.nebula.nebc.semantic.symbol.VariableSymbol.class);
+		Type type = sym != null ? sym.getType() : PrimitiveType.I32;
+		LLVMTypeRef expectedType = toLLVMType(type);
+
+		// Emit Load
+		return LLVMBuildLoad2(builder, expectedType, pointer, node.name + "_load");
 	}
 
 	@Override

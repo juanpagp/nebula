@@ -37,7 +37,7 @@ public class Compiler
 		this.compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
 		for (var cu : compilationUnits)
 		{
-			System.out.println(cu);
+			Log.debug(cu.toString());
 		}
 
 		// 3. Desugaring (Lowering pseudo-while, syntactical sugar loops, traits)
@@ -92,7 +92,7 @@ public class Compiler
 			if (config.verbose())
 			{
 				Log.info("=== LLVM IR ===");
-				System.out.println(codegen.dumpIR());
+				Log.debug(codegen.dumpIR());
 				Log.info("=== END IR ===");
 			}
 

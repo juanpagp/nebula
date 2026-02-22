@@ -1,5 +1,7 @@
 package org.nebula.cli;
 
+import org.nebula.nebc.util.Log;
+
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -33,8 +35,7 @@ public class CLIUtils
 		catch (Exception e)
 		{
 			// This is a fatal startup error
-			System.err.println("Fatal: Could not load compiler properties.");
-			e.printStackTrace();
+			Log.err("Fatal: Could not load compiler properties.");
 			throw new RuntimeException(e);
 		}
 
@@ -57,8 +58,7 @@ public class CLIUtils
 		}
 		catch (Exception e)
 		{
-			System.err.println("Fatal: Could not load help file.");
-			e.printStackTrace();
+			Log.err("Fatal: Could not load help file.");
 			throw new RuntimeException(e);
 		}
 	}
@@ -78,7 +78,6 @@ public class CLIUtils
 	{
 		// Print the help message, replacing a placeholder with the dynamic version
 		System.out.println(
-				HELP_MESSAGE.replace("{{VERSION}}", VERSION)
-		);
+				HELP_MESSAGE.replace("{{VERSION}}", VERSION));
 	}
 }

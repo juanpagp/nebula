@@ -35,6 +35,10 @@ public final class LLVMTypeMapper
 	 */
 	public static LLVMTypeRef map(LLVMContextRef ctx, Type type)
 	{
+		if (type == null)
+		{
+			throw new CodegenException("Internal error: Attempted to map a null type to LLVM.");
+		}
 		if (type instanceof PrimitiveType pt)
 		{
 			return mapPrimitive(ctx, pt);

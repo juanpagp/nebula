@@ -10,6 +10,6 @@ public record SourceSpan(
 {
 	public static SourceSpan unknown()
 	{
-		return new SourceSpan("<unknown>", 0, 0, 0, 0);
+		return new SourceSpan("", 0, 0, 0, 0);
 	}
 }

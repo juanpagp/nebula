@@ -10,8 +10,7 @@
     <name>Nebula Compiler (nebc)</name>
 
     <properties>
-        <maven.compiler.source>23</maven.compiler.source>
-        <maven.compiler.target>23</maven.compiler.target>
+        <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <javacpp.platform>linux-x86_64</javacpp.platform>
     </properties>
@@ -24,8 +23,25 @@
         </dependency>
         <dependency>
             <groupId>org.bytedeco</groupId>
-            <artifactId>llvm-platform</artifactId>
+            <artifactId>llvm</artifactId>
             <version>20.1.7-1.5.12</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>llvm</artifactId>
+            <version>20.1.7-1.5.12</version>
+            <classifier>linux-x86_64</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>1.5.12</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bytedeco</groupId>
+            <artifactId>javacpp</artifactId>
+            <version>1.5.12</version>
+            <classifier>linux-x86_64</classifier>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -71,7 +87,7 @@
                     <imageName>nebc</imageName>
                 </configuration>
             </plugin>
-            
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

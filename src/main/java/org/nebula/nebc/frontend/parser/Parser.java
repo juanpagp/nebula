@@ -97,7 +97,8 @@ public class Parser
 				if (errorCounter.getErrorCount() > 0)
 				{
 					totalErrors += errorCounter.getErrorCount();
-					Log.err("Lexing failed for " + sourceFile.fileName() + " with " + errorCounter.getErrorCount() + " errors.");
+					Log.err("Lexing failed for " + sourceFile.fileName() + " with " + errorCounter.getErrorCount()
+							+ " errors.");
 				}
 				else
 				{
@@ -106,12 +107,9 @@ public class Parser
 				}
 
 				// 5. Debug: Print tokens if verbose mode is active
-				if (config.verbose())
+				for (Token token : tokenStream.getTokens())
 				{
-					for (Token token : tokenStream.getTokens())
-					{
-						System.out.println(token.toString());
-					}
+					Log.debug(token.toString());
 				}
 
 			}
@@ -138,7 +136,8 @@ public class Parser
 		{
 			CommonTokenStream tokenStream = validTokenStreams.get(sourceFile);
 
-			// Skip files that failed lexing (though usually we abort before this if any failed)
+			// Skip files that failed lexing (though usually we abort before this if any
+			// failed)
 			if (tokenStream == null)
 			{
 				continue;
@@ -167,10 +166,11 @@ public class Parser
 			if (errorCounter.getErrorCount() > 0)
 			{
 				totalErrors += errorCounter.getErrorCount();
-				Log.err("Parsing failed for " + sourceFile.fileName() + " with " + errorCounter.getErrorCount() + " errors.");
+				Log.err("Parsing failed for " + sourceFile.fileName() + " with " + errorCounter.getErrorCount()
+						+ " errors.");
 			}
 
-			// System.out.println(Trees.toStringTree(tree, parser));
+			// Log.debug(Trees.toStringTree(tree, parser));
 			parsingResultList.add(new ParsingResult(sourceFile, tree));
 		}
 
@@ -191,7 +191,8 @@ public class Parser
 		}
 
 		@Override
-		public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line, int charPositionInLine, String msg, RecognitionException e)
+		public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line, int charPositionInLine,
+								String msg, RecognitionException e)
 		{
 			errorCount++;
 			Log.err("[" + fileName + ":" + line + ":" + charPositionInLine + "] " + msg);

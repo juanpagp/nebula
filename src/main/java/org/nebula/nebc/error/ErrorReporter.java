@@ -9,7 +9,9 @@ import org.nebula.nebc.util.Log;
  */
 public class ErrorReporter
 {
-	private ErrorReporter(){} // Prevent instantiation
+	private ErrorReporter()
+	{
+	} // Prevent instantiation
 
 	/**
 	 * Reports a fatal CLI argument parsing error.
@@ -24,7 +26,7 @@ public class ErrorReporter
 		// 2. Apply specific logic for CLI hints (previously inside the Record)
 		if (error.type() != ArgParseError.Type.INVALID_VALUE)
 		{
-			System.err.println("Use 'nebc --help' for a list of available options.");
+			Log.err("Use 'nebc --help' for a list of available options.");
 		}
 	}
 

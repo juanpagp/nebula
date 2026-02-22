@@ -71,7 +71,7 @@ public final class NativeCompiler
 				targetTriple,
 				"generic", // CPU
 				"", // features
-				LLVMCodeGenLevelDefault,
+				LLVMCodeGenLevelAggressive,
 				LLVMRelocPIC, // Position-independent code
 				LLVMCodeModelDefault);
 
@@ -127,6 +127,7 @@ public final class NativeCompiler
 		{
 			ProcessBuilder pb = new ProcessBuilder(
 					"clang",
+					"-O3",               // add optimization
 					objectFile.toString(),
 					"-o", outputPath,
 					"-no-pie");

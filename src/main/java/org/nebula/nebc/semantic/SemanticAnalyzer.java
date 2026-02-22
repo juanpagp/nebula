@@ -33,6 +33,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	// Symbol table (replaces old Scope)
 	private final SymbolTable globalScope = new SymbolTable(null);
 	private final Map<ASTNode, Symbol> nodeSymbols = new HashMap<>();
+	private final Map<ASTNode, Type> nodeTypes = new HashMap<>();
 	private final CompilerConfig config;
 	private SymbolTable currentScope = globalScope;
 	private MethodDeclaration mainMethod = null;
@@ -65,6 +66,19 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	private void recordSymbol(ASTNode node, Symbol symbol)
 	{
 		nodeSymbols.put(node, symbol);
+	}
+
+	private void recordType(ASTNode node, Type type)
+	{
+		nodeTypes.put(node, type);
+	}
+
+	/**
+	 * Helper for the CodeGen to retrieve resolved metadata.
+	 */
+	public Type getType(ASTNode node)
+	{
+		return nodeTypes.get(node);
 	}
 
 	/**
@@ -440,7 +454,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				return PrimitiveType.VOID;
 		}
 
-		Type returnType = ((FunctionType) methodSym.getType()).getReturnType();
+		Type returnType = methodSym.getType().getReturnType();
 
 		// 3. Analyze body
 		enterScope();
@@ -470,7 +484,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (node.body != null)
 		{
 			Type bodyType = node.body.accept(this);
-			if (returnType != PrimitiveType.VOID && !bodyType.isAssignableTo(returnType))
+			if (returnType == PrimitiveType.VOID && bodyType != PrimitiveType.VOID)
+			{
+				error(DiagnosticCode.TYPE_MISMATCH, node.body, returnType.name(), bodyType.name());
+			}
+			else if (returnType != PrimitiveType.VOID && !bodyType.isAssignableTo(returnType))
 			{
 				error(DiagnosticCode.TYPE_MISMATCH, node.body, returnType.name(), bodyType.name());
 			}
@@ -518,6 +536,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			if (actualType != Type.ERROR)
 			{
 				VariableSymbol varSym = new VariableSymbol(decl.name(), actualType, mutable, node);
+				recordSymbol(node, varSym);
 				if (!currentScope.define(varSym))
 				{
 					error(DiagnosticCode.DUPLICATE_SYMBOL, node, decl.name());
@@ -663,9 +682,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		Type left = node.left.accept(this);
 		Type right = node.right.accept(this);
 
-		if (left == Type.ERROR || right == Type.ERROR)
-			return Type.ERROR;
-
+		Type result = Type.ERROR;
 		switch (node.operator)
 		{
 			case ADD:
@@ -678,10 +695,34 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				{
 					PrimitiveType pLeft = (PrimitiveType) left;
 					PrimitiveType pRight = (PrimitiveType) right;
-					return (pLeft.getBitWidth() >= pRight.getBitWidth()) ? pLeft : pRight;
+					if (pLeft.getBitWidth() > pRight.getBitWidth())
+					{
+						result = pLeft;
+					}
+					else if (pRight.getBitWidth() > pLeft.getBitWidth())
+					{
+						result = pRight;
+					}
+					else
+					{
+						// Same width: if one is signed, prefer signed?
+						// Or just return left.
+						// Rust doesn't allow cross-signedness without cast.
+						// For Nebula, let's prefer signed if they differ but match width.
+						boolean leftUnsigned = pLeft.name().startsWith("u");
+						boolean rightUnsigned = pRight.name().startsWith("u");
+						if (leftUnsigned && !rightUnsigned)
+							result = pRight;
+						else
+							result = pLeft;
+					}
 				}
-				error(DiagnosticCode.OPERATOR_NOT_DEFINED, node, node.operator, left.name(), right.name());
-				return Type.ERROR;
+				else
+				{
+					error(DiagnosticCode.OPERATOR_NOT_DEFINED, node, node.operator, left.name(), right.name());
+					result = Type.ERROR;
+				}
+				break;
 
 			case EQ:
 			case NE:
@@ -689,27 +730,38 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				{
 					error(DiagnosticCode.COMPARING_DISTINCT_TYPES, node, left.name(), right.name());
 				}
-				return PrimitiveType.BOOL;
+				result = PrimitiveType.BOOL;
+				break;
 
 			case LT:
 			case GT:
 			case LE:
 			case GE:
 				if (isNumeric(left) && isNumeric(right))
-					return PrimitiveType.BOOL;
-				error(DiagnosticCode.RELATIONAL_NUMERIC, node);
-				return Type.ERROR;
+					result = PrimitiveType.BOOL;
+				else
+				{
+					error(DiagnosticCode.RELATIONAL_NUMERIC, node);
+					result = Type.ERROR;
+				}
+				break;
 
 			case LOGICAL_AND:
 			case LOGICAL_OR:
 				if (left == PrimitiveType.BOOL && right == PrimitiveType.BOOL)
-					return PrimitiveType.BOOL;
-				error(DiagnosticCode.LOGICAL_BOOLEAN, node);
-				return Type.ERROR;
+					result = PrimitiveType.BOOL;
+				else
+				{
+					error(DiagnosticCode.LOGICAL_BOOLEAN, node);
+					result = Type.ERROR;
+				}
+				break;
 
 			default:
-				return Type.ERROR;
+				result = Type.ERROR;
 		}
+		recordType(node, result);
+		return result;
 	}
 
 	@Override
@@ -727,9 +779,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 		else if (targetType instanceof StructType || targetType instanceof ClassType)
 		{
-			// Constructor call — return the type itself
-			// TODO: Validate constructor arguments against constructors in the type's scope
-			return targetType;
+			// Constructor call — result is targetType
+			fn = null;
 		}
 		else
 		{
@@ -738,29 +789,38 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 
 		// Validate arguments
+		Type result = Type.ANY;
 		if (fn != null)
 		{
 			List<Expression> args = node.arguments;
 			if (args.size() != fn.parameterTypes.size())
 			{
 				error(DiagnosticCode.ARGUMENT_COUNT_MISMATCH, node, fn.parameterTypes.size(), args.size());
-				return fn.returnType;
+				result = fn.returnType;
 			}
-
-			for (int i = 0; i < args.size(); i++)
+			else
 			{
-				Type argType = args.get(i).accept(this);
-				Type paramType = fn.parameterTypes.get(i);
-				if (!argType.isAssignableTo(paramType))
+				for (int i = 0; i < args.size(); i++)
 				{
-					error(DiagnosticCode.ARGUMENT_TYPE_MISMATCH, args.get(i), (i + 1), paramType.name(),
-							argType.name());
+					Type argType = args.get(i).accept(this);
+					Type paramType = fn.parameterTypes.get(i);
+					if (!argType.isAssignableTo(paramType))
+					{
+						error(DiagnosticCode.ARGUMENT_TYPE_MISMATCH, args.get(i), (i + 1), paramType.name(),
+								argType.name());
+					}
 				}
+				result = fn.returnType;
 			}
-			return fn.returnType;
+		}
+		else
+		{
+			// Constructor call — targetType is already the ClassType/StructType
+			result = targetType;
 		}
 
-		return Type.ANY;
+		recordType(node, result);
+		return result;
 	}
 
 	@Override
@@ -794,7 +854,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			return Type.ERROR;
 		}
 
-		return memberSym.getType();
+		Type result = memberSym.getType();
+		recordType(node, result);
+		return result;
 	}
 
 	@Override
@@ -806,7 +868,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			error(DiagnosticCode.UNDEFINED_SYMBOL, node, node.name);
 			return Type.ERROR;
 		}
-		return sym.getType();
+		recordSymbol(node, sym);
+		Type result = sym.getType();
+		recordType(node, result);
+		return result;
 	}
 
 	@Override
@@ -825,7 +890,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			arg.accept(this);
 		}
 
-		return ts.getType();
+		Type result = ts.getType();
+		recordType(node, result);
+		return result;
 	}
 
 	@Override
@@ -842,6 +909,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			error(DiagnosticCode.TYPE_MISMATCH, node, targetType.name(), valueType.name());
 			return Type.ERROR;
 		}
+		recordType(node, targetType);
 		return targetType;
 	}
 
@@ -852,7 +920,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (operand == Type.ERROR)
 			return Type.ERROR;
 
-		return switch (node.operator)
+		Type result = switch (node.operator)
 		{
 			case NOT ->
 			{
@@ -875,13 +943,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			default ->
 					operand;
 		};
+		recordType(node, result);
+		return result;
 	}
 
 	@Override
 	public Type visitLiteralExpression(LiteralExpression node)
 	{
-		// Type resolution lives in the analyzer, not in the AST node
-		return switch (node.type)
+		Type result = switch (node.type)
 		{
 			case INT ->
 			{
@@ -909,6 +978,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case STRING ->
 					PrimitiveType.STRING;
 		};
+		recordType(node, result);
+		return result;
 	}
 
 	@Override
@@ -926,6 +997,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			resultType = node.tail.accept(this);
 		}
 		exitScope();
+		recordType(node, resultType);
 		return resultType;
 	}
 
@@ -951,7 +1023,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitCastExpression(CastExpression node)
 	{
-		return resolveType(node.targetType);
+		node.expression.accept(this);
+		Type result = resolveType(node.targetType);
+		recordType(node, result);
+		return result;
 	}
 
 	@Override

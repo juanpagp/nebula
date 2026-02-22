@@ -69,12 +69,30 @@ public class PrimitiveType extends Type
 
 		if (target instanceof PrimitiveType pTarget)
 		{
-			// Permissive numeric system: any numeric can be assigned to any other numeric
-			// (widening, narrowing, float<->int)
-			if ((this.isInteger() || this.isFloat()) && (pTarget.isInteger() || pTarget.isFloat()))
+			if (this.isInteger() && pTarget.isInteger())
 			{
-				return true;
+				// Signed to unsigned: only if they are the same type (already handled by
+				// equals)
+				// or if it's a widening conversion between SAME signedness.
+				boolean thisSigned = this.name.startsWith("i");
+				boolean targetSigned = pTarget.name.startsWith("i");
+
+				if (thisSigned != targetSigned)
+				{
+					return false; // No implicit cross-signedness conversion
+				}
+
+				return this.getBitWidth() <= pTarget.getBitWidth();
 			}
+			else if (this.isFloat() && pTarget.isFloat())
+			{
+				return this.getBitWidth() <= pTarget.getBitWidth();
+			}
+			else if (this.isInteger() && pTarget.isFloat())
+			{
+				return true; // Widening integer to float
+			}
+			return false; // Disallow narrowing and float-to-int implicit casts
 		}
 
 		return super.isAssignableTo(target);

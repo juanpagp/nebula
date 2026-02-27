@@ -33,8 +33,7 @@ public record CompilerConfig(
 		boolean checkOnly,
 		boolean ignoreWarnings,
 		CompilerConfig.BorrowCKLevel borrowCheckingLevel,
-		boolean bareMetal)
-{
+		boolean isStatic) {
 
 	/**
 	 * Parses CLI arguments into a fully validated {@link CompilerConfig}.
@@ -42,20 +41,18 @@ public record CompilerConfig(
 	 *
 	 * @param args The raw arguments from main().
 	 * @return An Optional containing a Result:
-	 * - Empty: Clean exit (help/version).
-	 * - Present(Ok(config)): Successful parse.
-	 * - Present(Err(error)): Parsing error.
+	 *         - Empty: Clean exit (help/version).
+	 *         - Present(Ok(config)): Successful parse.
+	 *         - Present(Err(error)): Parsing error.
 	 */
-	public static Optional<Result<CompilerConfig, ArgParseError>> fromArgs(String[] args)
-	{
+	public static Optional<Result<CompilerConfig, ArgParseError>> fromArgs(String[] args) {
 		CliParser parser = new CliParser();
 		// The parser handles all logic, including printing errors or help.
 		return parser.parse(args);
 	}
 
 	@Override
-	public String toString()
-	{
+	public String toString() {
 		return "CompilerConfig{" +
 				"nebSources=" + nebSources +
 				", nebLibraries=" + nebLibraries +
@@ -63,15 +60,14 @@ public record CompilerConfig(
 				", entryPoint='" + entryPoint + '\'' +
 				", outputFile='" + outputFile + '\'' +
 				", borrowChecking=" + borrowCheckingLevel +
-				", bareMetal=" + bareMetal +
+				", isStatic=" + isStatic +
 				'}';
 	}
 
 	/**
 	 * Defines the supported borrow checking levels.
 	 */
-	public enum BorrowCKLevel
-	{
+	public enum BorrowCKLevel {
 		none, allowed, strict
 	}
 
@@ -79,8 +75,7 @@ public record CompilerConfig(
 	 * A mutable builder for creating an immutable CompilerConfig.
 	 * This isolates the complex construction logic from the parser.
 	 */
-	public static class Builder
-	{
+	public static class Builder {
 		private final List<String> rawNebSources = new ArrayList<>();
 		private final List<String> rawLinkLibraries = new ArrayList<>();
 		private final List<String> rawNativeSources = new ArrayList<>();
@@ -95,84 +90,67 @@ public record CompilerConfig(
 		private boolean checkOnly = false;
 		private boolean ignoreWarnings = false;
 		private BorrowCKLevel borrowCheckingLevel = BorrowCKLevel.allowed; // Default
-		private boolean bareMetal = false;
+		private boolean isStatic = false;
 
 		// --- Getters for validation ---
-		public List<String> getNebSources()
-		{
+		public List<String> getNebSources() {
 			return rawNebSources;
 		}
 
 		// --- Setters for raw string values ---
-		public void addNebSource(String path)
-		{
+		public void addNebSource(String path) {
 			this.rawNebSources.add(path);
 		}
 
-		public void entryPoint(String entry)
-		{
+		public void entryPoint(String entry) {
 			this.entryPoint = entry;
 		}
 
-		public void outputFile(String file)
-		{
+		public void outputFile(String file) {
 			this.outputFile = file;
 		}
 
-		public void targetPlatform(String target)
-		{
+		public void targetPlatform(String target) {
 			this.targetPlatform = target;
 		}
 
-		public void addLibraryPath(String path)
-		{
+		public void addLibraryPath(String path) {
 			this.rawLibraryPaths.add(path);
 		}
 
-		public void addLinkLibrary(String file)
-		{
+		public void addLinkLibrary(String file) {
 			this.rawLinkLibraries.add(file);
 		}
 
-		public void addNativeSource(String file)
-		{
+		public void addNativeSource(String file) {
 			this.rawNativeSources.add(file);
 		}
 
 		// --- Setters for flags ---
-		public void verbose(boolean v)
-		{
+		public void verbose(boolean v) {
 			this.verbose = v;
 		}
 
-		public void compileAsLibrary(boolean v)
-		{
+		public void compileAsLibrary(boolean v) {
 			this.compileAsLibrary = v;
 		}
 
-		public void checkOnly(boolean v)
-		{
+		public void checkOnly(boolean v) {
 			this.checkOnly = v;
 		}
 
-		public void ignoreWarnings(boolean v)
-		{
+		public void ignoreWarnings(boolean v) {
 			this.ignoreWarnings = v;
 		}
 
-		public void bareMetal(boolean v)
-		{
-			this.bareMetal = v;
+		public void isStatic(boolean v) {
+			this.isStatic = v;
 		}
 
-		public void borrowCheckingLevel(String level)
-		{
-			try
-			{
+		public void borrowCheckingLevel(String level) {
+			try {
 				this.borrowCheckingLevel = BorrowCKLevel.valueOf(level.toLowerCase());
-			}
-			catch (IllegalArgumentException e)
-			{
+			} catch (IllegalArgumentException e) {
 				// Re-throw as a parse exception the parser can catch
 				throw new RuntimeException("Error: Invalid value for --borrow-checking: '" + level + "'. " +
 						"Expected 'none', 'allowed', or 'strict'.");
@@ -184,8 +162,7 @@ public record CompilerConfig(
 		 * (like SourceFile) and builds the immutable CompilerConfig.
 		 * This logic was previously in ArgsParser.toCompilerArguments().
 		 */
-		public CompilerConfig build()
-		{
+		public CompilerConfig build() {
 			List<SourceFile> nebSources = rawNebSources.stream()
 					.map(SourceFile::new)
 					.filter(sf -> sf.type() == FileType.NEBULA_SOURCE)
@@ -206,8 +183,7 @@ public record CompilerConfig(
 					.collect(Collectors.toList());
 
 			// Validate that all raw source files were valid
-			if (nebSources.size() != rawNebSources.size())
-			{
+			if (nebSources.size() != rawNebSources.size()) {
 				// Find the invalid ones to provide a better error
 				List<String> invalid = rawNebSources.stream()
 						.filter(path -> new SourceFile(path).type() != FileType.NEBULA_SOURCE)
@@ -231,7 +207,7 @@ public record CompilerConfig(
 					checkOnly,
 					ignoreWarnings,
 					borrowCheckingLevel,
-					bareMetal);
+					isStatic);
 		}
 	}
 }

@@ -26,11 +26,9 @@ import static org.bytedeco.llvm.global.LLVM.*;
  * <p>
  * This class is stateless — each call to {@link #compile} is self-contained.
  */
-public final class NativeCompiler
-{
+public final class NativeCompiler {
 
-	private NativeCompiler()
-	{
+	private NativeCompiler() {
 		// Utility class
 	}
 
@@ -41,13 +39,13 @@ public final class NativeCompiler
 	 * @param outputPath The desired path for the output binary (e.g. "a.out").
 	 * @param triple     The LLVM target triple, or {@code null} for the host
 	 *                   default.
-	 * @param bareMetal  Whether to link for bare-metal (nostdlib, static).
+	 * @param isStatic   Whether to link for a static, freestanding binary
+	 *                   (nostdlib).
 	 * @throws CodegenException if target initialisation, object emission, or
 	 *                          linking fails.
 	 */
-	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean bareMetal,
-							   List<Path> additionalObjects)
-	{
+	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean isStatic,
+			List<Path> additionalObjects) {
 		// 1. Initialise LLVM targets
 		LLVMInitializeNativeTarget();
 		LLVMInitializeNativeAsmPrinter();
@@ -61,8 +59,7 @@ public final class NativeCompiler
 		// 3. Look up the target
 		LLVMTargetRef target = new LLVMTargetRef();
 		BytePointer errorMsg = new BytePointer();
-		if (LLVMGetTargetFromTriple(new BytePointer(targetTriple), target, errorMsg) != 0)
-		{
+		if (LLVMGetTargetFromTriple(new BytePointer(targetTriple), target, errorMsg) != 0) {
 			String msg = errorMsg.getString();
 			LLVMDisposeMessage(errorMsg);
 			LLVMDisposeMessage(defaultTriple);
@@ -79,8 +76,7 @@ public final class NativeCompiler
 				LLVMRelocPIC, // Position-independent code
 				LLVMCodeModelDefault);
 
-		if (machine == null || machine.isNull())
-		{
+		if (machine == null || machine.isNull()) {
 			LLVMDisposeMessage(defaultTriple);
 			throw new CodegenException("Failed to create LLVM target machine.");
 		}
@@ -91,12 +87,9 @@ public final class NativeCompiler
 
 		// 6. Emit object file to a temp path
 		Path objectFile;
-		try
-		{
+		try {
 			objectFile = Files.createTempFile("nebula_", ".o");
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			LLVMDisposeTargetMachine(machine);
 			LLVMDisposeMessage(defaultTriple);
 			throw new CodegenException("Failed to create temporary object file.", e);
@@ -104,8 +97,7 @@ public final class NativeCompiler
 
 		BytePointer emitError = new BytePointer();
 		if (LLVMTargetMachineEmitToFile(machine, module, new BytePointer(objectFile.toString()),
-				LLVMObjectFile, emitError) != 0)
-		{
+				LLVMObjectFile, emitError) != 0) {
 			String msg = emitError.getString();
 			LLVMDisposeMessage(emitError);
 			LLVMDisposeTargetMachine(machine);
@@ -119,37 +111,30 @@ public final class NativeCompiler
 		LLVMDisposeMessage(defaultTriple);
 
 		// 8. Link with clang
-		link(objectFile, outputPath, bareMetal, additionalObjects);
+		link(objectFile, outputPath, isStatic, additionalObjects);
 	}
 
 	/**
 	 * Invokes {@code clang} to link the object file into a native executable.
 	 */
-	private static void link(Path objectFile, String outputPath, boolean bareMetal, List<Path> additionalObjects)
-	{
-		try
-		{
+	private static void link(Path objectFile, String outputPath, boolean isStatic, List<Path> additionalObjects) {
+		try {
 			List<String> command = new ArrayList<>(List.of(
 					"clang",
 					"-O3", // add optimization
 					objectFile.toString(),
 					"-o", outputPath));
 
-			if (additionalObjects != null)
-			{
-				for (Path p : additionalObjects)
-				{
+			if (additionalObjects != null) {
+				for (Path p : additionalObjects) {
 					command.add(p.toString());
 				}
 			}
 
-			if (bareMetal)
-			{
+			if (isStatic) {
 				command.add("-nostdlib");
 				command.add("-static");
-			}
-			else
-			{
+			} else {
 				command.add("-no-pie");
 			}
 
@@ -158,32 +143,22 @@ public final class NativeCompiler
 			Process process = pb.start();
 			int exitCode = process.waitFor();
 
-			if (exitCode != 0)
-			{
+			if (exitCode != 0) {
 				throw new CodegenException(
 						"Linker (clang) failed with exit code " + exitCode +
 								". Ensure clang is installed and available on PATH.");
 			}
-		}
-		catch (IOException e)
-		{
+		} catch (IOException e) {
 			throw new CodegenException(
 					"Failed to invoke linker (clang). Ensure clang is installed and available on PATH.", e);
-		}
-		catch (InterruptedException e)
-		{
+		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 			throw new CodegenException("Linking interrupted.", e);
-		}
-		finally
-		{
+		} finally {
 			// Clean up temp object file
-			try
-			{
+			try {
 				Files.deleteIfExists(objectFile);
-			}
-			catch (IOException ignored)
-			{
+			} catch (IOException ignored) {
 				// Best effort cleanup
 			}
 		}

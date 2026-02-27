@@ -11,8 +11,7 @@ import java.util.Optional;
  * populating a CompilerConfig, and handling immediate-exit commands
  * like --help and --version.
  */
-public class CliParser
-{
+public class CliParser {
 
 	/**
 	 * Parses the raw string arguments into a fully validated CompilerConfig.
@@ -37,27 +36,22 @@ public class CliParser
 	 * @param args The string arguments from main().
 	 * @return An Optional containing a Result, representing the parse outcome.
 	 */
-	public Optional<Result<CompilerConfig, ArgParseError>> parse(String[] args)
-	{
+	public Optional<Result<CompilerConfig, ArgParseError>> parse(String[] args) {
 		CompilerConfig.Builder builder = new CompilerConfig.Builder();
 
-		try
-		{
+		try {
 			// Iterate through the arguments
-			for (int i = 0; i < args.length; i++)
-			{
+			for (int i = 0; i < args.length; i++) {
 				String arg = args[i];
 
 				// Anything not starting with '-' is a source file
-				if (!arg.startsWith("-"))
-				{
+				if (!arg.startsWith("-")) {
 					builder.addNebSource(arg);
 					continue;
 				}
 
 				// Use a switch for simple, fast option matching
-				switch (arg)
-				{
+				switch (arg) {
 					// --- Clean Exit Flags ---
 					case "-h":
 					case "--help":
@@ -84,17 +78,16 @@ public class CliParser
 					case "--ignore-warnings":
 						builder.ignoreWarnings(true);
 						break;
-					case "-b":
-					case "--bare":
-						builder.bareMetal(true);
+					case "-s":
+					case "--static":
+						builder.isStatic(true);
 						break;
 
 					// --- Options with a single value ---
 					case "-e":
 					case "--entry":
 						i++; // Move to the next token
-						if (i >= args.length)
-						{
+						if (i >= args.length) {
 							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
 									"Error: Option '" + arg + "' requires an argument.")));
 						}
@@ -104,8 +97,7 @@ public class CliParser
 					case "-o":
 					case "--output":
 						i++;
-						if (i >= args.length)
-						{
+						if (i >= args.length) {
 							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
 									"Error: Option '" + arg + "' requires an argument.")));
 						}
@@ -115,8 +107,7 @@ public class CliParser
 					case "-t":
 					case "--target":
 						i++;
-						if (i >= args.length)
-						{
+						if (i >= args.length) {
 							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
 									"Error: Option '" + arg + "' requires an argument.")));
 						}
@@ -125,8 +116,7 @@ public class CliParser
 
 					case "--borrow-checking":
 						i++;
-						if (i >= args.length)
-						{
+						if (i >= args.length) {
 							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
 									"Error: Option '" + arg + "' requires an argument.")));
 						}
@@ -137,8 +127,7 @@ public class CliParser
 					// --- Options that can be repeated (lists) ---
 					case "-L":
 						i++;
-						if (i >= args.length)
-						{
+						if (i >= args.length) {
 							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
 									"Error: Option '" + arg + "' requires an argument.")));
 						}
@@ -147,8 +136,7 @@ public class CliParser
 
 					case "-l":
 						i++;
-						if (i >= args.length)
-						{
+						if (i >= args.length) {
 							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
 									"Error: Option '" + arg + "' requires an argument.")));
 						}
@@ -158,8 +146,7 @@ public class CliParser
 					case "-n":
 					case "--native":
 						i++;
-						if (i >= args.length)
-						{
+						if (i >= args.length) {
 							return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_VALUE,
 									"Error: Option '" + arg + "' requires an argument.")));
 						}
@@ -172,30 +159,24 @@ public class CliParser
 								"Error: Unknown option '" + arg + "'")));
 				}
 			}
-		}
-		catch (RuntimeException e)
-		{
+		} catch (RuntimeException e) {
 			// This catches errors from the builder (e.g., invalid borrow check level)
 			return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.INVALID_VALUE, e.getMessage())));
 		}
 
 		// ---- VALIDATION ----
 		// This is a post-parsing validation check
-		if (builder.getNebSources().isEmpty())
-		{
+		if (builder.getNebSources().isEmpty()) {
 			return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.MISSING_SOURCE_FILES,
 					"Error: Missing required <sourceFiles>.")));
 		}
 
 		// All checks passed, build the final, immutable config object
-		try
-		{
+		try {
 			// .build() can also throw an error (e.g., invalid file types)
 			CompilerConfig config = builder.build();
 			return Optional.of(Result.ok(config));
-		}
-		catch (Exception e)
-		{
+		} catch (Exception e) {
 			return Optional.of(Result.err(new ArgParseError(ArgParseError.Type.INVALID_VALUE,
 					"Error creating compiler config: " + e.getMessage())));
 		}

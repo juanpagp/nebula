@@ -12,6 +12,7 @@ OPTIONS:
   -t, --target <platform>   Specify the target platform (e.g., 'linux-x64').
   -k, --check               Run semantic analysis only; do not generate output.
   -n, --native <files...>   Explicitly include native source files (.cpp, .h) in the build.
+  -s, --static              Link for a static, freestanding binary (no libc).
 FLAGS:
   --borrow-checking=<level> Set borrow checking level: none, allowed (default), enforced.
   --ignore-warnings         Compile while ignoring all warnings.

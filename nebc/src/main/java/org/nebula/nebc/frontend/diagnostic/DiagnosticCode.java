@@ -1,7 +1,6 @@
 package org.nebula.nebc.frontend.diagnostic;
 
-public enum DiagnosticCode
-{
+public enum DiagnosticCode {
 	// --- General & Entry Point ---
 	MISSING_MAIN_METHOD("No 'main' entry point found."),
 	DUPLICATE_MAIN_METHOD("Duplicate 'main' method. Entry point already defined."),
@@ -40,18 +39,21 @@ public enum DiagnosticCode
 	ARGUMENT_TYPE_MISMATCH("Argument %d: expected '%s', got '%s'."),
 	UNINITIALIZED_VARIABLE("Implicit variable '%s' must be initialized."),
 
+	// --- Arrays & Indexing ---
+	INDEX_NOT_INTEGER("Array index must be an integer, got '%s'."),
+	TYPE_NOT_INDEXABLE("Type '%s' is not indexable."),
+	ARRAY_LITERAL_MISMATCH("Array literal element type mismatch. Expected '%s', got '%s'."),
+
 	// --- FFI & I/O ---
 	EXTERN_METHOD_HAS_BODY("Method '%s' is declared in an 'extern' block and cannot have a body.");
 
 	private final String messageTemplate;
 
-	DiagnosticCode(String messageTemplate)
-	{
+	DiagnosticCode(String messageTemplate) {
 		this.messageTemplate = messageTemplate;
 	}
 
-	public String format(Object... args)
-	{
+	public String format(Object... args) {
 		return String.format(messageTemplate, args);
 	}
 }

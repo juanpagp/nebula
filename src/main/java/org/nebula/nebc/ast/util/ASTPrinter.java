@@ -89,6 +89,12 @@ public class ASTPrinter implements ASTVisitor<String>
 	}
 
 	@Override
+	public String visitExternDeclaration(ExternDeclaration node)
+	{
+		return line("Extern: " + node.language) + visitNodes("Members", node.members);
+	}
+
+	@Override
 	public String visitClassDeclaration(ClassDeclaration node)
 	{
 		return line("Class: " + node.name) + visitNodes("Inheritance", node.inheritance) +
@@ -244,6 +250,12 @@ public class ASTPrinter implements ASTVisitor<String>
 	{
 		return line("Foreach: " + node.variableName) + visitNode("Iterable", node.iterable)
 				+ visitNode("Body", node.body);
+	}
+
+	@Override
+	public String visitWhileStatement(WhileStatement node)
+	{
+		return "while (" + node.condition.accept(this) + ") " + node.body.accept(this);
 	}
 
 	@Override

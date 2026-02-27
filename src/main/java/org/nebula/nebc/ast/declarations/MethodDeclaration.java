@@ -1,6 +1,9 @@
 package org.nebula.nebc.ast.declarations;
 
-import org.nebula.nebc.ast.*;
+import org.nebula.nebc.ast.ASTNode;
+import org.nebula.nebc.ast.ASTVisitor;
+import org.nebula.nebc.ast.Modifier;
+import org.nebula.nebc.ast.Parameter;
 import org.nebula.nebc.ast.types.TypeNode;
 import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
@@ -13,10 +16,12 @@ public class MethodDeclaration extends Declaration
 	public final String name;
 	public final List<Parameter> parameters;
 	public final ASTNode body; // Can be a Block or an Expression (for =>)
+	public boolean isExtern;
 
-	public MethodDeclaration(SourceSpan span, List<Modifier> modifiers, TypeNode returnType, String name, List<Parameter> parameters, ASTNode body)
+	public MethodDeclaration(SourceSpan span, boolean isExtern, List<Modifier> modifiers, TypeNode returnType, String name, List<Parameter> parameters, ASTNode body)
 	{
 		super(span);
+		this.isExtern = isExtern;
 		this.modifiers = modifiers;
 		this.returnType = returnType;
 		this.name = name;

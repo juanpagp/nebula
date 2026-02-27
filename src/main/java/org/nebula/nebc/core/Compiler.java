@@ -7,10 +7,16 @@ import org.nebula.nebc.codegen.LLVMCodeGenerator;
 import org.nebula.nebc.codegen.NativeCompiler;
 import org.nebula.nebc.frontend.diagnostic.Diagnostic;
 import org.nebula.nebc.frontend.parser.Parser;
+import org.nebula.nebc.io.SourceFile;
 import org.nebula.nebc.semantic.SemanticAnalyzer;
 import org.nebula.nebc.util.Log;
 import org.nebula.util.ExitCode;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
 
 public class Compiler
@@ -26,9 +32,8 @@ public class Compiler
 	public ExitCode run()
 	{
 		// 1. Frontend: Lexing & Parsing
-		// This phase converts source files into Abstract Syntax Trees (via Parse
-		// Trees).
-		Parser parser = new Parser(config);
+		List<SourceFile> stdLib = discoverStdLib();
+		Parser parser = new Parser(config, stdLib);
 		int frontendExitCode = parser.parse();
 		if (frontendExitCode != 0)
 			return ExitCode.SYNTAX_ERROR;
@@ -98,7 +103,29 @@ public class Compiler
 
 			// 6. Emit native binary
 			String outputPath = config.outputFile() != null ? config.outputFile() : "a.out";
-			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.bareMetal());
+			List<Path> extraObjects = new ArrayList<>();
+
+			// Always compile and link runtime.c for I/O support
+			Path runtimeObj = compileRuntimeShim();
+			if (runtimeObj != null)
+			{
+				extraObjects.add(runtimeObj);
+			}
+
+			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.bareMetal(),
+					extraObjects);
+
+			// Cleanup extra objects
+			for (Path p : extraObjects)
+			{
+				try
+				{
+					Files.deleteIfExists(p);
+				}
+				catch (IOException ignored)
+				{
+				}
+			}
 
 			Log.info("Compiled successfully: " + outputPath);
 			return ExitCode.SUCCESS;
@@ -112,5 +139,89 @@ public class Compiler
 		{
 			codegen.dispose();
 		}
+	}
+
+	private Path compileRuntimeShim()
+	{
+		try
+		{
+			Path tempC = Files.createTempFile("runtime_", ".c");
+			var is = getClass().getResourceAsStream("/runtime.c");
+			if (is == null)
+			{
+				// Fallback to local filesystem if not in resources (e.g. during development)
+				// Fallback to local filesystem paths
+				Path[] searchPaths = {
+						Path.of("src/main/resources/runtime.c"),
+						Path.of("runtime.c"),
+						Path.of("../runtime.c"), // In case running from a subfolder
+						Path.of("nebc-old/src/main/resources/runtime.c")
+				};
+
+				boolean isFound = false;
+				for (Path p : searchPaths)
+				{
+					if (Files.exists(p))
+					{
+						Files.copy(p, tempC, StandardCopyOption.REPLACE_EXISTING);
+						isFound = true;
+						break;
+					}
+				}
+
+				if (!isFound)
+				{
+					Log.warn("Could not find runtime.c in resources or local filesystem.");
+					return null;
+				}
+			}
+			else
+			{
+				Files.copy(is, tempC, StandardCopyOption.REPLACE_EXISTING);
+			}
+
+			Path tempObj = Files.createTempFile("runtime_", ".o");
+			ProcessBuilder pb = new ProcessBuilder("clang", "-c", tempC.toString(), "-o", tempObj.toString(), "-O3",
+					"-fno-stack-protector");
+			if (config.bareMetal())
+			{
+				pb.command().add("-ffreestanding");
+			}
+
+			int exitCode = pb.start().waitFor();
+			Files.deleteIfExists(tempC);
+
+			if (exitCode != 0)
+			{
+				Log.err("Failed to compile runtime.c shim");
+				return null;
+			}
+			return tempObj;
+		}
+		catch (IOException |
+			   InterruptedException e)
+		{
+			Log.err("Error compiling runtime shim: " + e.getMessage());
+			return null;
+		}
+	}
+
+	private List<SourceFile> discoverStdLib()
+	{
+		List<SourceFile> stdFiles = new ArrayList<>();
+		Path stdPath = Path.of("std");
+		if (Files.exists(stdPath) && Files.isDirectory(stdPath))
+		{
+			try (java.util.stream.Stream<Path> stream = Files.walk(stdPath))
+			{
+				stream.filter(p -> p.toString().endsWith(".neb"))
+						.forEach(p -> stdFiles.add(new SourceFile(p.toString())));
+			}
+			catch (IOException e)
+			{
+				Log.warn("Failed to walk std directory: " + e.getMessage());
+			}
+		}
+		return stdFiles;
 	}
 }

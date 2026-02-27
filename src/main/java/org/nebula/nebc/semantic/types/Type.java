@@ -13,7 +13,7 @@ public abstract class Type
 	{
 		if (this == ERROR || destination == ERROR)
 			return true; // Prevent cascading errors
-		if (destination == ANY)
+		if (this == ANY || destination == ANY)
 			return true;
 		return this.name().equals(destination.name()); // Simple name-based equality for now
 	}

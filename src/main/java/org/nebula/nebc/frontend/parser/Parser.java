@@ -20,12 +20,19 @@ public class Parser
 	private final CompilerConfig config;
 	// Storage to pass valid token streams from the lexer phase to the parser phase
 	private final Map<SourceFile, CommonTokenStream> validTokenStreams;
+	private final List<SourceFile> extraSources;
 
 	public Parser(CompilerConfig config)
+	{
+		this(config, new ArrayList<>());
+	}
+
+	public Parser(CompilerConfig config, List<SourceFile> extraSources)
 	{
 		this.config = config;
 		this.parsingResultList = new ArrayList<>();
 		this.validTokenStreams = new HashMap<>();
+		this.extraSources = extraSources;
 	}
 
 	public List<ParsingResult> getParsingResultList()
@@ -68,7 +75,11 @@ public class Parser
 		int totalErrors = 0;
 		validTokenStreams.clear();
 
-		for (SourceFile sourceFile : config.nebSources())
+		// std library sources must come first so they are analyzed before user code
+		List<SourceFile> allSources = new ArrayList<>(extraSources);
+		allSources.addAll(config.nebSources());
+
+		for (SourceFile sourceFile : allSources)
 		{
 			try
 			{
@@ -131,8 +142,12 @@ public class Parser
 	{
 		int totalErrors = 0;
 
+		// std library sources must come first so they are analyzed before user code
+		List<SourceFile> allSources = new ArrayList<>(extraSources);
+		allSources.addAll(config.nebSources());
+
 		// Iterate based on config order to maintain deterministic compilation order
-		for (SourceFile sourceFile : config.nebSources())
+		for (SourceFile sourceFile : allSources)
 		{
 			CommonTokenStream tokenStream = validTokenStreams.get(sourceFile);
 

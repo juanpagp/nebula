@@ -50,6 +50,17 @@ public class Desugarer implements ASTVisitor<ASTNode>
 	// ----------------------
 
 	@Override
+	public ASTNode visitExternDeclaration(ExternDeclaration node)
+	{
+		List<MethodDeclaration> members = new ArrayList<>();
+		for (int i = 0; i < node.members.size(); i++)
+		{
+			members.add((MethodDeclaration) node.members.get(i).accept(this));
+		}
+		return new ExternDeclaration(node.getSpan(), node.language, members, node.isPrivate);
+	}
+
+	@Override
 	public ASTNode visitNamespaceDeclaration(NamespaceDeclaration node)
 	{
 		List<ASTNode> members = new ArrayList<>();
@@ -90,7 +101,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 	public ASTNode visitMethodDeclaration(MethodDeclaration node)
 	{
 		ASTNode body = node.body != null ? node.body.accept(this) : null;
-		return new MethodDeclaration(node.getSpan(), node.modifiers, node.returnType, node.name, node.parameters, body);
+		return new MethodDeclaration(node.getSpan(), node.isExtern, node.modifiers, node.returnType, node.name, node.parameters, body);
 	}
 
 	@Override
@@ -284,6 +295,14 @@ public class Desugarer implements ASTVisitor<ASTNode>
 		Expression iterable = (Expression) node.iterable.accept(this);
 		Statement body = (Statement) node.body.accept(this);
 		return new ForeachStatement(node.getSpan(), node.variableType, node.variableName, iterable, body);
+	}
+
+	@Override
+	public ASTNode visitWhileStatement(WhileStatement node)
+	{
+		Expression condition = (Expression) node.condition.accept(this);
+		Statement body = (Statement) node.body.accept(this);
+		return new WhileStatement(node.getSpan(), condition, body);
 	}
 
 	@Override

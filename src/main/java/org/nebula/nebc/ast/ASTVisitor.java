@@ -15,8 +15,7 @@ import org.nebula.nebc.ast.types.TypeNode;
  *
  * @param <R> The return type of the visit operation.
  */
-public interface ASTVisitor<R>
-{
+public interface ASTVisitor<R> {
 	/**
 	 * Visits the root node of the AST.
 	 */
@@ -45,6 +44,11 @@ public interface ASTVisitor<R>
 	 * @grammar modifiers returnType name<T>(params) { body }
 	 */
 	R visitMethodDeclaration(MethodDeclaration node);
+
+	/**
+	 * @grammar extern "C" { method_declaration* }
+	 */
+	R visitExternDeclaration(ExternDeclaration node);
 
 	/**
 	 * @grammar class name<T> : Base { members }
@@ -123,6 +127,11 @@ public interface ASTVisitor<R>
 	/**
 	 * @grammar return [expression];
 	 */
+	/**
+	 * @grammar while (expr) stmt
+	 */
+	R visitWhileStatement(WhileStatement node);
+
 	R visitReturnStatement(ReturnStatement node);
 
 	/**

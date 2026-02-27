@@ -83,8 +83,8 @@ public final class LLVMTypeMapper
 		if (pt == PrimitiveType.CHAR)
 			return LLVMInt32TypeInContext(ctx);
 
-		// string → i8* (C-style pointer for now)
-		if (pt == PrimitiveType.STRING)
+		// string, Ref, ANY → i8* (pointer)
+		if (pt == PrimitiveType.STRING || pt == PrimitiveType.REF || pt == (PrimitiveType) Type.ANY)
 			return LLVMPointerTypeInContext(ctx, 0);
 
 		throw new CodegenException("Unmappable primitive type: " + pt.name());

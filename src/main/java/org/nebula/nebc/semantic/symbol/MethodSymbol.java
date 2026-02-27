@@ -14,11 +14,13 @@ public final class MethodSymbol extends Symbol
 {
 
 	private final List<Modifier> modifiers;
+	private final boolean isExtern;
 
-	public MethodSymbol(String name, FunctionType type, List<Modifier> modifiers, ASTNode declarationNode)
+	public MethodSymbol(String name, FunctionType type, List<Modifier> modifiers, boolean isExtern, ASTNode declarationNode)
 	{
 		super(name, type, declarationNode);
 		this.modifiers = List.copyOf(modifiers);
+		this.isExtern = isExtern;
 	}
 
 	@Override
@@ -30,6 +32,11 @@ public final class MethodSymbol extends Symbol
 	public List<Modifier> getModifiers()
 	{
 		return modifiers;
+	}
+
+	public boolean isExtern()
+	{
+		return isExtern;
 	}
 
 	public boolean hasModifier(Modifier modifier)

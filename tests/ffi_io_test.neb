@@ -1,0 +1,10 @@
+extern "C" {
+    // Note: __nebula_rt_write expects a pointer and a length.
+    // In Nebula, strings are passed as Ref<u8> (pointers).
+    void __nebula_rt_write(keeps string buf, i32 len);
+}
+
+i32 main() {
+    __nebula_rt_write("Hello, I/O Subsystem!\n", 22);
+    0
+}

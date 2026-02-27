@@ -116,6 +116,7 @@ statement
     | statement_block
     | if_statement
     | for_statement
+    | while_statement
     | foreach_statement
     | return_statement
     | expression_statement
@@ -171,6 +172,10 @@ for_initializer
 
 for_iterator
     : expression_list
+    ;
+
+while_statement
+    : WHILE parenthesized_expression statement
     ;
 
 foreach_statement

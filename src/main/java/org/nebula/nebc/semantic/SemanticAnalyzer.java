@@ -42,6 +42,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	private Type currentMethodReturnType = null;
 	private boolean insideLoop = false;
 	private CompositeType currentTypeDefinition = null;
+	private boolean isInsideExtern = false; // Flag for extern "C" blocks
 
 	public SemanticAnalyzer(CompilerConfig config)
 	{
@@ -210,6 +211,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				defineMethodSignature(md);
 			}
+			else if (decl instanceof ExternDeclaration ed)
+			{
+				ed.accept(this);
+			}
 		}
 
 		// Phase 2: Full visitation — resolve bodies, check types.
@@ -247,6 +252,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			if (member instanceof MethodDeclaration md)
 			{
 				defineMethodSignature(md);
+			}
+			else if (member instanceof ExternDeclaration ed)
+			{
+				ed.accept(this);
 			}
 		}
 
@@ -316,6 +325,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				defineMethodSignature(md);
 			}
+			else if (member instanceof ExternDeclaration ed)
+			{
+				ed.accept(this);
+			}
 		}
 
 		// Visit members
@@ -381,8 +394,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			else
 			{
 				FunctionType ctorType = new FunctionType(unionType, java.util.List.of(payloadType));
-				MethodSymbol variantSym = new MethodSymbol(variant.name, ctorType, java.util.Collections.emptyList(),
-						node);
+				MethodSymbol variantSym = new MethodSymbol(variant.name, ctorType, java.util.Collections.emptyList(), false, node);
 				currentScope.define(variantSym);
 			}
 		}
@@ -398,21 +410,40 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		return null; // Handled in visitUnionDeclaration
 	}
 
+	@Override
+	public Type visitExternDeclaration(ExternDeclaration node)
+	{
+		boolean oldExtern = isInsideExtern;
+		isInsideExtern = true;
+		for (MethodDeclaration member : node.members)
+		{
+			defineMethodSignature(member);
+		}
+		isInsideExtern = oldExtern;
+		return null;
+	}
+
 	private void defineMethodSignature(MethodDeclaration node)
 	{
 		Type returnType = (node.returnType == null) ? PrimitiveType.VOID : resolveType(node.returnType);
 
 		// 1. Build function signature
 		List<Type> paramTypes = new ArrayList<>();
+		List<ParameterInfo> paramInfos = isInsideExtern ? new ArrayList<>() : null;
+
 		for (Parameter p : node.parameters)
 		{
 			Type pType = resolveType(p.type());
 			paramTypes.add(pType == Type.ERROR ? Type.ANY : pType);
+			if (isInsideExtern)
+			{
+				paramInfos.add(new ParameterInfo(p.cvtModifier(), pType, p.name()));
+			}
 		}
-		FunctionType methodType = new FunctionType(returnType, paramTypes);
+		FunctionType methodType = new FunctionType(returnType, paramTypes, paramInfos);
 
 		// 2. Define method as a MethodSymbol in current scope
-		MethodSymbol methodSym = new MethodSymbol(node.name, methodType, node.modifiers, node);
+		MethodSymbol methodSym = new MethodSymbol(node.name, methodType, node.modifiers, node.isExtern, node);
 		recordSymbol(node, methodSym);
 		if (!currentScope.define(methodSym))
 		{
@@ -483,6 +514,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		if (node.body != null)
 		{
+			// FFI validation: extern methods cannot have a body
+			if (isInsideExtern)
+			{
+				error(DiagnosticCode.EXTERN_METHOD_HAS_BODY, node, node.name);
+			}
+
 			Type bodyType = node.body.accept(this);
 			if (returnType == PrimitiveType.VOID && bodyType != PrimitiveType.VOID)
 			{
@@ -591,6 +628,23 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		{
 			node.elseBranch.accept(this);
 		}
+		return PrimitiveType.VOID;
+	}
+
+	@Override
+	public Type visitWhileStatement(WhileStatement node)
+	{
+		Type condType = node.condition.accept(this);
+		if (condType != PrimitiveType.BOOL && condType != Type.ERROR)
+		{
+			error(DiagnosticCode.WHILE_CONDITION_NOT_BOOL, node.condition, condType.name());
+		}
+
+		boolean oldInsideLoop = insideLoop;
+		insideLoop = true;
+		node.body.accept(this);
+		insideLoop = oldInsideLoop;
+
 		return PrimitiveType.VOID;
 	}
 

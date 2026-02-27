@@ -1,6 +1,7 @@
 package org.nebula.nebc.semantic.symbol;
 
 import org.nebula.nebc.ast.ASTNode;
+import org.nebula.nebc.semantic.SymbolTable;
 import org.nebula.nebc.semantic.types.Type;
 
 /**
@@ -26,12 +27,48 @@ public abstract sealed class Symbol
 	private final String name;
 	private final Type type;
 	private final ASTNode declarationNode; // nullable for built-ins
+	protected SymbolTable definedIn;
 
 	protected Symbol(String name, Type type, ASTNode declarationNode)
 	{
 		this.name = name;
 		this.type = type;
 		this.declarationNode = declarationNode;
+	}
+
+	public SymbolTable getDefinedIn()
+	{
+		return definedIn;
+	}
+
+	public void setDefinedIn(SymbolTable definedIn)
+	{
+		this.definedIn = definedIn;
+	}
+
+	/**
+	 * Returns a mangled name suitable for LLVM.
+	 * For extern functions, returns the original name.
+	 * For others, returns a qualified name (e.g. std_io_println).
+	 */
+	public String getMangledName()
+	{
+		if (this instanceof MethodSymbol ms && ms.isExtern())
+		{
+			return name;
+		}
+
+		java.util.List<String> parts = new java.util.ArrayList<>();
+		parts.add(name);
+
+		SymbolTable current = definedIn;
+		while (current != null && current.getOwner() != null)
+		{
+			parts.add(0, current.getOwner().getName());
+			current = current.getParent();
+		}
+
+		return String.join("_", parts);
 	}
 
 	public String getName()

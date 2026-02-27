@@ -25,10 +25,35 @@ public class SymbolTable
 
 	private final SymbolTable parent;
 	private final Map<String, Symbol> symbols = new LinkedHashMap<>();
+	private final java.util.List<NamespaceSymbol> imports = new java.util.ArrayList<>();
+	private Symbol owner = null; // The symbol that owns this table (e.g. NamespaceSymbol)
 
 	public SymbolTable(SymbolTable parent)
 	{
 		this.parent = parent;
+	}
+
+	public Symbol getOwner()
+	{
+		return owner;
+	}
+
+	public void setOwner(Symbol owner)
+	{
+		this.owner = owner;
+	}
+
+	/**
+	 * Adds a namespace to the "opened" imports for this scope.
+	 * When resolving a name, if it's not found locally, we'll check these
+	 * namespaces.
+	 */
+	public void addImport(NamespaceSymbol ns)
+	{
+		if (!imports.contains(ns))
+		{
+			imports.add(ns);
+		}
 	}
 
 	/**
@@ -40,6 +65,7 @@ public class SymbolTable
 		if (symbols.containsKey(symbol.getName()))
 			return false;
 		symbols.put(symbol.getName(), symbol);
+		symbol.setDefinedIn(this);
 		return true;
 	}
 
@@ -47,28 +73,59 @@ public class SymbolTable
 	 * Resolves a name by searching this scope first, then walking up the parent
 	 * chain.
 	 * Supports qualified names using "::" (e.g. "ns::Foo").
+	 * Also searches imported namespaces.
 	 */
 	public Symbol resolve(String name)
+	{
+		return resolve(name, true);
+	}
+
+	/**
+	 * Internal resolution logic.
+	 *
+	 * @param name      The name to resolve.
+	 * @param useParent Whether to continue searching in parent scopes if not found
+	 *                  locally or in imports.
+	 */
+	private Symbol resolve(String name, boolean useParent)
 	{
 		// Handle qualified names: ns::User
 		if (name.contains("::"))
 		{
 			String[] parts = name.split("::", 2);
-			Symbol prefix = resolve(parts[0]);
+			Symbol prefix = resolve(parts[0], useParent);
 
 			if (prefix instanceof NamespaceSymbol ns)
 			{
-				return ns.getMemberTable().resolve(parts[1]);
+				// When resolving a qualified name, we only look inside that namespace.
+				// We don't want to walk up its parent chain if it's not found there,
+				// because that would be searching outside the qualified namespace.
+				return ns.getMemberTable().resolve(parts[1], false);
 			}
 			return null;
 		}
 
-		// Standard local → parent resolution
+		// 1. Standard local resolution
 		Symbol sym = symbols.get(name);
 		if (sym != null)
 			return sym;
-		if (parent != null)
-			return parent.resolve(name);
+
+		// 2. Search in imported namespaces (e.g. if 'std::io' was imported, check it
+		// for 'println')
+		for (NamespaceSymbol ns : imports)
+		{
+			// CRITICAL: We only search the imported namespace's local symbols and ITS
+			// imports.
+			// We DO NOT walk up its parent chain (useParent=false), as that would likely
+			// lead back to the global scope and cause infinite recursion.
+			Symbol importedSym = ns.getMemberTable().resolve(name, false);
+			if (importedSym != null)
+				return importedSym;
+		}
+
+		// 3. Parent resolution
+		if (useParent && parent != null)
+			return parent.resolve(name, true);
 		return null;
 	}
 

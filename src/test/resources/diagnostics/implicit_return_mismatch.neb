@@ -1,0 +1,7 @@
+// This tests if the semantic analyzer catches a mismatched implicit return.
+i32 main()
+{
+    f64 b = 3.14;
+    // ERROR: Type mismatch: expected 'i32', got 'f64'
+    b
+}

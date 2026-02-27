@@ -22,6 +22,7 @@ public enum DiagnosticCode
 	RETURN_OUTSIDE_METHOD("Return statement outside of method body."),
 	IF_CONDITION_NOT_BOOL("If condition must be boolean, got '%s'."),
 	FOR_CONDITION_NOT_BOOL("For condition must be boolean, got '%s'."),
+	WHILE_CONDITION_NOT_BOOL("While condition must be boolean, got '%s'."),
 	OPERATOR_NOT_DEFINED("Operator '%s' not defined for '%s' and '%s'."),
 	// Logical & Relational
 	COMPARING_DISTINCT_TYPES("Comparing distinct types '%s' and '%s' is always false."),
@@ -37,7 +38,10 @@ public enum DiagnosticCode
 	// --- Function & Method ---
 	ARGUMENT_COUNT_MISMATCH("Argument count mismatch. Expected %d, got %d."),
 	ARGUMENT_TYPE_MISMATCH("Argument %d: expected '%s', got '%s'."),
-	UNINITIALIZED_VARIABLE("Implicit variable '%s' must be initialized.");
+	UNINITIALIZED_VARIABLE("Implicit variable '%s' must be initialized."),
+
+	// --- FFI & I/O ---
+	EXTERN_METHOD_HAS_BODY("Method '%s' is declared in an 'extern' block and cannot have a body.");
 
 	private final String messageTemplate;
 

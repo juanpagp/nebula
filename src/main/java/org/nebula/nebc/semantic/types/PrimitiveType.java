@@ -25,6 +25,17 @@ public class PrimitiveType extends Type
 	public static final PrimitiveType CHAR = new PrimitiveType("char");
 	public static final PrimitiveType STRING = new PrimitiveType("string");
 
+	// Special FFI/CVT primitive: Ref<T> — a raw view into a Region, used in extern
+	// "C"
+	public static final PrimitiveType REF = new PrimitiveType("Ref")
+	{
+		@Override
+		public boolean isAssignableTo(Type target)
+		{
+			return true; // Ref is an opaque FFI type; allow passing to any parameter
+		}
+	};
+
 	private final String name;
 
 	public PrimitiveType(String name)
@@ -54,6 +65,10 @@ public class PrimitiveType extends Type
 		scope.define(TypeSymbol.builtIn("void", VOID));
 		scope.define(TypeSymbol.builtIn("char", CHAR));
 		scope.define(TypeSymbol.builtIn("string", STRING));
+
+		// FFI/CVT primitives
+		scope.define(TypeSymbol.builtIn("Ref", REF));
+		scope.define(TypeSymbol.builtIn("Region", REF)); // Reuse REF logic for Region for now as a catch-all
 	}
 
 	public boolean isValidMainMethodReturnType()
@@ -64,6 +79,8 @@ public class PrimitiveType extends Type
 	@Override
 	public boolean isAssignableTo(Type target)
 	{
+		if (this == Type.ANY || target == Type.ANY)
+			return true;
 		if (this.equals(target))
 			return true;
 
@@ -79,7 +96,8 @@ public class PrimitiveType extends Type
 
 				if (thisSigned != targetSigned)
 				{
-					return false; // No implicit cross-signedness conversion
+					// Relaxed for bootstrap: allow same-width cross-sign conversion
+					return this.getBitWidth() == pTarget.getBitWidth();
 				}
 
 				return this.getBitWidth() <= pTarget.getBitWidth();
@@ -91,6 +109,10 @@ public class PrimitiveType extends Type
 			else if (this.isInteger() && pTarget.isFloat())
 			{
 				return true; // Widening integer to float
+			}
+			if (this == STRING && pTarget == REF)
+			{
+				return true; // string is implicitly Ref<u8> for FFI
 			}
 			return false; // Disallow narrowing and float-to-int implicit casts
 		}

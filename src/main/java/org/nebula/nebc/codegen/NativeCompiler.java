@@ -45,7 +45,8 @@ public final class NativeCompiler
 	 * @throws CodegenException if target initialisation, object emission, or
 	 *                          linking fails.
 	 */
-	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean bareMetal)
+	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean bareMetal,
+							   List<Path> additionalObjects)
 	{
 		// 1. Initialise LLVM targets
 		LLVMInitializeNativeTarget();
@@ -118,13 +119,13 @@ public final class NativeCompiler
 		LLVMDisposeMessage(defaultTriple);
 
 		// 8. Link with clang
-		link(objectFile, outputPath, bareMetal);
+		link(objectFile, outputPath, bareMetal, additionalObjects);
 	}
 
 	/**
 	 * Invokes {@code clang} to link the object file into a native executable.
 	 */
-	private static void link(Path objectFile, String outputPath, boolean bareMetal)
+	private static void link(Path objectFile, String outputPath, boolean bareMetal, List<Path> additionalObjects)
 	{
 		try
 		{
@@ -133,6 +134,14 @@ public final class NativeCompiler
 					"-O3", // add optimization
 					objectFile.toString(),
 					"-o", outputPath));
+
+			if (additionalObjects != null)
+			{
+				for (Path p : additionalObjects)
+				{
+					command.add(p.toString());
+				}
+			}
 
 			if (bareMetal)
 			{

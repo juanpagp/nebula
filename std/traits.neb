@@ -1,0 +1,58 @@
+/*
+ * std/traits.neb
+ * ═══════════════════════════════════════════════════════════════════
+ * The Stringable Trait: Convert Anything to String
+ * 
+ * This trait defines the contract for types that can be converted to
+ * a string representation. It is the foundation of the print subsystem.
+ * 
+ * For example:
+ *   - i32 implements Stringable by converting numbers to decimal
+ *   - string implements Stringable trivially (returns itself)
+ *   - Custom types can implement Stringable for custom output
+ */
+
+namespace std;
+
+/**
+ * trait Stringable
+ * 
+ * Any type implementing Stringable can be printed via std::io::print<T>.
+ * 
+ * CVT Semantics:
+ *   The toString() method returns a NEW string (Region on the heap).
+ *   The caller is responsible for managing the lifetime of the returned Region.
+ *   Under Last-Usage Analysis, temporary strings created inside print()
+ *   are automatically freed after the syscall.
+ * 
+ * Example Implementation:
+ *   impl Stringable for i32 {
+ *       string toString() {
+ *           // Allocate a Region for the string
+ *           Region<u8> buffer = Region::new();
+ *           // ... fill it with the ASCII representation of self
+ *           Region::as_string(buffer)  // Convert Region to string
+ *       }
+ *   }
+ */
+trait Stringable {
+    /**
+     * Converts self to a string representation.
+     * 
+     * @return A new string (Region) with the string representation.
+     *         The caller must ensure this Region is freed (via Last-Usage).
+     */
+    string toString();
+}
+
+/*
+ * Future Traits (Planned Extensions):
+ * 
+ * trait Serializable {
+ *     void serialize(keeps Ref<u8> buffer);
+ * }
+ * 
+ * trait Comparable {
+ *     i32 compareTo(T other);  // -1, 0, 1
+ * }
+ */

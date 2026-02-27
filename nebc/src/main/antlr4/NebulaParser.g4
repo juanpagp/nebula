@@ -18,7 +18,7 @@ compilation_unit
 // ------------------------------
 
 extern_declaration
-    : modifiers? EXTERN REGULAR_STRING OPEN_BRACE extern_member* CLOSE_BRACE
+    : modifiers EXTERN REGULAR_STRING OPEN_BRACE extern_member* CLOSE_BRACE
     ;
 
 extern_member
@@ -127,14 +127,13 @@ expression_statement
     : expression SEMICOLON
     ;
 
-// Used for function bodies and anywhere a value is expected
 expression_block
-    : OPEN_BRACE block_statements? block_tail? CLOSE_BRACE
+    : OPEN_BRACE block_statements block_tail? CLOSE_BRACE
     ;
 
 // Used for loops, if-statements (when used as statements), etc.
 statement_block
-    : OPEN_BRACE block_statements? CLOSE_BRACE
+    : OPEN_BRACE block_statements CLOSE_BRACE
     ;
 
 block_statements

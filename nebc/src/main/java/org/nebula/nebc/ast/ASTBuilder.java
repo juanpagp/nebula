@@ -92,17 +92,27 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		for (var declCtx : ctx.top_level_declaration())
 		{
 			ASTNode node = visit(declCtx);
-			if (node instanceof UseStatement || node instanceof TagStatement)
+			if (node instanceof Fragment frag)
+			{
+				for (ASTNode subNode : frag.nodes)
+				{
+					if (subNode instanceof Declaration decl)
+					{
+						declarations.add(decl);
+					}
+					else if (subNode instanceof UseStatement || subNode instanceof TagStatement)
+					{
+						directives.add(subNode);
+					}
+				}
+			}
+			else if (node instanceof UseStatement || node instanceof TagStatement)
 			{
 				directives.add(node);
 			}
-			else if (node instanceof Declaration)
+			else if (node instanceof Declaration decl)
 			{
-				declarations.add(node);
-			}
-			else if (node instanceof NamespaceDeclaration)
-			{
-				declarations.add(node);
+				declarations.add(decl);
 			}
 		}
 
@@ -295,6 +305,38 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		}
 
 		return new TraitDeclaration(span, name, typeParams, members);
+	}
+
+	@Override
+	public ASTNode visitImpl_declaration(NebulaParser.Impl_declarationContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+
+		// The first type() is the trait being implemented
+		TypeNode traitType = (TypeNode) visit(ctx.type(0));
+
+		List<ASTNode> impls = new ArrayList<>();
+		for (int i = 1; i < ctx.type().size(); i++)
+		{
+			TypeNode targetType = (TypeNode) visit(ctx.type(i));
+
+			List<MethodDeclaration> members = new ArrayList<>();
+			if (ctx.impl_block() != null)
+			{
+				for (var member : ctx.impl_block().impl_member())
+				{
+					members.add((MethodDeclaration) visit(member.method_declaration()));
+				}
+			}
+
+			impls.add(new ImplDeclaration(span, traitType, targetType, members));
+		}
+
+		if (impls.size() == 1)
+		{
+			return impls.get(0);
+		}
+		return new Fragment(span, impls);
 	}
 
 	@Override

@@ -26,9 +26,11 @@ import static org.bytedeco.llvm.global.LLVM.*;
  * <p>
  * This class is stateless — each call to {@link #compile} is self-contained.
  */
-public final class NativeCompiler {
+public final class NativeCompiler
+{
 
-	private NativeCompiler() {
+	private NativeCompiler()
+	{
 		// Utility class
 	}
 
@@ -44,9 +46,8 @@ public final class NativeCompiler {
 	 * @throws CodegenException if target initialisation, object emission, or
 	 *                          linking fails.
 	 */
-	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean isStatic,
-			boolean isLibrary,
-			List<Path> additionalObjects) {
+	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean isStatic, boolean isLibrary, List<Path> additionalObjects)
+	{
 		// 1. Initialise LLVM targets
 		LLVMInitializeNativeTarget();
 		LLVMInitializeNativeAsmPrinter();
@@ -60,7 +61,8 @@ public final class NativeCompiler {
 		// 3. Look up the target
 		LLVMTargetRef target = new LLVMTargetRef();
 		BytePointer errorMsg = new BytePointer();
-		if (LLVMGetTargetFromTriple(new BytePointer(targetTriple), target, errorMsg) != 0) {
+		if (LLVMGetTargetFromTriple(new BytePointer(targetTriple), target, errorMsg) != 0)
+		{
 			String msg = errorMsg.getString();
 			LLVMDisposeMessage(errorMsg);
 			LLVMDisposeMessage(defaultTriple);
@@ -69,15 +71,13 @@ public final class NativeCompiler {
 
 		// 4. Create the target machine
 		LLVMTargetMachineRef machine = LLVMCreateTargetMachine(
-				target,
-				targetTriple,
-				"generic", // CPU
+				target, targetTriple, "generic", // CPU
 				"", // features
-				LLVMCodeGenLevelAggressive,
-				LLVMRelocPIC, // Position-independent code
+				LLVMCodeGenLevelAggressive, LLVMRelocPIC, // Position-independent code
 				LLVMCodeModelDefault);
 
-		if (machine == null || machine.isNull()) {
+		if (machine == null || machine.isNull())
+		{
 			LLVMDisposeMessage(defaultTriple);
 			throw new CodegenException("Failed to create LLVM target machine.");
 		}
@@ -88,17 +88,20 @@ public final class NativeCompiler {
 
 		// 6. Emit object file to a temp path
 		Path objectFile;
-		try {
+		try
+		{
 			objectFile = Files.createTempFile("nebula_", ".o");
-		} catch (IOException e) {
+		}
+		catch (IOException e)
+		{
 			LLVMDisposeTargetMachine(machine);
 			LLVMDisposeMessage(defaultTriple);
 			throw new CodegenException("Failed to create temporary object file.", e);
 		}
 
 		BytePointer emitError = new BytePointer();
-		if (LLVMTargetMachineEmitToFile(machine, module, new BytePointer(objectFile.toString()),
-				LLVMObjectFile, emitError) != 0) {
+		if (LLVMTargetMachineEmitToFile(machine, module, new BytePointer(objectFile.toString()), LLVMObjectFile, emitError) != 0)
+		{
 			String msg = emitError.getString();
 			LLVMDisposeMessage(emitError);
 			LLVMDisposeTargetMachine(machine);
@@ -118,17 +121,18 @@ public final class NativeCompiler {
 	/**
 	 * Invokes {@code clang} to link the object file into a native executable.
 	 */
-	private static void link(Path objectFile, String outputPath, boolean isStatic, boolean isLibrary,
-			List<Path> additionalObjects) {
-		try {
+	private static void link(Path objectFile, String outputPath, boolean isStatic, boolean isLibrary, List<Path> additionalObjects)
+	{
+		try
+		{
 			List<String> command = new ArrayList<>(List.of(
-					"clang",
-					"-O3", // add optimization
-					objectFile.toString(),
-					"-o", outputPath));
+					"clang", "-O3", // add optimization
+					objectFile.toString(), "-o", outputPath));
 
-			if (additionalObjects != null) {
-				for (Path p : additionalObjects) {
+			if (additionalObjects != null)
+			{
+				for (Path p : additionalObjects)
+				{
 					command.add(p.toString());
 				}
 			}
@@ -137,13 +141,19 @@ public final class NativeCompiler {
 			command.add("-nostdlib");
 			command.add("-nostartfiles");
 
-			if (isLibrary) {
+			if (isLibrary)
+			{
 				command.add("-shared");
 				command.add("-fPIC");
-			} else {
-				if (isStatic) {
+			}
+			else
+			{
+				if (isStatic)
+				{
 					command.add("-static");
-				} else {
+				}
+				else
+				{
 					command.add("-no-pie");
 				}
 				command.add("-Wl,-rpath,.");
@@ -156,22 +166,29 @@ public final class NativeCompiler {
 			Process process = pb.start();
 			int exitCode = process.waitFor();
 
-			if (exitCode != 0) {
-				throw new CodegenException(
-						"Linker (clang) failed with exit code " + exitCode +
-								". Ensure clang is installed and available on PATH.");
+			if (exitCode != 0)
+			{
+				throw new CodegenException("Linker (clang) failed with exit code " + exitCode + ". Ensure clang is installed and available on PATH.");
 			}
-		} catch (IOException e) {
-			throw new CodegenException(
-					"Failed to invoke linker (clang). Ensure clang is installed and available on PATH.", e);
-		} catch (InterruptedException e) {
+		}
+		catch (IOException e)
+		{
+			throw new CodegenException("Failed to invoke linker (clang). Ensure clang is installed and available on PATH.", e);
+		}
+		catch (InterruptedException e)
+		{
 			Thread.currentThread().interrupt();
 			throw new CodegenException("Linking interrupted.", e);
-		} finally {
+		}
+		finally
+		{
 			// Clean up temp object file
-			try {
+			try
+			{
 				Files.deleteIfExists(objectFile);
-			} catch (IOException ignored) {
+			}
+			catch (IOException ignored)
+			{
 				// Best effort cleanup
 			}
 		}

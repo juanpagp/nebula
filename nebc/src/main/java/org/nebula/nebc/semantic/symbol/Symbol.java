@@ -20,8 +20,7 @@ import org.nebula.nebc.semantic.types.Type;
  * entity</i> in a particular scope (e.g. "variable x of type i32, mutable,
  * declared on line 5").
  */
-public abstract sealed class Symbol
-		permits VariableSymbol, MethodSymbol, TypeSymbol, NamespaceSymbol
+public abstract sealed class Symbol permits VariableSymbol, MethodSymbol, TypeSymbol, NamespaceSymbol
 {
 
 	private final String name;
@@ -61,6 +60,11 @@ public abstract sealed class Symbol
 		java.util.List<String> parts = new java.util.ArrayList<>();
 		parts.add(name);
 
+		if (this instanceof MethodSymbol ms && ms.getTraitName() != null)
+		{
+			parts.add(0, ms.getTraitName());
+		}
+
 		SymbolTable current = definedIn;
 		while (current != null && current.getOwner() != null)
 		{
@@ -68,7 +72,7 @@ public abstract sealed class Symbol
 			current = current.getParent();
 		}
 
-		return String.join("_", parts);
+		return String.join("__", parts);
 	}
 
 	public String getName()

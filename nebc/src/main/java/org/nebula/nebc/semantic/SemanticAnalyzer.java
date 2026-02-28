@@ -42,8 +42,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	// --- Context Tracking ---
 	private Type currentMethodReturnType = null;
 	private boolean insideLoop = false;
-	private CompositeType currentTypeDefinition = null;
+	private Type currentTypeDefinition = null;
 	private boolean isInsideExtern = false; // Flag for extern "C" blocks
+	/** Synthetic member scopes for primitive type trait implementations. */
+	private final Map<Type, SymbolTable> primitiveImplScopes = new HashMap<>();
 
 	public SemanticAnalyzer(CompilerConfig config)
 	{
@@ -62,6 +64,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				ClassType classType = new ClassType(cd.name, globalScope);
 				TypeSymbol sym = new TypeSymbol(cd.name, classType, cd);
+				classType.getMemberScope().setOwner(sym);
 				if (!globalScope.define(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, cd, cd.name);
@@ -71,6 +74,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				StructType structType = new StructType(sd.name, globalScope);
 				TypeSymbol sym = new TypeSymbol(sd.name, structType, sd);
+				structType.getMemberScope().setOwner(sym);
 				if (!globalScope.define(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, sd, sd.name);
@@ -103,6 +107,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, td, td.name);
 				}
 			}
+			// ImplDeclaration does not define a new type — processed later.
 		}
 	}
 
@@ -199,6 +204,15 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	public Type getMainMethodReturnType()
 	{
 		return mainMethodReturnType;
+	}
+
+	/**
+	 * Returns the map of synthetic impl scopes for primitive types.
+	 * Used by codegen to resolve trait method names on primitives.
+	 */
+	public Map<Type, SymbolTable> getPrimitiveImplScopes()
+	{
+		return primitiveImplScopes;
 	}
 
 	// --- Utilities ---
@@ -364,7 +378,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	{
 		// Enter member scope
 		SymbolTable outerScope = currentScope;
-		CompositeType prevTypeDef = currentTypeDefinition;
+		Type prevTypeDef = currentTypeDefinition;
 
 		currentScope = type.getMemberScope();
 		currentTypeDefinition = type;
@@ -406,7 +420,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		EnumType enumType = (EnumType) existingSym.getType();
 
 		SymbolTable outerScope = currentScope;
-		CompositeType prevTypeDef = currentTypeDefinition;
+		Type prevTypeDef = currentTypeDefinition;
 
 		currentScope = enumType.getMemberScope();
 		currentTypeDefinition = enumType;
@@ -431,7 +445,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		UnionType unionType = (UnionType) existingSym.getType();
 
 		SymbolTable outerScope = currentScope;
-		CompositeType prevTypeDef = currentTypeDefinition;
+		Type prevTypeDef = currentTypeDefinition;
 
 		currentScope = unionType.getMemberScope();
 		currentTypeDefinition = unionType;
@@ -523,6 +537,17 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				paramInfos.add(new ParameterInfo(p.cvtModifier(), pType, p.name()));
 			}
 		}
+
+		// Prepend 'this' parameter for member methods
+		if (currentTypeDefinition != null)
+		{
+			paramTypes.add(0, currentTypeDefinition);
+			if (paramInfos != null)
+			{
+				paramInfos.add(0, new ParameterInfo(null, currentTypeDefinition, "this"));
+			}
+		}
+
 		FunctionType methodType = new FunctionType(returnType, paramTypes, paramInfos);
 
 		// 2. Define method in the OUTER scope (not the type-param scope)
@@ -959,18 +984,24 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		Type result = Type.ANY;
 		if (fn != null)
 		{
-			List<Expression> args = node.arguments;
+			List<Expression> effectiveArgs = new ArrayList<>(node.arguments);
+			// If it's a member access call, prepend the receiver to effectiveArgs
+			if (node.target instanceof MemberAccessExpression mae && !fn.parameterTypes.isEmpty())
+			{
+				// Assume the first parameter is 'this' if it's a member call
+				effectiveArgs.add(0, mae.target);
+			}
 
 			// If it's a generic method, we need to perform type inference
 			if (methodSym != null && !methodSym.getTypeParameters().isEmpty())
 			{
 				Substitution sub = new Substitution();
 				// Basic inference from arguments
-				if (args.size() == fn.parameterTypes.size())
+				if (effectiveArgs.size() == fn.parameterTypes.size())
 				{
-					for (int i = 0; i < args.size(); i++)
+					for (int i = 0; i < effectiveArgs.size(); i++)
 					{
-						Type argType = args.get(i).accept(this);
+						Type argType = effectiveArgs.get(i).accept(this);
 						infer(fn.parameterTypes.get(i), argType, sub);
 					}
 				}
@@ -988,38 +1019,47 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					// Validate trait bounds
 					if (tpt.getBound() != null)
 					{
-						if (concrete instanceof ClassType ct)
+						SymbolTable memberScope = null;
+						if (concrete instanceof CompositeType ct)
 						{
-							String missing = tpt.getBound().findMissingMethod(ct);
-							if (missing != null)
-							{
-								error(DiagnosticCode.TYPE_MISMATCH, node, "Type '" + ct.name() + "' does not satisfy trait '" + tpt.getBound().name() + "' (missing method '" + missing + "')");
-							}
+							memberScope = ct.getMemberScope();
+						}
+						else if (concrete instanceof PrimitiveType pt)
+						{
+							memberScope = primitiveImplScopes.get(pt);
+						}
+
+						if (memberScope == null)
+						{
+							error(DiagnosticCode.TYPE_MISMATCH, node, tpt.getBound().name(), concrete.name() + " (Cannot implement traits or no trait implementation found)");
 						}
 						else
 						{
-							// For now, only ClassTypes can implement traits in our model
-							error(DiagnosticCode.TYPE_MISMATCH, node, "Type '" + concrete.name() + "' cannot satisfy trait '" + tpt.getBound().name() + "'");
+							String missing = tpt.getBound().findMissingMethod(memberScope);
+							if (missing != null)
+							{
+								error(DiagnosticCode.TYPE_MISMATCH, node, tpt.getBound().name(), concrete.name() + " (missing method '" + missing + "')");
+							}
 						}
 					}
 				}
 				node.setTypeArguments(typeArgs);
 			}
 
-			if (args.size() != fn.parameterTypes.size())
+			if (effectiveArgs.size() != fn.parameterTypes.size())
 			{
-				error(DiagnosticCode.ARGUMENT_COUNT_MISMATCH, node, fn.parameterTypes.size(), args.size());
+				error(DiagnosticCode.ARGUMENT_COUNT_MISMATCH, node, fn.parameterTypes.size(), effectiveArgs.size());
 				result = fn.returnType;
 			}
 			else
 			{
-				for (int i = 0; i < args.size(); i++)
+				for (int i = 0; i < effectiveArgs.size(); i++)
 				{
-					Type argType = args.get(i).accept(this);
+					Type argType = effectiveArgs.get(i).accept(this);
 					Type paramType = fn.parameterTypes.get(i);
 					if (!argType.isAssignableTo(paramType))
 					{
-						error(DiagnosticCode.ARGUMENT_TYPE_MISMATCH, args.get(i), (i + 1), paramType.name(), argType.name());
+						error(DiagnosticCode.ARGUMENT_TYPE_MISMATCH, effectiveArgs.get(i), (i + 1), paramType.name(), argType.name());
 					}
 				}
 				result = fn.returnType;
@@ -1082,8 +1122,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				recordType(node, result);
 				return result;
 			}
-			error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, "str");
-			return Type.ERROR;
+			// Fall through to check impl scope for str trait methods (e.g. toStr)
 		}
 
 		SymbolTable memberScope = null;
@@ -1099,6 +1138,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		{
 			memberScope = tpt.getBound().getMemberScope();
 		}
+		else if (objectType instanceof PrimitiveType)
+		{
+			// Check if a trait impl was registered for this primitive
+			memberScope = primitiveImplScopes.get(objectType);
+		}
 
 		if (memberScope == null)
 		{
@@ -1110,7 +1154,15 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		Symbol memberSym = memberScope.resolve(node.memberName);
 		if (memberSym == null)
 		{
-			error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
+			// Give a better error for str built-in fields
+			if (objectType == PrimitiveType.STR && (node.memberName.equals("ptr") || node.memberName.equals("len")))
+			{
+				error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
+			}
+			else
+			{
+				error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
+			}
 			return Type.ERROR;
 		}
 
@@ -1445,9 +1497,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	{
 		if (currentTypeDefinition == null)
 		{
-			error(DiagnosticCode.RETURN_OUTSIDE_METHOD, node);
+			error(DiagnosticCode.THIS_OUTSIDE_TYPE, node);
 			return Type.ERROR;
 		}
+		recordType(node, currentTypeDefinition);
 		return currentTypeDefinition;
 	}
 
@@ -1559,7 +1612,17 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			FunctionType fnType = new FunctionType(returnType, paramTypes, null);
 			MethodSymbol methodSym = new MethodSymbol(method.name, fnType, method.modifiers, false, method, java.util.Collections.emptyList());
 			recordSymbol(method, methodSym);
-			traitType.addRequiredMethod(methodSym);
+
+			if (method.body != null)
+			{
+				// Has a default implementation — optional for implementors
+				traitType.addDefaultMethod(methodSym, method);
+			}
+			else
+			{
+				// Abstract — required by implementors
+				traitType.addRequiredMethod(methodSym);
+			}
 
 			// Pop type param scope
 			if (methodTypeParamScope != null)
@@ -1569,6 +1632,87 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 
 		currentScope = outerScope;
+		return null;
+	}
+
+	@Override
+	public Type visitImplDeclaration(ImplDeclaration node)
+	{
+		// 1. Resolve the trait
+		Type traitResolved = resolveType(node.traitType);
+		if (!(traitResolved instanceof TraitType traitType))
+		{
+			if (traitResolved != Type.ERROR)
+				error(DiagnosticCode.TYPE_MISMATCH, node, "Expected a trait name, got '" + traitResolved.name() + "'");
+			return null;
+		}
+
+		// 2. Process the target type
+		Type targetType = resolveType(node.targetType);
+		if (targetType == Type.ERROR)
+			return null;
+
+		// Get or create the member scope for this type
+		SymbolTable targetScope;
+		if (targetType instanceof CompositeType composite)
+		{
+			targetScope = composite.getMemberScope();
+		}
+		else if (targetType instanceof PrimitiveType pt)
+		{
+			// Primitives get a synthetic impl scope, owned by the primitive type symbol
+			targetScope = primitiveImplScopes.computeIfAbsent(targetType, t ->
+			{
+				SymbolTable st = new SymbolTable(globalScope);
+				// Set the owner so MethodSymbol.getMangledName() prefixes methods with 'i32_', etc.
+				st.setOwner(new TypeSymbol(pt.name(), pt, null));
+				return st;
+			});
+		}
+		else
+		{
+			error(DiagnosticCode.TYPE_MISMATCH, node.targetType, "trait implementor", targetType.name() + " (cannot implement trait for this type)");
+			return null;
+		}
+
+		// 3. Enter the target scope and define methods
+		SymbolTable outerScope = currentScope;
+		currentScope = targetScope;
+		currentTypeDefinition = targetType;
+
+		try
+		{
+			// Add a 'this' symbol for method bodies
+			targetScope.define(new VariableSymbol("this", targetType, false, node));
+
+			for (MethodDeclaration method : node.members)
+			{
+				defineMethodSignature(method);
+				MethodSymbol ms = getSymbol(method, MethodSymbol.class);
+				if (ms != null)
+				{
+					ms.setTraitName(traitType.name());
+				}
+			}
+
+			// Now visit the bodies
+			for (MethodDeclaration method : node.members)
+			{
+				visitMethodDeclaration(method);
+			}
+
+			// 4. Validate all required trait methods are present
+			String missing = traitType.findMissingMethod(targetScope);
+			if (missing != null)
+			{
+				error(DiagnosticCode.TYPE_MISMATCH, node, traitType.name(), targetType.name() + " (missing required method '" + missing + "')");
+			}
+		}
+		finally
+		{
+			currentScope = outerScope;
+			currentTypeDefinition = null;
+		}
 		return null;
 	}
 

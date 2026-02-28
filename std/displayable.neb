@@ -2,13 +2,4 @@ trait Displayable {
     str toStr();
 }
 
-// In the future, the compiler will automatically implement this for primitives.
-// For now, we manually provide these implementations.
-
-/*
-impl i32 as Displayable {
-    str toStr() {
-        // ... runtime call to convert i32 to string ...
-    }
-}
-*/
+// Primitive impls are now provided in std/primitives.neb

@@ -16,6 +16,7 @@ public final class MethodSymbol extends Symbol
 	private final List<Modifier> modifiers;
 	private final boolean isExtern;
 	private final List<TypeParameterType> typeParameters;
+	private String traitName = null;
 
 	public MethodSymbol(String name, FunctionType type, List<Modifier> modifiers, boolean isExtern, ASTNode declarationNode, List<TypeParameterType> typeParameters)
 	{
@@ -23,6 +24,16 @@ public final class MethodSymbol extends Symbol
 		this.modifiers = List.copyOf(modifiers);
 		this.isExtern = isExtern;
 		this.typeParameters = List.copyOf(typeParameters);
+	}
+
+	public String getTraitName()
+	{
+		return traitName;
+	}
+
+	public void setTraitName(String traitName)
+	{
+		this.traitName = traitName;
 	}
 
 	@Override

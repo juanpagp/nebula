@@ -15,268 +15,274 @@ import org.nebula.nebc.ast.types.TypeNode;
  *
  * @param <R> The return type of the visit operation.
  */
-public interface ASTVisitor<R> {
-	/**
-	 * Visits the root node of the AST.
-	 */
-	R visitCompilationUnit(CompilationUnit node);
+public interface ASTVisitor<R>
+{
+    /**
+     * Visits the root node of the AST.
+     */
+    R visitCompilationUnit(CompilationUnit node);
 
-	// ----------------------
-	// ---- Declarations ----
-	// ----------------------
+    // ----------------------
+    // ---- Declarations ----
+    // ----------------------
 
-	/**
-	 * @grammar namespace name { ... } or namespace name;
-	 */
-	R visitNamespaceDeclaration(NamespaceDeclaration node);
+    /**
+     * @grammar namespace name { ... } or namespace name;
+     */
+    R visitNamespaceDeclaration(NamespaceDeclaration node);
 
-	/**
-	 * Includes member variable declarations.
-	 */
-	R visitVariableDeclaration(VariableDeclaration node);
+    /**
+     * Includes member variable declarations.
+     */
+    R visitVariableDeclaration(VariableDeclaration node);
 
-	/**
-	 * Includes both top-level and member const declarations.
-	 */
-	R visitConstDeclaration(ConstDeclaration constDeclaration);
+    /**
+     * Includes both top-level and member const declarations.
+     */
+    R visitConstDeclaration(ConstDeclaration constDeclaration);
 
-	/**
-	 * @grammar modifiers returnType name<T>(params) { body }
-	 */
-	R visitMethodDeclaration(MethodDeclaration node);
+    /**
+     * @grammar modifiers returnType name<T>(params) { body }
+     */
+    R visitMethodDeclaration(MethodDeclaration node);
 
-	/**
-	 * @grammar extern "C" { method_declaration* }
-	 */
-	R visitExternDeclaration(ExternDeclaration node);
+    /**
+     * @grammar extern "C" { method_declaration* }
+     */
+    R visitExternDeclaration(ExternDeclaration node);
 
-	/**
-	 * @grammar class name<T> : Base { members }
-	 */
-	R visitClassDeclaration(ClassDeclaration node);
+    /**
+     * @grammar class name<T> : Base { members }
+     */
+    R visitClassDeclaration(ClassDeclaration node);
 
-	/**
-	 * @grammar struct name<T> : Base { members }
-	 */
-	R visitStructDeclaration(StructDeclaration node);
+    /**
+     * @grammar struct name<T> : Base { members }
+     */
+    R visitStructDeclaration(StructDeclaration node);
 
-	/**
-	 * @grammar trait name { members }
-	 */
-	R visitTraitDeclaration(TraitDeclaration node);
+    /**
+     * @grammar trait name { members }
+     */
+    R visitTraitDeclaration(TraitDeclaration node);
 
-	/**
-	 * @grammar enum name { Variant1, Variant2 }
-	 */
-	R visitEnumDeclaration(EnumDeclaration node);
+    /**
+     * @grammar impl Trait for Type1, Type2 { members }
+     */
+    R visitImplDeclaration(ImplDeclaration node);
 
-	/**
-	 * @grammar tagged union name { Variant(Type), ... }
-	 */
-	R visitUnionDeclaration(UnionDeclaration node);
+    /**
+     * @grammar enum name { Variant1, Variant2 }
+     */
+    R visitEnumDeclaration(EnumDeclaration node);
 
-	/**
-	 * Handles the specific variant/payload inside a Union.
-	 */
-	R visitUnionVariant(UnionVariant node);
+    /**
+     * @grammar tagged union name { Variant(Type), ... }
+     */
+    R visitUnionDeclaration(UnionDeclaration node);
 
-	/**
-	 * @grammar operator + (params) { body }
-	 */
-	R visitOperatorDeclaration(OperatorDeclaration node);
+    /**
+     * Handles the specific variant/payload inside a Union.
+     */
+    R visitUnionVariant(UnionVariant node);
 
-	/**
-	 * @grammar Identifier(params) { body }
-	 */
-	R visitConstructorDeclaration(ConstructorDeclaration node);
+    /**
+     * @grammar operator + (params) { body }
+     */
+    R visitOperatorDeclaration(OperatorDeclaration node);
 
-	// --------------------
-	// ---- Statements ----
-	// --------------------
+    /**
+     * @grammar Identifier(params) { body }
+     */
+    R visitConstructorDeclaration(ConstructorDeclaration node);
 
-	/**
-	 * @grammar { statements; }
-	 */
-	R visitStatementBlock(StatementBlock node);
+    // --------------------
+    // ---- Statements ----
+    // --------------------
 
-	/**
-	 * @grammar [visibility] tag declaration as Identifier;
-	 */
-	R visitTagStatement(TagStatement node);
+    /**
+     * @grammar { statements; }
+     */
+    R visitStatementBlock(StatementBlock node);
 
-	/**
-	 * @grammar use qualified::name [as Alias];
-	 */
-	R visitUseStatement(UseStatement node);
+    /**
+     * @grammar [visibility] tag declaration as Identifier;
+     */
+    R visitTagStatement(TagStatement node);
 
-	/**
-	 * @grammar if (expr) stmt else stmt
-	 */
-	R visitIfStatement(IfStatement node);
+    /**
+     * @grammar use qualified::name [as Alias];
+     */
+    R visitUseStatement(UseStatement node);
 
-	/**
-	 * @grammar for (init; cond; iter) stmt
-	 */
-	R visitForStatement(ForStatement node);
+    /**
+     * @grammar if (expr) stmt else stmt
+     */
+    R visitIfStatement(IfStatement node);
 
-	/**
-	 * @grammar foreach (var x in collection) stmt
-	 */
-	R visitForeachStatement(ForeachStatement node);
+    /**
+     * @grammar for (init; cond; iter) stmt
+     */
+    R visitForStatement(ForStatement node);
 
-	/**
-	 * @grammar return [expression];
-	 */
-	/**
-	 * @grammar while (expr) stmt
-	 */
-	R visitWhileStatement(WhileStatement node);
+    /**
+     * @grammar foreach (var x in collection) stmt
+     */
+    R visitForeachStatement(ForeachStatement node);
 
-	R visitReturnStatement(ReturnStatement node);
+    /**
+     * @grammar return [expression];
+     */
+    /**
+     * @grammar while (expr) stmt
+     */
+    R visitWhileStatement(WhileStatement node);
 
-	/**
-	 * An expression used as a statement (e.g., a function call or assignment).
-	 */
-	R visitExpressionStatement(ExpressionStatement node);
+    R visitReturnStatement(ReturnStatement node);
 
-	// ---------------------
-	// ---- Expressions ----
-	// ---------------------
+    /**
+     * An expression used as a statement (e.g., a function call or assignment).
+     */
+    R visitExpressionStatement(ExpressionStatement node);
 
-	/**
-	 * @grammar { statements; optionalExpression }
-	 */
-	R visitExpressionBlock(ExpressionBlock node);
+    // ---------------------
+    // ---- Expressions ----
+    // ---------------------
 
-	/**
-	 * Collapses additive, multiplicative, relational, etc.
-	 */
-	R visitBinaryExpression(BinaryExpression node);
+    /**
+     * @grammar { statements; optionalExpression }
+     */
+    R visitExpressionBlock(ExpressionBlock node);
 
-	/**
-	 * @grammar !expr, -expr, ~expr, expr++, expr--
-	 */
-	R visitUnaryExpression(UnaryExpression node);
+    /**
+     * Collapses additive, multiplicative, relational, etc.
+     */
+    R visitBinaryExpression(BinaryExpression node);
 
-	/**
-	 * @grammar target = value, target += value, etc.
-	 */
-	R visitAssignmentExpression(AssignmentExpression node);
+    /**
+     * @grammar !expr, -expr, ~expr, expr++, expr--
+     */
+    R visitUnaryExpression(UnaryExpression node);
 
-	/**
-	 * @grammar (Type)expression
-	 */
-	R visitCastExpression(CastExpression node);
+    /**
+     * @grammar target = value, target += value, etc.
+     */
+    R visitAssignmentExpression(AssignmentExpression node);
 
-	/**
-	 * @grammar match (expr) { pattern => expr, ... }
-	 */
-	R visitMatchExpression(org.nebula.nebc.ast.patterns.MatchExpression node);
+    /**
+     * @grammar (Type)expression
+     */
+    R visitCastExpression(CastExpression node);
 
-	/**
-	 * @grammar if (expr) block else block
-	 */
-	R visitIfExpression(IfExpression node);
+    /**
+     * @grammar match (expr) { pattern => expr, ... }
+     */
+    R visitMatchExpression(org.nebula.nebc.ast.patterns.MatchExpression node);
 
-	/**
-	 * @grammar new Type(args)
-	 */
-	R visitNewExpression(NewExpression node);
+    /**
+     * @grammar if (expr) block else block
+     */
+    R visitIfExpression(IfExpression node);
 
-	/**
-	 * Handles method calls and constructor invocations.
-	 */
-	R visitInvocationExpression(InvocationExpression node);
+    /**
+     * @grammar new Type(args)
+     */
+    R visitNewExpression(NewExpression node);
 
-	/**
-	 * @grammar obj.member or tuple.0
-	 */
-	R visitMemberAccessExpression(MemberAccessExpression node);
+    /**
+     * Handles method calls and constructor invocations.
+     */
+    R visitInvocationExpression(InvocationExpression node);
 
-	/**
-	 * @grammar array[index] or map[key]
-	 */
-	R visitIndexExpression(IndexExpression node);
+    /**
+     * @grammar obj.member or tuple.0
+     */
+    R visitMemberAccessExpression(MemberAccessExpression node);
 
-	/**
-	 * @grammar [expr, expr, expr]
-	 */
-	R visitArrayLiteralExpression(ArrayLiteralExpression node);
+    /**
+     * @grammar array[index] or map[key]
+     */
+    R visitIndexExpression(IndexExpression node);
 
-	/**
-	 * @grammar (expr, expr)
-	 */
-	R visitTupleLiteralExpression(TupleLiteralExpression node);
+    /**
+     * @grammar [expr, expr, expr]
+     */
+    R visitArrayLiteralExpression(ArrayLiteralExpression node);
 
-	/**
-	 * Handles all basic types: Int, Float, String, Bool, etc.
-	 */
-	R visitLiteralExpression(LiteralExpression node);
+    /**
+     * @grammar (expr, expr)
+     */
+    R visitTupleLiteralExpression(TupleLiteralExpression node);
 
-	/**
-	 * Accessing a variable by name.
-	 */
-	R visitIdentifierExpression(IdentifierExpression node);
+    /**
+     * Handles all basic types: Int, Float, String, Bool, etc.
+     */
+    R visitLiteralExpression(LiteralExpression node);
 
-	/**
-	 * @grammar this
-	 */
-	R visitThisExpression(ThisExpression node);
+    /**
+     * Accessing a variable by name.
+     */
+    R visitIdentifierExpression(IdentifierExpression node);
 
-	/**
-	 * @grammar "Hello {name}"
-	 */
-	R visitStringInterpolationExpression(StringInterpolationExpression node);
+    /**
+     * @grammar this
+     */
+    R visitThisExpression(ThisExpression node);
 
-	// ------------------
-	// ---- Patterns ----
-	// ------------------
+    /**
+     * @grammar "Hello {name}"
+     */
+    R visitStringInterpolationExpression(StringInterpolationExpression node);
 
-	/**
-	 * A single branch in a match expression.
-	 */
-	R visitMatchArm(MatchArm node);
+    // ------------------
+    // ---- Patterns ----
+    // ------------------
 
-	/**
-	 * Matches a literal value (e.g., case 10 => ...).
-	 */
-	R visitLiteralPattern(LiteralPattern node);
+    /**
+     * A single branch in a match expression.
+     */
+    R visitMatchArm(MatchArm node);
 
-	/**
-	 * Matches a type (e.g., case String s => ...).
-	 */
-	R visitTypePattern(TypePattern node);
+    /**
+     * Matches a literal value (e.g., case 10 => ...).
+     */
+    R visitLiteralPattern(LiteralPattern node);
 
-	/**
-	 * Matches anything (e.g., case _ => ...).
-	 */
-	R visitWildcardPattern(WildcardPattern node);
+    /**
+     * Matches a type (e.g., case String s => ...).
+     */
+    R visitTypePattern(TypePattern node);
 
-	/**
-	 * Matches multiple alternatives (e.g., case A | B => ...).
-	 */
-	R visitOrPattern(OrPattern node);
+    /**
+     * Matches anything (e.g., case _ => ...).
+     */
+    R visitWildcardPattern(WildcardPattern node);
 
-	// --------------
-	// ---- Tags ----
-	// --------------
+    /**
+     * Matches multiple alternatives (e.g., case A | B => ...).
+     */
+    R visitOrPattern(OrPattern node);
 
-	/**
-	 * A tag atom (usually a Type).
-	 */
-	R visitTagAtom(TagAtom node);
+    // --------------
+    // ---- Tags ----
+    // --------------
 
-	/**
-	 * Tag operations like Union (|), Intersection (&), or Negation (!).
-	 */
-	R visitTagOperation(TagOperation node);
+    /**
+     * A tag atom (usually a Type).
+     */
+    R visitTagAtom(TagAtom node);
 
-	// ---------------
-	// ---- Types ----
-	// ---------------
+    /**
+     * Tag operations like Union (|), Intersection (&), or Negation (!).
+     */
+    R visitTagOperation(TagOperation node);
 
-	/**
-	 * Used for type references (e.g., in variable declarations or casts).
-	 */
-	R visitTypeReference(TypeNode node);
+    // ---------------
+    // ---- Types ----
+    // ---------------
+
+    /**
+     * Used for type references (e.g., in variable declarations or casts).
+     */
+    R visitTypeReference(TypeNode node);
 }

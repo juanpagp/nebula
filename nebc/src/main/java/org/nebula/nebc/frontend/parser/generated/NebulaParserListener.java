@@ -700,6 +700,36 @@ public interface NebulaParserListener extends ParseTreeListener {
 	 */
 	void exitUnion_variant(NebulaParser.Union_variantContext ctx);
 	/**
+	 * Enter a parse tree produced by {@link NebulaParser#impl_declaration}.
+	 * @param ctx the parse tree
+	 */
+	void enterImpl_declaration(NebulaParser.Impl_declarationContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#impl_declaration}.
+	 * @param ctx the parse tree
+	 */
+	void exitImpl_declaration(NebulaParser.Impl_declarationContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link NebulaParser#impl_block}.
+	 * @param ctx the parse tree
+	 */
+	void enterImpl_block(NebulaParser.Impl_blockContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#impl_block}.
+	 * @param ctx the parse tree
+	 */
+	void exitImpl_block(NebulaParser.Impl_blockContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link NebulaParser#impl_member}.
+	 * @param ctx the parse tree
+	 */
+	void enterImpl_member(NebulaParser.Impl_memberContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#impl_member}.
+	 * @param ctx the parse tree
+	 */
+	void exitImpl_member(NebulaParser.Impl_memberContext ctx);
+	/**
 	 * Enter a parse tree produced by {@link NebulaParser#return_type}.
 	 * @param ctx the parse tree
 	 */

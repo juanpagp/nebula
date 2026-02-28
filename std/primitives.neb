@@ -1,0 +1,31 @@
+extern "C" {
+    str __nebula_rt_i64_to_str(i64 v);
+    str __nebula_rt_u64_to_str(u64 v);
+    str __nebula_rt_f64_to_str(f64 v);
+    str __nebula_rt_bool_to_str(i32 v);
+}
+
+impl Displayable for i8, i16, i32, i64 {
+    str toStr() => __nebula_rt_i64_to_str((i64) this)
+}
+
+impl Displayable for u8, u16, u32, u64 {
+    str toStr() => __nebula_rt_u64_to_str((u64) this)
+}
+
+impl Displayable for f32, f64 {
+    str toStr() => __nebula_rt_f64_to_str((f64) this)
+}
+
+impl Displayable for bool {
+    str toStr() {
+        if (this) {
+            return "true";
+        }
+        return "false";
+    }
+}
+
+impl Displayable for str {
+    str toStr() => this
+}

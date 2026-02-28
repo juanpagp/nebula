@@ -79,6 +79,7 @@ USE: 'use';
 VAR: 'var';
 VOID: 'void';
 WHILE: 'while';
+IMPL: 'impl';
 
 // Has to be defined before the IDENTIFIER rule, otherwise '_' gets matched as an IDENTIFIER
 UNDERSCORE: '_';

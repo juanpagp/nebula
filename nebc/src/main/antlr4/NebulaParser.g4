@@ -99,6 +99,7 @@ top_level_declaration
     | class_declaration
     | struct_declaration
     | trait_declaration
+    | impl_declaration
     | union_declaration
     | namespace_declaration
     | extern_declaration
@@ -368,6 +369,18 @@ union_payload
 
 union_variant
     : IDENTIFIER union_payload?
+    ;
+
+impl_declaration
+    : IMPL type FOR type (COMMA type)* (impl_block | SEMICOLON)
+    ;
+
+impl_block
+    : OPEN_BRACE impl_member* CLOSE_BRACE
+    ;
+
+impl_member
+    : method_declaration
     ;
 
 //=============================================================================

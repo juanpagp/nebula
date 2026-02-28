@@ -138,6 +138,17 @@ public class Desugarer implements ASTVisitor<ASTNode>
 	}
 
 	@Override
+	public ASTNode visitImplDeclaration(ImplDeclaration node)
+	{
+		List<MethodDeclaration> members = new ArrayList<>();
+		for (int i = 0; i < node.members.size(); i++)
+		{
+			members.add((MethodDeclaration) node.members.get(i).accept(this));
+		}
+		return new ImplDeclaration(node.getSpan(), (TypeNode) node.traitType.accept(this), (TypeNode) node.targetType.accept(this), members);
+	}
+
+	@Override
 	public ASTNode visitEnumDeclaration(EnumDeclaration node)
 	{
 		return node;

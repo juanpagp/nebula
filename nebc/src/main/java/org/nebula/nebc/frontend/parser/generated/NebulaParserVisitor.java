@@ -427,6 +427,24 @@ public interface NebulaParserVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitUnion_variant(NebulaParser.Union_variantContext ctx);
 	/**
+	 * Visit a parse tree produced by {@link NebulaParser#impl_declaration}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitImpl_declaration(NebulaParser.Impl_declarationContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link NebulaParser#impl_block}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitImpl_block(NebulaParser.Impl_blockContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link NebulaParser#impl_member}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitImpl_member(NebulaParser.Impl_memberContext ctx);
+	/**
 	 * Visit a parse tree produced by {@link NebulaParser#return_type}.
 	 * @param ctx the parse tree
 	 * @return the visitor result

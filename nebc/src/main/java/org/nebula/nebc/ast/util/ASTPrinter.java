@@ -97,8 +97,7 @@ public class ASTPrinter implements ASTVisitor<String>
 	@Override
 	public String visitClassDeclaration(ClassDeclaration node)
 	{
-		return line("Class: " + node.name) + visitNodes("Inheritance", node.inheritance) +
-				visitNodes("Members", node.members);
+		return line("Class: " + node.name) + visitNodes("Inheritance", node.inheritance) + visitNodes("Members", node.members);
 	}
 
 	@Override
@@ -174,6 +173,12 @@ public class ASTPrinter implements ASTVisitor<String>
 	}
 
 	@Override
+	public String visitImplDeclaration(ImplDeclaration node)
+	{
+		return line("Impl: " + node.traitType) + visitNode("Target", node.targetType) + visitNodes("Members", node.members);
+	}
+
+	@Override
 	public String visitUnionDeclaration(UnionDeclaration node)
 	{
 		return line("Union: " + node.name) + visitNodes("Variants", node.variants);
@@ -234,22 +239,19 @@ public class ASTPrinter implements ASTVisitor<String>
 	@Override
 	public String visitIfStatement(IfStatement node)
 	{
-		return line("IfStmt") + visitNode("Cond", node.condition) + visitNode("Then", node.thenBranch)
-				+ visitNode("Else", node.elseBranch);
+		return line("IfStmt") + visitNode("Cond", node.condition) + visitNode("Then", node.thenBranch) + visitNode("Else", node.elseBranch);
 	}
 
 	@Override
 	public String visitForStatement(ForStatement node)
 	{
-		return line("ForStmt") + visitNode("Init", node.initializer) + visitNode("Cond", node.condition)
-				+ visitNode("Body", node.body);
+		return line("ForStmt") + visitNode("Init", node.initializer) + visitNode("Cond", node.condition) + visitNode("Body", node.body);
 	}
 
 	@Override
 	public String visitForeachStatement(ForeachStatement node)
 	{
-		return line("Foreach: " + node.variableName) + visitNode("Iterable", node.iterable)
-				+ visitNode("Body", node.body);
+		return line("Foreach: " + node.variableName) + visitNode("Iterable", node.iterable) + visitNode("Body", node.body);
 	}
 
 	@Override
@@ -289,8 +291,7 @@ public class ASTPrinter implements ASTVisitor<String>
 	@Override
 	public String visitUnaryExpression(UnaryExpression node)
 	{
-		return line("UnaryExpr: " + node.operator + (node.isPostfix ? " (postfix)" : ""))
-				+ visitNode("Operand", node.operand);
+		return line("UnaryExpr: " + node.operator + (node.isPostfix ? " (postfix)" : "")) + visitNode("Operand", node.operand);
 	}
 
 	@Override
@@ -338,8 +339,7 @@ public class ASTPrinter implements ASTVisitor<String>
 	@Override
 	public String visitIfExpression(IfExpression node)
 	{
-		return line("IfExpr") + visitNode("Cond", node.condition) + visitNode("Then", node.thenExpressionBlock)
-				+ visitNode("Else", node.elseExpressionBlock);
+		return line("IfExpr") + visitNode("Cond", node.condition) + visitNode("Then", node.thenExpressionBlock) + visitNode("Else", node.elseExpressionBlock);
 	}
 
 	@Override

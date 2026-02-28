@@ -28,7 +28,7 @@ public class Compiler {
 
 	public ExitCode run() {
 		// 1. Frontend: Lexing & Parsing
-		List<SourceFile> stdLib = discoverStdLib();
+		List<SourceFile> stdLib = config.compileAsLibrary() ? new ArrayList<>() : discoverStdLib();
 		Parser parser = new Parser(config, stdLib);
 		int frontendExitCode = parser.parse();
 		if (frontendExitCode != 0)
@@ -79,7 +79,14 @@ public class Compiler {
 		// 5. Code Generation (LLVM IR)
 		LLVMCodeGenerator codegen = new LLVMCodeGenerator();
 		try {
-			codegen.generate(compilationUnits, analyzer);
+			List<CompilationUnit> unitsToCompile = compilationUnits;
+			if (!config.compileAsLibrary()) {
+				unitsToCompile = compilationUnits.stream()
+						.filter(cu -> !cu.getSpan().file().startsWith("std/") && !cu.getSpan().file().contains("/std/")
+								&& !cu.getSpan().file().contains("\\std\\"))
+						.toList();
+			}
+			codegen.generate(unitsToCompile, analyzer);
 
 			// Print LLVM IR in verbose mode
 			if (config.verbose()) {
@@ -92,14 +99,16 @@ public class Compiler {
 			String outputPath = config.outputFile() != null ? config.outputFile() : "a.out";
 			List<Path> extraObjects = new ArrayList<>();
 
-			// Always compile and link the Nebula runtime
-			List<Path> runtimeObjs = compileRuntime();
+			// Always compile runtime objects. For libraries, this compiles everything
+			// except start.c.
+			// For executables, this compiles only start.c to be statically linked.
+			List<Path> runtimeObjs = compileRuntime(config.compileAsLibrary());
 			if (runtimeObjs != null) {
 				extraObjects.addAll(runtimeObjs);
 			}
 
 			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.isStatic(),
-					extraObjects);
+					config.compileAsLibrary(), extraObjects);
 
 			// Cleanup extra objects
 			for (Path p : extraObjects) {
@@ -119,7 +128,7 @@ public class Compiler {
 		}
 	}
 
-	private List<Path> compileRuntime() {
+	private List<Path> compileRuntime(boolean isLibrary) {
 		List<Path> objects = new ArrayList<>();
 		Path runtimeDir = Path.of("runtime");
 		if (!Files.exists(runtimeDir)) {
@@ -130,10 +139,20 @@ public class Compiler {
 		try (java.util.stream.Stream<Path> stream = Files.walk(runtimeDir)) {
 			List<Path> cFiles = stream.filter(p -> p.toString().endsWith(".c")).toList();
 			for (Path cFile : cFiles) {
-				Path objFile = Files.createTempFile("neb_rt_" + cFile.getFileName().toString(), ".o");
-				ProcessBuilder pb = new ProcessBuilder("clang", "-c", cFile.toAbsolutePath().toString(),
-						"-o", objFile.toAbsolutePath().toString(), "-O3", "-fno-stack-protector", "-ffreestanding");
+				boolean isStartFile = cFile.getFileName().toString().equals("start.c");
+				if (isLibrary && isStartFile)
+					continue;
+				if (!isLibrary && !isStartFile)
+					continue;
 
+				Path objFile = Files.createTempFile("neb_rt_" + cFile.getFileName().toString(), ".o");
+				// For the library we also want -fPIC so the objects can be linked dynamically
+				List<String> cmd = new ArrayList<>(List.of("clang", "-c", cFile.toAbsolutePath().toString(),
+						"-o", objFile.toAbsolutePath().toString(), "-O3", "-fno-stack-protector", "-ffreestanding"));
+				if (isLibrary)
+					cmd.add("-fPIC");
+
+				ProcessBuilder pb = new ProcessBuilder(cmd);
 				int exitCode = pb.start().waitFor();
 				if (exitCode != 0) {
 					Log.err("Failed to compile runtime file: " + cFile);

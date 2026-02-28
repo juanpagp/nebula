@@ -1,0 +1,1563 @@
+diff --git a/.gitignore b/.gitignore
+index 5db0b54..f289e97 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -40,4 +40,9 @@ build/
+ catlr.txt
+ src/main/java/org/nebula/nebc/frontend/parser/generated
+ src/main/antlr4/NebulaLexer.tokens
+-gen/
+\ No newline at end of file
++gen/
++spec/
++nebc/tests/
++nebc/src/test/
++.idea/
++nebc/.idea/
+\ No newline at end of file
+diff --git a/nebc/.idea/vcs.xml b/nebc/.idea/vcs.xml
+index 94a25f7..d4d270a 100644
+--- a/nebc/.idea/vcs.xml
++++ b/nebc/.idea/vcs.xml
+@@ -1,6 +1,7 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <project version="4">
+   <component name="VcsDirectoryMappings">
+-    <mapping directory="$PROJECT_DIR$" vcs="Git" />
++    <mapping directory="$PROJECT_DIR$/.." vcs="Git" />
++    <mapping directory="$PROJECT_DIR$" vcs="" />
+   </component>
+ </project>
+\ No newline at end of file
+diff --git a/nebc/src/main/java/org/nebula/nebc/ast/ASTBuilder.java b/nebc/src/main/java/org/nebula/nebc/ast/ASTBuilder.java
+index 7e6141e..fd7d4d5 100644
+--- a/nebc/src/main/java/org/nebula/nebc/ast/ASTBuilder.java
++++ b/nebc/src/main/java/org/nebula/nebc/ast/ASTBuilder.java
+@@ -26,15 +26,13 @@ import java.util.List;
+ /**
+  * Converts the ANTLR Parse Tree into the Nebula Abstract Syntax Tree (AST).
+  */
+-public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+-{
++public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode> {
+ 	public static String currentFileName = null;
+ 
+ 	/**
+ 	 * Entry point to convert a single Parse Tree into a Nebula AST.
+ 	 */
+-	public static CompilationUnit buildAst(ParsingResult tree)
+-	{
++	public static CompilationUnit buildAst(ParsingResult tree) {
+ 		ASTBuilder builder = new ASTBuilder();
+ 		currentFileName = tree.file().fileName();
+ 		return (CompilationUnit) builder.visit(tree.compilationUnitRoot());
+@@ -43,36 +41,27 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	/**
+ 	 * Entry point to convert multiple files at once.
+ 	 */
+-	public static List<CompilationUnit> buildAST(List<ParsingResult> trees)
+-	{
++	public static List<CompilationUnit> buildAST(List<ParsingResult> trees) {
+ 		List<CompilationUnit> units = new ArrayList<>();
+-		for (ParsingResult tree : trees)
+-		{
++		for (ParsingResult tree : trees) {
+ 			units.add(buildAst(tree));
+ 		}
+ 		return units;
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitCompilation_unit(NebulaParser.Compilation_unitContext ctx)
+-	{
++	public ASTNode visitCompilation_unit(NebulaParser.Compilation_unitContext ctx) {
+ 		List<ASTNode> directives = new ArrayList<>();
+ 		List<ASTNode> declarations = new ArrayList<>();
+ 
+ 		// 1. Visit all nodes
+-		for (var declCtx : ctx.top_level_declaration())
+-		{
++		for (var declCtx : ctx.top_level_declaration()) {
+ 			ASTNode node = visit(declCtx);
+-			if (node instanceof UseStatement || node instanceof TagStatement)
+-			{
++			if (node instanceof UseStatement || node instanceof TagStatement) {
+ 				directives.add(node);
+-			}
+-			else if (node instanceof Declaration)
+-			{
++			} else if (node instanceof Declaration) {
+ 				declarations.add(node);
+-			}
+-			else if (node instanceof NamespaceDeclaration)
+-			{
++			} else if (node instanceof NamespaceDeclaration) {
+ 				declarations.add(node);
+ 			}
+ 		}
+@@ -82,13 +71,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 		// prevent circularity.
+ 		boolean isStdFile = false;
+ 		if (currentFileName != null && (currentFileName.contains("/std/") || currentFileName.contains("\\std\\")
+-				|| currentFileName.startsWith("std/")))
+-		{
++				|| currentFileName.startsWith("std/"))) {
+ 			isStdFile = true;
+ 		}
+ 
+-		if (!isStdFile)
+-		{
++		if (!isStdFile) {
+ 			SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 			directives.add(new UseStatement(span, "std::io", null));
+ 			directives.add(new UseStatement(span, "std::traits", null));
+@@ -102,18 +89,15 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// =========================================================================
+ 
+ 	@Override
+-	public ASTNode visitNamespace_declaration(NebulaParser.Namespace_declarationContext ctx)
+-	{
++	public ASTNode visitNamespace_declaration(NebulaParser.Namespace_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String name = ctx.qualified_name().getText();
+ 		List<ASTNode> members = new ArrayList<>();
+ 
+ 		boolean isBlockDeclaration = ctx.SEMICOLON() == null;
+ 
+-		if (ctx.top_level_declaration() != null)
+-		{
+-			for (var decl : ctx.top_level_declaration())
+-			{
++		if (ctx.top_level_declaration() != null) {
++			for (var decl : ctx.top_level_declaration()) {
+ 				members.add(visit(decl));
+ 			}
+ 		}
+@@ -122,20 +106,15 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitUse_statement(NebulaParser.Use_statementContext ctx)
+-	{
++	public ASTNode visitUse_statement(NebulaParser.Use_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String qualifiedName = ctx.qualified_name().getText();
+ 		String alias = null;
+ 
+-		if (ctx.use_tail() != null)
+-		{
+-			if (ctx.use_tail().use_alias() != null)
+-			{
++		if (ctx.use_tail() != null) {
++			if (ctx.use_tail().use_alias() != null) {
+ 				alias = ctx.use_tail().use_alias().IDENTIFIER().getText();
+-			}
+-			else if (ctx.use_tail().IDENTIFIER() != null)
+-			{
++			} else if (ctx.use_tail().IDENTIFIER() != null) {
+ 				alias = ctx.use_tail().IDENTIFIER().getText();
+ 			}
+ 		}
+@@ -144,8 +123,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitExtern_declaration(NebulaParser.Extern_declarationContext ctx)
+-	{
++	public ASTNode visitExtern_declaration(NebulaParser.Extern_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+ 		// Extract language from REGULAR_STRING (e.g., "C" or "C++")
+@@ -155,17 +133,14 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 
+ 		// Check visibility modifier
+ 		boolean isPrivate = false;
+-		if (ctx.modifiers() != null && !ctx.modifiers().visibility_modifier().isEmpty())
+-		{
++		if (ctx.modifiers() != null && !ctx.modifiers().visibility_modifier().isEmpty()) {
+ 			isPrivate = ctx.modifiers().visibility_modifier().get(0).PRIVATE() != null;
+ 		}
+ 
+ 		// Extract extern members (method declarations without bodies)
+ 		List<MethodDeclaration> members = new ArrayList<>();
+-		if (ctx.extern_member() != null)
+-		{
+-			for (var member : ctx.extern_member())
+-			{
++		if (ctx.extern_member() != null) {
++			for (var member : ctx.extern_member()) {
+ 				// Each extern_member contains a method_declaration
+ 				MethodDeclaration method = (MethodDeclaration) visit(member.method_declaration());
+ 				members.add(method);
+@@ -176,23 +151,19 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitClass_declaration(NebulaParser.Class_declarationContext ctx)
+-	{
++	public ASTNode visitClass_declaration(NebulaParser.Class_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String name = ctx.IDENTIFIER().getText();
+ 
+ 		List<TypeNode> inheritance = new ArrayList<>();
+-		if (ctx.inheritance_clause() != null)
+-		{
+-			for (var typeCtx : ctx.inheritance_clause().type())
+-			{
++		if (ctx.inheritance_clause() != null) {
++			for (var typeCtx : ctx.inheritance_clause().type()) {
+ 				inheritance.add((TypeNode) visit(typeCtx));
+ 			}
+ 		}
+ 
+ 		List<Declaration> members = new ArrayList<>();
+-		for (var memberCtx : ctx.class_body().class_member())
+-		{
++		for (var memberCtx : ctx.class_body().class_member()) {
+ 			members.add((Declaration) visit(memberCtx.getChild(0)));
+ 		}
+ 
+@@ -200,23 +171,19 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitStruct_declaration(NebulaParser.Struct_declarationContext ctx)
+-	{
++	public ASTNode visitStruct_declaration(NebulaParser.Struct_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String name = ctx.IDENTIFIER().getText();
+ 
+ 		List<TypeNode> inheritance = new ArrayList<>();
+-		if (ctx.inheritance_clause() != null)
+-		{
+-			for (var typeCtx : ctx.inheritance_clause().type())
+-			{
++		if (ctx.inheritance_clause() != null) {
++			for (var typeCtx : ctx.inheritance_clause().type()) {
+ 				inheritance.add((TypeNode) visit(typeCtx));
+ 			}
+ 		}
+ 
+ 		List<Declaration> members = new ArrayList<>();
+-		for (var memberCtx : ctx.struct_body().struct_member())
+-		{
++		for (var memberCtx : ctx.struct_body().struct_member()) {
+ 			members.add((Declaration) visit(memberCtx.getChild(0)));
+ 		}
+ 
+@@ -224,16 +191,13 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitEnum_declaration(NebulaParser.Enum_declarationContext ctx)
+-	{
++	public ASTNode visitEnum_declaration(NebulaParser.Enum_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String name = ctx.IDENTIFIER().getText();
+ 
+ 		List<String> variants = new ArrayList<>();
+-		if (ctx.enum_block() != null)
+-		{
+-			for (var idCtx : ctx.enum_block().IDENTIFIER())
+-			{
++		if (ctx.enum_block() != null) {
++			for (var idCtx : ctx.enum_block().IDENTIFIER()) {
+ 				variants.add(idCtx.getText());
+ 			}
+ 		}
+@@ -242,22 +206,17 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitTrait_declaration(NebulaParser.Trait_declarationContext ctx)
+-	{
++	public ASTNode visitTrait_declaration(NebulaParser.Trait_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String name = ctx.IDENTIFIER().getText();
+ 		List<MethodDeclaration> members = new ArrayList<>();
+ 
+ 		// Trait body can be a block or single method in grammar, handling block here
+-		if (ctx.trait_body().trait_block() != null)
+-		{
+-			for (var member : ctx.trait_body().trait_block().trait_member())
+-			{
++		if (ctx.trait_body().trait_block() != null) {
++			for (var member : ctx.trait_body().trait_block().trait_member()) {
+ 				members.add((MethodDeclaration) visit(member.method_declaration()));
+ 			}
+-		}
+-		else if (ctx.trait_body().method_declaration() != null)
+-		{
++		} else if (ctx.trait_body().method_declaration() != null) {
+ 			members.add((MethodDeclaration) visit(ctx.trait_body().method_declaration()));
+ 		}
+ 
+@@ -265,20 +224,16 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitUnion_declaration(NebulaParser.Union_declarationContext ctx)
+-	{
++	public ASTNode visitUnion_declaration(NebulaParser.Union_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String name = ctx.IDENTIFIER().getText();
+ 
+ 		List<UnionVariant> variants = new ArrayList<>();
+-		if (ctx.union_body() != null)
+-		{
+-			for (var variantCtx : ctx.union_body().union_variant())
+-			{
++		if (ctx.union_body() != null) {
++			for (var variantCtx : ctx.union_body().union_variant()) {
+ 				String vName = variantCtx.IDENTIFIER().getText();
+ 				TypeNode payload = null;
+-				if (variantCtx.union_payload() != null && variantCtx.union_payload().parameter() != null)
+-				{
++				if (variantCtx.union_payload() != null && variantCtx.union_payload().parameter() != null) {
+ 					payload = (TypeNode) visit(variantCtx.union_payload().parameter().type());
+ 				}
+ 				variants.add(new UnionVariant(SourceUtil.createSpan(variantCtx, currentFileName), vName, payload));
+@@ -289,14 +244,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitMethod_declaration(NebulaParser.Method_declarationContext ctx)
+-	{
++	public ASTNode visitMethod_declaration(NebulaParser.Method_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		List<Modifier> modifiers = getModifiers(ctx.modifiers());
+ 
+ 		TypeNode returnType = null;
+-		if (ctx.return_type().type() != null)
+-		{
++		if (ctx.return_type().type() != null) {
+ 			returnType = (TypeNode) visit(ctx.return_type().type());
+ 		}
+ 
+@@ -309,8 +262,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitConstructor_declaration(NebulaParser.Constructor_declarationContext ctx)
+-	{
++	public ASTNode visitConstructor_declaration(NebulaParser.Constructor_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String name = ctx.IDENTIFIER().getText();
+ 		List<Parameter> parameters = getParameters(ctx.parameters());
+@@ -320,8 +272,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitOperator_declaration(NebulaParser.Operator_declarationContext ctx)
+-	{
++	public ASTNode visitOperator_declaration(NebulaParser.Operator_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String operatorToken = ctx.overloadable_operator().getText();
+ 		List<Parameter> parameters = getParameters(ctx.parameters());
+@@ -331,16 +282,14 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitVariable_declaration(NebulaParser.Variable_declarationContext ctx)
+-	{
++	public ASTNode visitVariable_declaration(NebulaParser.Variable_declarationContext ctx) {
+ 		// This handles "var x = 1;" or "int x = 1;" as a statement
+ 		return buildVariableDeclaration(ctx, ctx.modifiers(), ctx.VAR() != null, ctx.type(),
+ 				ctx.variable_declarators());
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitField_declaration(NebulaParser.Field_declarationContext ctx)
+-	{
++	public ASTNode visitField_declaration(NebulaParser.Field_declarationContext ctx) {
+ 		// Field declaration in class context, usually has no modifiers in this specific
+ 		// grammar rule
+ 		// (modifiers are higher up in top-level, but fields inside structs/classes use
+@@ -356,19 +305,17 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitConst_declaration(NebulaParser.Const_declarationContext ctx)
+-	{
++	public ASTNode visitConst_declaration(NebulaParser.Const_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		VariableDeclaration varDecl = (VariableDeclaration) visitVariable_declaration(ctx.variable_declaration());
+ 		return new ConstDeclaration(span, varDecl);
+ 	}
+ 
+ 	private VariableDeclaration buildVariableDeclaration(org.antlr.v4.runtime.ParserRuleContext ctx,
+-														 NebulaParser.ModifiersContext modCtx,
+-														 boolean isVar,
+-														 NebulaParser.TypeContext typeCtx,
+-														 NebulaParser.Variable_declaratorsContext declsCtx)
+-	{
++			NebulaParser.ModifiersContext modCtx,
++			boolean isVar,
++			NebulaParser.TypeContext typeCtx,
++			NebulaParser.Variable_declaratorsContext declsCtx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		// Modifiers are strictly for MethodDeclaration in this specific grammar version
+ 		// usually,
+@@ -381,12 +328,10 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 		TypeNode type = isVar ? null : (TypeNode) visit(typeCtx);
+ 		List<VariableDeclarator> declarators = new ArrayList<>();
+ 
+-		for (var decl : declsCtx.variable_declarator())
+-		{
++		for (var decl : declsCtx.variable_declarator()) {
+ 			String name = decl.IDENTIFIER().getText();
+ 			Expression init = null;
+-			if (decl.nonAssignmentExpression() != null)
+-			{
++			if (decl.nonAssignmentExpression() != null) {
+ 				init = (Expression) visit(decl.nonAssignmentExpression());
+ 			}
+ 			declarators.add(new VariableDeclarator(name, init));
+@@ -400,22 +345,18 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// =========================================================================
+ 
+ 	@Override
+-	public ASTNode visitExpression_block(NebulaParser.Expression_blockContext ctx)
+-	{
++	public ASTNode visitExpression_block(NebulaParser.Expression_blockContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		List<Statement> statements = new ArrayList<>();
+ 
+-		if (ctx.block_statements() != null)
+-		{
+-			for (var stmt : ctx.block_statements().statement())
+-			{
++		if (ctx.block_statements() != null) {
++			for (var stmt : ctx.block_statements().statement()) {
+ 				statements.add((Statement) visit(stmt));
+ 			}
+ 		}
+ 
+ 		Expression tail = null;
+-		if (ctx.block_tail() != null && ctx.block_tail().expression() != null)
+-		{
++		if (ctx.block_tail() != null && ctx.block_tail().expression() != null) {
+ 			tail = (Expression) visit(ctx.block_tail().expression());
+ 		}
+ 
+@@ -423,15 +364,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitStatement_block(NebulaParser.Statement_blockContext ctx)
+-	{
++	public ASTNode visitStatement_block(NebulaParser.Statement_blockContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		List<Statement> statements = new ArrayList<>();
+ 
+-		if (ctx.block_statements() != null)
+-		{
+-			for (var stmt : ctx.block_statements().statement())
+-			{
++		if (ctx.block_statements() != null) {
++			for (var stmt : ctx.block_statements().statement()) {
+ 				statements.add((Statement) visit(stmt));
+ 			}
+ 		}
+@@ -439,8 +377,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitIf_statement(NebulaParser.If_statementContext ctx)
+-	{
++	public ASTNode visitIf_statement(NebulaParser.If_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		Expression condition = (Expression) visit(ctx.parenthesized_expression().expression());
+ 		Statement thenBranch = (Statement) visit(ctx.statement(0));
+@@ -450,27 +387,21 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitFor_statement(NebulaParser.For_statementContext ctx)
+-	{
++	public ASTNode visitFor_statement(NebulaParser.For_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+ 		Statement initializer = null;
+ 		Expression condition = null;
+ 		List<Expression> iterators = new ArrayList<>();
+ 
+-		if (ctx.traditional_for_control() != null)
+-		{
++		if (ctx.traditional_for_control() != null) {
+ 			var control = ctx.traditional_for_control();
+ 
+ 			// Initializer
+-			if (control.for_initializer() != null)
+-			{
+-				if (control.for_initializer().variable_declaration() != null)
+-				{
++			if (control.for_initializer() != null) {
++				if (control.for_initializer().variable_declaration() != null) {
+ 					initializer = (Statement) visit(control.for_initializer().variable_declaration());
+-				}
+-				else if (control.for_initializer().expression_list() != null)
+-				{
++				} else if (control.for_initializer().expression_list() != null) {
+ 					// Wrap expression list in an ExpressionStatement (or Block if multiple?
+ 					// simplified to first for now or single expr stmt)
+ 					// Usually for-loops allow comma separated expressions.
+@@ -483,22 +414,17 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 			}
+ 
+ 			// Condition
+-			if (control.expression() != null)
+-			{
++			if (control.expression() != null) {
+ 				condition = (Expression) visit(control.expression());
+ 			}
+ 
+ 			// Iterators
+-			if (control.for_iterator() != null && control.for_iterator().expression_list() != null)
+-			{
+-				for (var exprCtx : control.for_iterator().expression_list().expression())
+-				{
++			if (control.for_iterator() != null && control.for_iterator().expression_list() != null) {
++				for (var exprCtx : control.for_iterator().expression_list().expression()) {
+ 					iterators.add((Expression) visit(exprCtx));
+ 				}
+ 			}
+-		}
+-		else if (ctx.parenthesized_expression() != null)
+-		{
++		} else if (ctx.parenthesized_expression() != null) {
+ 			// "for (condition) stmt" style (while loop)
+ 			condition = (Expression) visit(ctx.parenthesized_expression().expression());
+ 		}
+@@ -508,8 +434,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitWhile_statement(NebulaParser.While_statementContext ctx)
+-	{
++	public ASTNode visitWhile_statement(NebulaParser.While_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		Expression condition = (Expression) visit(ctx.parenthesized_expression().expression());
+ 		Statement body = (Statement) visit(ctx.statement());
+@@ -517,8 +442,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitForeach_statement(NebulaParser.Foreach_statementContext ctx)
+-	{
++	public ASTNode visitForeach_statement(NebulaParser.Foreach_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		var control = ctx.foreach_control();
+ 
+@@ -531,24 +455,21 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitReturn_statement(NebulaParser.Return_statementContext ctx)
+-	{
++	public ASTNode visitReturn_statement(NebulaParser.Return_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		Expression value = ctx.expression() != null ? (Expression) visit(ctx.expression()) : null;
+ 		return new ReturnStatement(span, value);
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitExpression_statement(NebulaParser.Expression_statementContext ctx)
+-	{
++	public ASTNode visitExpression_statement(NebulaParser.Expression_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		Expression expression = (Expression) visit(ctx.expression());
+ 		return new ExpressionStatement(span, expression);
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitTag_statement(NebulaParser.Tag_statementContext ctx)
+-	{
++	public ASTNode visitTag_statement(NebulaParser.Tag_statementContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		Modifier visibility = mapVisibility(ctx.visibility_modifier());
+ 		String alias = ctx.IDENTIFIER().getText();
+@@ -564,16 +485,13 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// =========================================================================
+ 
+ 	@Override
+-	public ASTNode visitExpression(NebulaParser.ExpressionContext ctx)
+-	{
++	public ASTNode visitExpression(NebulaParser.ExpressionContext ctx) {
+ 		return visit(ctx.assignment_expression());
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitAssignment_expression(NebulaParser.Assignment_expressionContext ctx)
+-	{
+-		if (ctx.assignment_expression() == null)
+-		{
++	public ASTNode visitAssignment_expression(NebulaParser.Assignment_expressionContext ctx) {
++		if (ctx.assignment_expression() == null) {
+ 			return visit(ctx.binary_or_expression());
+ 		}
+ 
+@@ -588,26 +506,22 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// --- Binary Expressions (Cascading) ---
+ 
+ 	@Override
+-	public ASTNode visitBinary_or_expression(NebulaParser.Binary_or_expressionContext ctx)
+-	{
++	public ASTNode visitBinary_or_expression(NebulaParser.Binary_or_expressionContext ctx) {
+ 		return buildBinaryChain(ctx.binary_and_expression(), ctx.OP_OR(), ctx);
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitBinary_and_expression(NebulaParser.Binary_and_expressionContext ctx)
+-	{
++	public ASTNode visitBinary_and_expression(NebulaParser.Binary_and_expressionContext ctx) {
+ 		return buildBinaryChain(ctx.inclusive_or_expression(), ctx.OP_AND(), ctx);
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitInclusive_or_expression(NebulaParser.Inclusive_or_expressionContext ctx)
+-	{
++	public ASTNode visitInclusive_or_expression(NebulaParser.Inclusive_or_expressionContext ctx) {
+ 		// Manually handle tokens '|' and PIPE
+ 		if (ctx.exclusive_or_expression().size() == 1)
+ 			return visit(ctx.exclusive_or_expression(0));
+ 		Expression left = (Expression) visit(ctx.exclusive_or_expression(0));
+-		for (int i = 1; i < ctx.exclusive_or_expression().size(); i++)
+-		{
++		for (int i = 1; i < ctx.exclusive_or_expression().size(); i++) {
+ 			Expression right = (Expression) visit(ctx.exclusive_or_expression(i));
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_OR,
+ 					right);
+@@ -616,14 +530,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitExclusive_or_expression(NebulaParser.Exclusive_or_expressionContext ctx)
+-	{
++	public ASTNode visitExclusive_or_expression(NebulaParser.Exclusive_or_expressionContext ctx) {
+ 		// Manually handle token '^'
+ 		if (ctx.and_expression().size() == 1)
+ 			return visit(ctx.and_expression(0));
+ 		Expression left = (Expression) visit(ctx.and_expression(0));
+-		for (int i = 1; i < ctx.and_expression().size(); i++)
+-		{
++		for (int i = 1; i < ctx.and_expression().size(); i++) {
+ 			Expression right = (Expression) visit(ctx.and_expression(i));
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_XOR,
+ 					right);
+@@ -632,14 +544,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitAnd_expression(NebulaParser.And_expressionContext ctx)
+-	{
++	public ASTNode visitAnd_expression(NebulaParser.And_expressionContext ctx) {
+ 		// Manually handle token '&'
+ 		if (ctx.equality_expression().size() == 1)
+ 			return visit(ctx.equality_expression(0));
+ 		Expression left = (Expression) visit(ctx.equality_expression(0));
+-		for (int i = 1; i < ctx.equality_expression().size(); i++)
+-		{
++		for (int i = 1; i < ctx.equality_expression().size(); i++) {
+ 			Expression right = (Expression) visit(ctx.equality_expression(i));
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.BIT_AND,
+ 					right);
+@@ -648,13 +558,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitEquality_expression(NebulaParser.Equality_expressionContext ctx)
+-	{
++	public ASTNode visitEquality_expression(NebulaParser.Equality_expressionContext ctx) {
+ 		if (ctx.relational_expression().size() == 1)
+ 			return visit(ctx.relational_expression(0));
+ 		Expression left = (Expression) visit(ctx.relational_expression(0));
+-		for (int i = 1; i < ctx.relational_expression().size(); i++)
+-		{
++		for (int i = 1; i < ctx.relational_expression().size(); i++) {
+ 			String op = ctx.getChild(2 * i - 1).getText(); // OP_EQ or OP_NE
+ 			Expression right = (Expression) visit(ctx.relational_expression(i));
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+@@ -664,8 +572,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitRelational_expression(NebulaParser.Relational_expressionContext ctx)
+-	{
++	public ASTNode visitRelational_expression(NebulaParser.Relational_expressionContext ctx) {
+ 		if (ctx.shift_expression().size() == 1)
+ 			return visit(ctx.shift_expression(0));
+ 		Expression left = (Expression) visit(ctx.shift_expression(0));
+@@ -673,13 +580,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 		// This rule is tricky because it mixes binary ops (<, >) and 'IS type'.
+ 		// Simplified: iterating children to find operators/operands.
+ 		int childIndex = 1;
+-		while (childIndex < ctx.getChildCount())
+-		{
++		while (childIndex < ctx.getChildCount()) {
+ 			var child = ctx.getChild(childIndex);
+ 			String text = child.getText();
+ 
+-			if (text.equals("is"))
+-			{
++			if (text.equals("is")) {
+ 				// Handle IS expression (often a Type check or pattern match)
+ 				// For simplicity mapping to BinaryOperator.IS if exists, or treating as special
+ 				// expression.
+@@ -689,9 +594,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 				// This would typically be an 'InstanceCheckExpression'.
+ 				// Since AST.txt doesn't have it, I'll return left (skip) or throw.
+ 				childIndex += 2; // skip "is" and "type"
+-			}
+-			else
+-			{
++			} else {
+ 				BinaryOperator op = mapBinaryOperator(text);
+ 				Expression right = (Expression) visit(ctx.getChild(childIndex + 1));
+ 				left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, op, right);
+@@ -702,14 +605,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitShift_expression(NebulaParser.Shift_expressionContext ctx)
+-	{
++	public ASTNode visitShift_expression(NebulaParser.Shift_expressionContext ctx) {
+ 		// Similar manual loop for shift
+ 		if (ctx.additive_expression().size() == 1)
+ 			return visit(ctx.additive_expression(0));
+ 		Expression left = (Expression) visit(ctx.additive_expression(0));
+-		for (int i = 1; i < ctx.additive_expression().size(); i++)
+-		{
++		for (int i = 1; i < ctx.additive_expression().size(); i++) {
+ 			String op = ctx.getChild(2 * i - 1).getText();
+ 			Expression right = (Expression) visit(ctx.additive_expression(i));
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+@@ -719,13 +620,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitAdditive_expression(NebulaParser.Additive_expressionContext ctx)
+-	{
++	public ASTNode visitAdditive_expression(NebulaParser.Additive_expressionContext ctx) {
+ 		if (ctx.multiplicative_expression().size() == 1)
+ 			return visit(ctx.multiplicative_expression(0));
+ 		Expression left = (Expression) visit(ctx.multiplicative_expression(0));
+-		for (int i = 1; i < ctx.multiplicative_expression().size(); i++)
+-		{
++		for (int i = 1; i < ctx.multiplicative_expression().size(); i++) {
+ 			String op = ctx.getChild(2 * i - 1).getText();
+ 			Expression right = (Expression) visit(ctx.multiplicative_expression(i));
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+@@ -735,13 +634,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitMultiplicative_expression(NebulaParser.Multiplicative_expressionContext ctx)
+-	{
++	public ASTNode visitMultiplicative_expression(NebulaParser.Multiplicative_expressionContext ctx) {
+ 		if (ctx.exponentiation_expression().size() == 1)
+ 			return visit(ctx.exponentiation_expression(0));
+ 		Expression left = (Expression) visit(ctx.exponentiation_expression(0));
+-		for (int i = 1; i < ctx.exponentiation_expression().size(); i++)
+-		{
++		for (int i = 1; i < ctx.exponentiation_expression().size(); i++) {
+ 			String op = ctx.getChild(2 * i - 1).getText();
+ 			Expression right = (Expression) visit(ctx.exponentiation_expression(i));
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, mapBinaryOperator(op),
+@@ -751,11 +648,9 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitExponentiation_expression(NebulaParser.Exponentiation_expressionContext ctx)
+-	{
++	public ASTNode visitExponentiation_expression(NebulaParser.Exponentiation_expressionContext ctx) {
+ 		Expression left = (Expression) visit(ctx.unary_expression());
+-		if (ctx.exponentiation_expression() != null)
+-		{
++		if (ctx.exponentiation_expression() != null) {
+ 			Expression right = (Expression) visit(ctx.exponentiation_expression());
+ 			return new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, BinaryOperator.POW, right);
+ 		}
+@@ -763,12 +658,10 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	private Expression buildBinaryChain(List<? extends org.antlr.v4.runtime.ParserRuleContext> exprs,
+-										List<? extends org.antlr.v4.runtime.tree.TerminalNode> ops,
+-										org.antlr.v4.runtime.ParserRuleContext ctx)
+-	{
++			List<? extends org.antlr.v4.runtime.tree.TerminalNode> ops,
++			org.antlr.v4.runtime.ParserRuleContext ctx) {
+ 		Expression left = (Expression) visit(exprs.getFirst());
+-		for (int i = 0; i < ops.size(); i++)
+-		{
++		for (int i = 0; i < ops.size(); i++) {
+ 			Expression right = (Expression) visit(exprs.get(i + 1));
+ 			BinaryOperator op = mapBinaryOperator(ops.get(i).getText());
+ 			left = new BinaryExpression(SourceUtil.createSpan(ctx, currentFileName), left, op, right);
+@@ -779,8 +672,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// --- Unary & Primary ---
+ 
+ 	@Override
+-	public ASTNode visitUnary_expression(NebulaParser.Unary_expressionContext ctx)
+-	{
++	public ASTNode visitUnary_expression(NebulaParser.Unary_expressionContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+ 		if (ctx.primary_expression() != null)
+@@ -796,8 +688,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitCast_expression(NebulaParser.Cast_expressionContext ctx)
+-	{
++	public ASTNode visitCast_expression(NebulaParser.Cast_expressionContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		TypeNode type = (TypeNode) visit(ctx.type());
+ 		Expression expr = (Expression) visit(ctx.unary_expression());
+@@ -805,47 +696,35 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitPrimary_expression(NebulaParser.Primary_expressionContext ctx)
+-	{
++	public ASTNode visitPrimary_expression(NebulaParser.Primary_expressionContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+ 		// 1. Visit the start (Identifier, Literal, etc.)
+ 		Expression current = (Expression) visit(ctx.primary_expression_start());
+ 
+ 		// 2. Wrap with postfix operators
+-		for (var postfix : ctx.postfix_operator())
+-		{
+-			if (postfix.DOT() != null)
+-			{
++		for (var postfix : ctx.postfix_operator()) {
++			if (postfix.DOT() != null) {
+ 				String member = postfix.IDENTIFIER() != null ? postfix.IDENTIFIER().getText()
+ 						: postfix.INTEGER_LITERAL().getText();
+ 				current = new MemberAccessExpression(span, current, member);
+-			}
+-			else if (postfix.OPEN_PARENS() != null)
+-			{
++			} else if (postfix.OPEN_PARENS() != null) {
+ 				// Invocation
+ 				List<Expression> args = new ArrayList<>();
+-				if (postfix.argument_list() != null)
+-				{
+-					for (var arg : postfix.argument_list().argument())
+-					{
++				if (postfix.argument_list() != null) {
++					for (var arg : postfix.argument_list().argument()) {
+ 						args.add(extractArgument(arg));
+ 					}
+ 				}
+ 				current = new InvocationExpression(span, current, args);
+-			}
+-			else if (postfix.OPEN_BRACKET() != null)
+-			{
++			} else if (postfix.OPEN_BRACKET() != null) {
+ 				// Indexing
+ 				List<Expression> indices = new ArrayList<>();
+-				for (var exprCtx : postfix.expression_list().expression())
+-				{
++				for (var exprCtx : postfix.expression_list().expression()) {
+ 					indices.add((Expression) visit(exprCtx));
+ 				}
+ 				current = new IndexExpression(span, current, indices);
+-			}
+-			else if (postfix.OP_INC() != null || postfix.OP_DEC() != null)
+-			{
++			} else if (postfix.OP_INC() != null || postfix.OP_DEC() != null) {
+ 				UnaryOperator op = postfix.OP_INC() != null ? UnaryOperator.INCREMENT : UnaryOperator.DECREMENT;
+ 				current = new UnaryExpression(span, op, current, true); // isPostfix = true
+ 			}
+@@ -854,8 +733,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitPrimary_expression_start(NebulaParser.Primary_expression_startContext ctx)
+-	{
++	public ASTNode visitPrimary_expression_start(NebulaParser.Primary_expression_startContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+ 		if (ctx.literal() != null)
+@@ -868,18 +746,15 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 			return new ThisExpression(span);
+ 		if (ctx.parenthesized_expression() != null)
+ 			return visit(ctx.parenthesized_expression().expression());
+-		if (ctx.tuple_literal() != null)
+-		{
++		if (ctx.tuple_literal() != null) {
+ 			List<Expression> elements = new ArrayList<>();
+ 			for (var arg : ctx.tuple_literal().argument())
+ 				elements.add(extractArgument(arg));
+ 			return new TupleLiteralExpression(span, elements);
+ 		}
+-		if (ctx.array_literal() != null)
+-		{
++		if (ctx.array_literal() != null) {
+ 			List<Expression> elements = new ArrayList<>();
+-			if (ctx.array_literal().expression_list() != null)
+-			{
++			if (ctx.array_literal().expression_list() != null) {
+ 				for (var e : ctx.array_literal().expression_list().expression())
+ 					elements.add((Expression) visit(e));
+ 			}
+@@ -898,13 +773,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitNew_expression(NebulaParser.New_expressionContext ctx)
+-	{
++	public ASTNode visitNew_expression(NebulaParser.New_expressionContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		String typeName = ctx.type().getText();
+ 		List<Expression> args = new ArrayList<>();
+-		if (ctx.arguments().argument_list() != null)
+-		{
++		if (ctx.arguments().argument_list() != null) {
+ 			for (var arg : ctx.arguments().argument_list().argument())
+ 				args.add(extractArgument(arg));
+ 		}
+@@ -912,8 +785,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitIf_expression(NebulaParser.If_expressionContext ctx)
+-	{
++	public ASTNode visitIf_expression(NebulaParser.If_expressionContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		Expression condition = (Expression) visit(ctx.parenthesized_expression().expression());
+ 		ExpressionBlock thenExpressionBlock = (ExpressionBlock) visit(ctx.expression_block(0));
+@@ -922,13 +794,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitMatch_expression(NebulaParser.Match_expressionContext ctx)
+-	{
++	public ASTNode visitMatch_expression(NebulaParser.Match_expressionContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		Expression selector = (Expression) visit(ctx.parenthesized_expression().expression());
+ 		List<MatchArm> arms = new ArrayList<>();
+-		for (var armCtx : ctx.match_body().match_arm())
+-		{
++		for (var armCtx : ctx.match_body().match_arm()) {
+ 			Pattern pat = (Pattern) visit(armCtx.pattern());
+ 			Expression res = (Expression) visit(armCtx.expression());
+ 			arms.add(new MatchArm(SourceUtil.createSpan(armCtx, currentFileName), pat, res));
+@@ -941,44 +811,37 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// =========================================================================
+ 
+ 	@Override
+-	public ASTNode visitPattern(NebulaParser.PatternContext ctx)
+-	{
++	public ASTNode visitPattern(NebulaParser.PatternContext ctx) {
+ 		return visit(ctx.pattern_or());
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitPattern_or(NebulaParser.Pattern_orContext ctx)
+-	{
++	public ASTNode visitPattern_or(NebulaParser.Pattern_orContext ctx) {
+ 		if (ctx.pattern_atom().size() == 1)
+ 			return visit(ctx.pattern_atom(0));
+ 
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		List<Pattern> alts = new ArrayList<>();
+-		for (var atom : ctx.pattern_atom())
+-		{
++		for (var atom : ctx.pattern_atom()) {
+ 			alts.add((Pattern) visit(atom));
+ 		}
+ 		return new OrPattern(span, alts);
+ 	}
+ 
+ 	@Override
+-	public ASTNode visitPattern_atom(NebulaParser.Pattern_atomContext ctx)
+-	{
++	public ASTNode visitPattern_atom(NebulaParser.Pattern_atomContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+-		if (ctx.literal() != null)
+-		{
++		if (ctx.literal() != null) {
+ 			// Unwrap ASTNode to LiteralExpression if possible, literal() returns
+ 			// LiteralExpression
+ 			LiteralExpression lit = (LiteralExpression) visit(ctx.literal());
+ 			return new LiteralPattern(span, lit);
+ 		}
+-		if (ctx.UNDERSCORE() != null)
+-		{
++		if (ctx.UNDERSCORE() != null) {
+ 			return new WildcardPattern(span);
+ 		}
+-		if (ctx.IDENTIFIER() != null)
+-		{
++		if (ctx.IDENTIFIER() != null) {
+ 			// Could be a variable binding or a type pattern.
+ 			// In simple grammar, "x" matches anything and binds to x.
+ 			// "String x" is a type pattern.
+@@ -990,8 +853,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 			TypeNode type = new NamedType(span, ctx.IDENTIFIER().getText(), Collections.emptyList());
+ 			return new TypePattern(span, type, null);
+ 		}
+-		if (ctx.parenthesized_pattern() != null)
+-		{
++		if (ctx.parenthesized_pattern() != null) {
+ 			return visit(ctx.parenthesized_pattern().pattern());
+ 		}
+ 		return null;
+@@ -1002,16 +864,13 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// =========================================================================
+ 
+ 	@Override
+-	public ASTNode visitLiteral(NebulaParser.LiteralContext ctx)
+-	{
++	public ASTNode visitLiteral(NebulaParser.LiteralContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		if (ctx.INTEGER_LITERAL() != null)
+ 			return new LiteralExpression(span, Long.parseLong(ctx.INTEGER_LITERAL().getText()), LiteralType.INT);
+-		if (ctx.REAL_LITERAL() != null)
+-		{
++		if (ctx.REAL_LITERAL() != null) {
+ 			String text = ctx.REAL_LITERAL().getText();
+-			if (text.endsWith("f") || text.endsWith("F"))
+-			{
++			if (text.endsWith("f") || text.endsWith("F")) {
+ 				return new LiteralExpression(span, Float.parseFloat(text), LiteralType.FLOAT);
+ 			}
+ 			return new LiteralExpression(span, Double.parseDouble(text), LiteralType.FLOAT);
+@@ -1020,8 +879,16 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 			return new LiteralExpression(span, true, LiteralType.BOOL);
+ 		if (ctx.FALSE() != null)
+ 			return new LiteralExpression(span, false, LiteralType.BOOL);
+-		if (ctx.string_literal() != null)
+-			return new LiteralExpression(span, ctx.string_literal().getText(), LiteralType.STRING);
++		if (ctx.string_literal() != null) {
++			String text = ctx.string_literal().getText();
++			// Strip leading and trailing quotes
++			if (text.length() >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
++				text = text.substring(1, text.length() - 1);
++			}
++			// Process escape sequences
++			text = processEscapes(text);
++			return new LiteralExpression(span, text, LiteralType.STRING);
++		}
+ 		if (ctx.CHARACTER_LITERAL() != null)
+ 			return new LiteralExpression(span, ctx.CHARACTER_LITERAL().getText(), LiteralType.CHAR);
+ 		return null;
+@@ -1032,60 +899,46 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// =========================================================================
+ 
+ 	@Override
+-	public ASTNode visitType(NebulaParser.TypeContext ctx)
+-	{
++	public ASTNode visitType(NebulaParser.TypeContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 		TypeNode base = null;
+ 
+-		if (ctx.predefined_type() != null)
+-		{
++		if (ctx.predefined_type() != null) {
+ 			base = new NamedType(span, ctx.predefined_type().getText(), Collections.emptyList());
+-		}
+-		else if (ctx.class_type() != null)
+-		{
++		} else if (ctx.class_type() != null) {
+ 			String name = ctx.class_type().qualified_name().getText();
+ 			// Generic args logic if present in class_type
+ 			base = new NamedType(span, name, Collections.emptyList());
+-		}
+-		else if (ctx.tuple_type() != null)
+-		{
++		} else if (ctx.tuple_type() != null) {
+ 			List<TypeNode> elems = new ArrayList<>();
+-			for (var elem : ctx.tuple_type().tuple_type_element())
+-			{
++			for (var elem : ctx.tuple_type().tuple_type_element()) {
+ 				elems.add((TypeNode) visit(elem.type()));
+ 			}
+ 			base = new TupleType(span, elems);
+ 		}
+ 
+-		if (!ctx.rank_specifier().isEmpty())
+-		{
++		if (!ctx.rank_specifier().isEmpty()) {
+ 			// Handling array ranks
+-			for (int i = 0; i < ctx.rank_specifier().size(); i++)
+-			{
++			for (int i = 0; i < ctx.rank_specifier().size(); i++) {
+ 				base = new ArrayType(span, base, 1);
+ 			}
+ 		}
+ 		return base;
+ 	}
+ 
+-	public TagExpression visitTagDeclaration(NebulaParser.Tag_declarationContext ctx)
+-	{
++	public TagExpression visitTagDeclaration(NebulaParser.Tag_declarationContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+-		if (ctx.type() != null)
+-		{
++		if (ctx.type() != null) {
+ 			return new TagAtom(span, (TypeNode) visit(ctx.type()));
+ 		}
+-		if (ctx.tag_expression() != null)
+-		{
++		if (ctx.tag_expression() != null) {
+ 			return visitTagExpression(ctx.tag_expression());
+ 		}
+ 		// Enum list handling
+-		if (ctx.tag_enumeration() != null)
+-		{
++		if (ctx.tag_enumeration() != null) {
+ 			TagExpression current = new TagAtom(span, (TypeNode) visit(ctx.tag_enumeration().type(0)));
+-			for (int i = 1; i < ctx.tag_enumeration().type().size(); i++)
+-			{
++			for (int i = 1; i < ctx.tag_enumeration().type().size(); i++) {
+ 				TagExpression next = new TagAtom(span, (TypeNode) visit(ctx.tag_enumeration().type(i)));
+ 				current = new TagOperation(span, TagOperation.Operator.UNION, current, next);
+ 			}
+@@ -1094,28 +947,22 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 		return null;
+ 	}
+ 
+-	public TagExpression visitTagExpression(NebulaParser.Tag_expressionContext ctx)
+-	{
++	public TagExpression visitTagExpression(NebulaParser.Tag_expressionContext ctx) {
+ 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+ 
+-		if (ctx.type() != null)
+-		{
++		if (ctx.type() != null) {
+ 			return new TagAtom(span, (TypeNode) visit(ctx.type()));
+ 		}
+-		if (ctx.tag_expression().size() == 1)
+-		{
+-			if (ctx.BANG() != null)
+-			{
++		if (ctx.tag_expression().size() == 1) {
++			if (ctx.BANG() != null) {
+ 				return new TagOperation(span, TagOperation.Operator.NOT, visitTagExpression(ctx.tag_expression(0)),
+ 						null);
+ 			}
+-			if (ctx.OPEN_PARENS() != null)
+-			{
++			if (ctx.OPEN_PARENS() != null) {
+ 				return visitTagExpression(ctx.tag_expression(0));
+ 			}
+ 		}
+-		if (ctx.tag_expression().size() == 2)
+-		{
++		if (ctx.tag_expression().size() == 2) {
+ 			TagExpression left = visitTagExpression(ctx.tag_expression(0));
+ 			TagExpression right = visitTagExpression(ctx.tag_expression(1));
+ 			TagOperation.Operator op = (ctx.AMP() != null || ctx.getText().contains("&"))
+@@ -1130,15 +977,38 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 	// Helpers
+ 	// =========================================================================
+ 
+-	private Expression extractArgument(NebulaParser.ArgumentContext ctx)
+-	{
++	private String processEscapes(String text) {
++		StringBuilder sb = new StringBuilder(text.length());
++		for (int i = 0; i < text.length(); i++) {
++			char c = text.charAt(i);
++			if (c == '\\' && i + 1 < text.length()) {
++				char next = text.charAt(++i);
++				switch (next) {
++					case 'n' -> sb.append('\n');
++					case 'r' -> sb.append('\r');
++					case 't' -> sb.append('\t');
++					case '\\' -> sb.append('\\');
++					case '"' -> sb.append('"');
++					case '\'' -> sb.append('\'');
++					default -> {
++						sb.append('\\');
++						sb.append(next);
++					}
++				}
++			} else {
++				sb.append(c);
++			}
++		}
++		return sb.toString();
++	}
++
++	private Expression extractArgument(NebulaParser.ArgumentContext ctx) {
+ 		if (ctx.namedArgument() != null)
+ 			return (Expression) visit(ctx.namedArgument().expression());
+ 		return (Expression) visit(ctx.positionalArgument().nonAssignmentExpression());
+ 	}
+ 
+-	private ASTNode getMethodBody(NebulaParser.Method_bodyContext ctx)
+-	{
++	private ASTNode getMethodBody(NebulaParser.Method_bodyContext ctx) {
+ 		if (ctx.expression_block() != null)
+ 			return visit(ctx.expression_block());
+ 		if (ctx.expression() != null)
+@@ -1146,17 +1016,14 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 		return null;
+ 	}
+ 
+-	private List<Parameter> getParameters(NebulaParser.ParametersContext ctx)
+-	{
++	private List<Parameter> getParameters(NebulaParser.ParametersContext ctx) {
+ 		if (ctx.parameter_list() == null)
+ 			return Collections.emptyList();
+ 		List<Parameter> params = new ArrayList<>();
+-		for (var p : ctx.parameter_list().parameter())
+-		{
++		for (var p : ctx.parameter_list().parameter()) {
+ 			// Extract CVT modifier (keeps/drops) if present
+ 			CVTModifier cvtMod = CVTModifier.NONE;
+-			if (p.cvt_modifier() != null)
+-			{
++			if (p.cvt_modifier() != null) {
+ 				String modText = p.cvt_modifier().getText();
+ 				cvtMod = CVTModifier.fromString(modText);
+ 			}
+@@ -1169,17 +1036,14 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 		return params;
+ 	}
+ 
+-	private List<Modifier> getModifiers(NebulaParser.ModifiersContext ctx)
+-	{
++	private List<Modifier> getModifiers(NebulaParser.ModifiersContext ctx) {
+ 		if (ctx == null || ctx.children == null)
+ 			return Collections.emptyList();
+ 		List<Modifier> mods = new ArrayList<>();
+-		if (ctx.visibility_modifier() != null && !ctx.visibility_modifier().isEmpty())
+-		{
++		if (ctx.visibility_modifier() != null && !ctx.visibility_modifier().isEmpty()) {
+ 			mods.add(mapVisibility(ctx.visibility_modifier().getFirst()));
+ 		}
+-		for (var child : ctx.children)
+-		{
++		for (var child : ctx.children) {
+ 			String txt = child.getText();
+ 			if (txt.equals("static"))
+ 				mods.add(Modifier.STATIC);
+@@ -1189,78 +1053,75 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
+ 		return mods;
+ 	}
+ 
+-	private Modifier mapVisibility(NebulaParser.Visibility_modifierContext ctx)
+-	{
++	private Modifier mapVisibility(NebulaParser.Visibility_modifierContext ctx) {
+ 		if (ctx == null)
++			return Modifier.PUBLIC; // Default is public in Nebula
++		if (ctx.PRIVATE() != null)
+ 			return Modifier.PRIVATE;
+-		if (ctx.PUBLIC() != null)
+-			return Modifier.PUBLIC;
+ 		if (ctx.PROTECTED() != null)
+ 			return Modifier.PROTECTED;
+-		return Modifier.PRIVATE;
++		if (ctx.PUBLIC() != null)
++			return Modifier.PUBLIC;
++		return Modifier.PUBLIC;
+ 	}
+ 
+-	private BinaryOperator mapBinaryOperator(String op)
+-	{
+-		return switch (op)
+-		{
++	private BinaryOperator mapBinaryOperator(String op) {
++		return switch (op) {
+ 			case "+" ->
+-					BinaryOperator.ADD;
++				BinaryOperator.ADD;
+ 			case "-" ->
+-					BinaryOperator.SUB;
++				BinaryOperator.SUB;
+ 			case "*" ->
+-					BinaryOperator.MUL;
++				BinaryOperator.MUL;
+ 			case "/" ->
+-					BinaryOperator.DIV;
++				BinaryOperator.DIV;
+ 			case "%" ->
+-					BinaryOperator.MOD;
++				BinaryOperator.MOD;
+ 			case "**" ->
+-					BinaryOperator.POW;
++				BinaryOperator.POW;
+ 			case "&&" ->
+-					BinaryOperator.LOGICAL_AND;
++				BinaryOperator.LOGICAL_AND;
+ 			case "||" ->
+-					BinaryOperator.LOGICAL_OR;
++				BinaryOperator.LOGICAL_OR;
+ 			case "&" ->
+-					BinaryOperator.BIT_AND;
++				BinaryOperator.BIT_AND;
+ 			case "|" ->
+-					BinaryOperator.BIT_OR;
++				BinaryOperator.BIT_OR;
+ 			case "^" ->
+-					BinaryOperator.BIT_XOR;
++				BinaryOperator.BIT_XOR;
+ 			case "==" ->
+-					BinaryOperator.EQ;
++				BinaryOperator.EQ;
+ 			case "!=" ->
+-					BinaryOperator.NE;
++				BinaryOperator.NE;
+ 			case "<" ->
+-					BinaryOperator.LT;
++				BinaryOperator.LT;
+ 			case ">" ->
+-					BinaryOperator.GT;
++				BinaryOperator.GT;
+ 			case "<=" ->
+-					BinaryOperator.LE;
++				BinaryOperator.LE;
+ 			case ">=" ->
+-					BinaryOperator.GE;
++				BinaryOperator.GE;
+ 			case "<<" ->
+-					BinaryOperator.SHL;
++				BinaryOperator.SHL;
+ 			case ">>" ->
+-					BinaryOperator.SHR;
++				BinaryOperator.SHR;
+ 			default ->
+-					throw new IllegalArgumentException("Unknown operator: " + op);
++				throw new IllegalArgumentException("Unknown operator: " + op);
+ 		};
+ 	}
+ 
+-	private UnaryOperator mapUnaryOperator(String op)
+-	{
+-		return switch (op)
+-		{
++	private UnaryOperator mapUnaryOperator(String op) {
++		return switch (op) {
+ 			case "!" ->
+-					UnaryOperator.NOT;
++				UnaryOperator.NOT;
+ 			case "-" ->
+-					UnaryOperator.MINUS;
++				UnaryOperator.MINUS;
+ 			case "+" ->
+-					UnaryOperator.PLUS;
++				UnaryOperator.PLUS;
+ 			case "~" ->
+-					UnaryOperator.BIT_NOT;
++				UnaryOperator.BIT_NOT;
+ 			default ->
+-					throw new IllegalArgumentException("Unknown unary operator: " + op);
++				throw new IllegalArgumentException("Unknown unary operator: " + op);
+ 		};
+ 	}
+ }
+\ No newline at end of file
+diff --git a/nebc/src/main/java/org/nebula/nebc/codegen/NativeCompiler.java b/nebc/src/main/java/org/nebula/nebc/codegen/NativeCompiler.java
+index 2b383bd..1ca05a6 100644
+--- a/nebc/src/main/java/org/nebula/nebc/codegen/NativeCompiler.java
++++ b/nebc/src/main/java/org/nebula/nebc/codegen/NativeCompiler.java
+@@ -45,6 +45,7 @@ public final class NativeCompiler {
+ 	 *                          linking fails.
+ 	 */
+ 	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean isStatic,
++			boolean isLibrary,
+ 			List<Path> additionalObjects) {
+ 		// 1. Initialise LLVM targets
+ 		LLVMInitializeNativeTarget();
+@@ -111,13 +112,14 @@ public final class NativeCompiler {
+ 		LLVMDisposeMessage(defaultTriple);
+ 
+ 		// 8. Link with clang
+-		link(objectFile, outputPath, isStatic, additionalObjects);
++		link(objectFile, outputPath, isStatic, isLibrary, additionalObjects);
+ 	}
+ 
+ 	/**
+ 	 * Invokes {@code clang} to link the object file into a native executable.
+ 	 */
+-	private static void link(Path objectFile, String outputPath, boolean isStatic, List<Path> additionalObjects) {
++	private static void link(Path objectFile, String outputPath, boolean isStatic, boolean isLibrary,
++			List<Path> additionalObjects) {
+ 		try {
+ 			List<String> command = new ArrayList<>(List.of(
+ 					"clang",
+@@ -131,11 +133,22 @@ public final class NativeCompiler {
+ 				}
+ 			}
+ 
+-			if (isStatic) {
+-				command.add("-nostdlib");
+-				command.add("-static");
++			// Always enforce freestanding environment
++			command.add("-nostdlib");
++			command.add("-nostartfiles");
++
++			if (isLibrary) {
++				command.add("-shared");
++				command.add("-fPIC");
+ 			} else {
+-				command.add("-no-pie");
++				if (isStatic) {
++					command.add("-static");
++				} else {
++					command.add("-no-pie");
++				}
++				command.add("-Wl,-rpath,.");
++				command.add("-L.");
++				command.add("-lneb");
+ 			}
+ 
+ 			ProcessBuilder pb = new ProcessBuilder(command);
+diff --git a/nebc/src/main/java/org/nebula/nebc/core/Compiler.java b/nebc/src/main/java/org/nebula/nebc/core/Compiler.java
+index 162d262..25825a9 100644
+--- a/nebc/src/main/java/org/nebula/nebc/core/Compiler.java
++++ b/nebc/src/main/java/org/nebula/nebc/core/Compiler.java
+@@ -28,7 +28,7 @@ public class Compiler {
+ 
+ 	public ExitCode run() {
+ 		// 1. Frontend: Lexing & Parsing
+-		List<SourceFile> stdLib = discoverStdLib();
++		List<SourceFile> stdLib = config.compileAsLibrary() ? new ArrayList<>() : discoverStdLib();
+ 		Parser parser = new Parser(config, stdLib);
+ 		int frontendExitCode = parser.parse();
+ 		if (frontendExitCode != 0)
+@@ -79,7 +79,14 @@ public class Compiler {
+ 		// 5. Code Generation (LLVM IR)
+ 		LLVMCodeGenerator codegen = new LLVMCodeGenerator();
+ 		try {
+-			codegen.generate(compilationUnits, analyzer);
++			List<CompilationUnit> unitsToCompile = compilationUnits;
++			if (!config.compileAsLibrary()) {
++				unitsToCompile = compilationUnits.stream()
++						.filter(cu -> !cu.getSpan().file().startsWith("std/") && !cu.getSpan().file().contains("/std/")
++								&& !cu.getSpan().file().contains("\\std\\"))
++						.toList();
++			}
++			codegen.generate(unitsToCompile, analyzer);
+ 
+ 			// Print LLVM IR in verbose mode
+ 			if (config.verbose()) {
+@@ -92,14 +99,16 @@ public class Compiler {
+ 			String outputPath = config.outputFile() != null ? config.outputFile() : "a.out";
+ 			List<Path> extraObjects = new ArrayList<>();
+ 
+-			// Always compile and link the Nebula runtime
+-			List<Path> runtimeObjs = compileRuntime();
++			// Always compile runtime objects. For libraries, this compiles everything
++			// except start.c.
++			// For executables, this compiles only start.c to be statically linked.
++			List<Path> runtimeObjs = compileRuntime(config.compileAsLibrary());
+ 			if (runtimeObjs != null) {
+ 				extraObjects.addAll(runtimeObjs);
+ 			}
+ 
+ 			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.isStatic(),
+-					extraObjects);
++					config.compileAsLibrary(), extraObjects);
+ 
+ 			// Cleanup extra objects
+ 			for (Path p : extraObjects) {
+@@ -119,7 +128,7 @@ public class Compiler {
+ 		}
+ 	}
+ 
+-	private List<Path> compileRuntime() {
++	private List<Path> compileRuntime(boolean isLibrary) {
+ 		List<Path> objects = new ArrayList<>();
+ 		Path runtimeDir = Path.of("runtime");
+ 		if (!Files.exists(runtimeDir)) {
+@@ -130,10 +139,20 @@ public class Compiler {
+ 		try (java.util.stream.Stream<Path> stream = Files.walk(runtimeDir)) {
+ 			List<Path> cFiles = stream.filter(p -> p.toString().endsWith(".c")).toList();
+ 			for (Path cFile : cFiles) {
++				boolean isStartFile = cFile.getFileName().toString().equals("start.c");
++				if (isLibrary && isStartFile)
++					continue;
++				if (!isLibrary && !isStartFile)
++					continue;
++
+ 				Path objFile = Files.createTempFile("neb_rt_" + cFile.getFileName().toString(), ".o");
+-				ProcessBuilder pb = new ProcessBuilder("clang", "-c", cFile.toAbsolutePath().toString(),
+-						"-o", objFile.toAbsolutePath().toString(), "-O3", "-fno-stack-protector", "-ffreestanding");
++				// For the library we also want -fPIC so the objects can be linked dynamically
++				List<String> cmd = new ArrayList<>(List.of("clang", "-c", cFile.toAbsolutePath().toString(),
++						"-o", objFile.toAbsolutePath().toString(), "-O3", "-fno-stack-protector", "-ffreestanding"));
++				if (isLibrary)
++					cmd.add("-fPIC");
+ 
++				ProcessBuilder pb = new ProcessBuilder(cmd);
+ 				int exitCode = pb.start().waitFor();
+ 				if (exitCode != 0) {
+ 					Log.err("Failed to compile runtime file: " + cFile);
+diff --git a/nebc/src/main/java/org/nebula/nebc/frontend/parser/generated/NebulaParser.interp b/nebc/src/main/java/org/nebula/nebc/frontend/parser/generated/NebulaParser.interp
+index bc09c32..a15f36e 100644
+--- a/nebc/src/main/java/org/nebula/nebc/frontend/parser/generated/NebulaParser.interp
++++ b/nebc/src/main/java/org/nebula/nebc/frontend/parser/generated/NebulaParser.interp
+@@ -397,4 +397,4 @@ interpolated_string_expression
+ 
+ 
+ atn:
+-[4, 1, 134, 1113, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7, 4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7, 10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 15, 7, 15, 2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 20, 7, 20, 2, 21, 7, 21, 2, 22, 7, 22, 2, 23, 7, 23, 2, 24, 7, 24, 2, 25, 7, 25, 2, 26, 7, 26, 2, 27, 7, 27, 2, 28, 7, 28, 2, 29, 7, 29, 2, 30, 7, 30, 2, 31, 7, 31, 2, 32, 7, 32, 2, 33, 7, 33, 2, 34, 7, 34, 2, 35, 7, 35, 2, 36, 7, 36, 2, 37, 7, 37, 2, 38, 7, 38, 2, 39, 7, 39, 2, 40, 7, 40, 2, 41, 7, 41, 2, 42, 7, 42, 2, 43, 7, 43, 2, 44, 7, 44, 2, 45, 7, 45, 2, 46, 7, 46, 2, 47, 7, 47, 2, 48, 7, 48, 2, 49, 7, 49, 2, 50, 7, 50, 2, 51, 7, 51, 2, 52, 7, 52, 2, 53, 7, 53, 2, 54, 7, 54, 2, 55, 7, 55, 2, 56, 7, 56, 2, 57, 7, 57, 2, 58, 7, 58, 2, 59, 7, 59, 2, 60, 7, 60, 2, 61, 7, 61, 2, 62, 7, 62, 2, 63, 7, 63, 2, 64, 7, 64, 2, 65, 7, 65, 2, 66, 7, 66, 2, 67, 7, 67, 2, 68, 7, 68, 2, 69, 7, 69, 2, 70, 7, 70, 2, 71, 7, 71, 2, 72, 7, 72, 2, 73, 7, 73, 2, 74, 7, 74, 2, 75, 7, 75, 2, 76, 7, 76, 2, 77, 7, 77, 2, 78, 7, 78, 2, 79, 7, 79, 2, 80, 7, 80, 2, 81, 7, 81, 2, 82, 7, 82, 2, 83, 7, 83, 2, 84, 7, 84, 2, 85, 7, 85, 2, 86, 7, 86, 2, 87, 7, 87, 2, 88, 7, 88, 2, 89, 7, 89, 2, 90, 7, 90, 2, 91, 7, 91, 2, 92, 7, 92, 2, 93, 7, 93, 2, 94, 7, 94, 2, 95, 7, 95, 2, 96, 7, 96, 2, 97, 7, 97, 2, 98, 7, 98, 2, 99, 7, 99, 2, 100, 7, 100, 2, 101, 7, 101, 2, 102, 7, 102, 2, 103, 7, 103, 2, 104, 7, 104, 2, 105, 7, 105, 2, 106, 7, 106, 2, 107, 7, 107, 2, 108, 7, 108, 2, 109, 7, 109, 2, 110, 7, 110, 2, 111, 7, 111, 2, 112, 7, 112, 2, 113, 7, 113, 2, 114, 7, 114, 2, 115, 7, 115, 2, 116, 7, 116, 2, 117, 7, 117, 2, 118, 7, 118, 2, 119, 7, 119, 2, 120, 7, 120, 1, 0, 5, 0, 244, 8, 0, 10, 0, 12, 0, 247, 9, 0, 1, 0, 1, 0, 1, 1, 3, 1, 252, 8, 1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 1, 258, 8, 1, 10, 1, 12, 1, 261, 9, 1, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 3, 1, 3, 3, 3, 270, 8, 3, 1, 3, 1, 3, 1, 4, 1, 4, 1, 4, 3, 4, 277, 8, 4, 1, 4, 3, 4, 280, 8, 4, 1, 5, 1, 5, 1, 5, 1, 6, 3, 6, 286, 8, 6, 1, 6, 1, 6, 1, 6, 1, 6, 1, 6, 1, 6, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 3, 7, 303, 8, 7, 1, 8, 1, 8, 1, 8, 5, 8, 308, 8, 8, 10, 8, 12, 8, 311, 9, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 3, 9, 321, 8, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 5, 9, 329, 8, 9, 10, 9, 12, 9, 332, 9, 9, 1, 10, 1, 10, 1, 10, 1, 10, 5, 10, 338, 8, 10, 10, 10, 12, 10, 341, 9, 10, 1, 10, 1, 10, 3, 10, 345, 8, 10, 1, 11, 1, 11, 1, 11, 5, 11, 350, 8, 11, 10, 11, 12, 11, 353, 9, 11, 1, 12, 1, 12, 1, 12, 1, 12, 1, 13, 1, 13, 1, 13, 1, 13, 5, 13, 363, 8, 13, 10, 13, 12, 13, 366, 9, 13, 1, 13, 1, 13, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 3, 14, 381, 8, 14, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 3, 15, 394, 8, 15, 1, 16, 1, 16, 1, 16, 1, 17, 1, 17, 3, 17, 401, 8, 17, 1, 17, 3, 17, 404, 8, 17, 1, 17, 1, 17, 1, 18, 1, 18, 3, 18, 410, 8, 18, 1, 18, 1, 18, 1, 19, 5, 19, 415, 8, 19, 10, 19, 12, 19, 418, 9, 19, 1, 20, 1, 20, 1, 21, 1, 21, 1, 21, 1, 21, 1, 21, 1, 21, 1, 22, 1, 22, 1, 22, 1, 22, 1, 22, 3, 22, 433, 8, 22, 1, 23, 1, 23, 1, 23, 1, 23, 1, 24, 1, 24, 1, 24, 3, 24, 442, 8, 24, 1, 24, 1, 24, 1, 25, 1, 25, 3, 25, 448, 8, 25, 1, 25, 3, 25, 451, 8, 25, 1, 25, 1, 25, 3, 25, 455, 8, 25, 1, 25, 1, 25, 1, 26, 1, 26, 3, 26, 461, 8, 26, 1, 27, 1, 27, 1, 28, 1, 28, 1, 28, 1, 28, 1, 29, 1, 29, 1, 29, 1, 29, 1, 30, 1, 30, 1, 30, 3, 30, 476, 8, 30, 1, 30, 1, 30, 1, 30, 1, 30, 1, 30, 1, 31, 1, 31, 3, 31, 485, 8, 31, 1, 31, 1, 31, 1, 32, 1, 32, 1, 32, 1, 32, 5, 32, 493, 8, 32, 10, 32, 12, 32, 496, 9, 32, 1, 32, 3, 32, 499, 8, 32, 1, 32, 1, 32, 1, 33, 1, 33, 1, 33, 1, 33, 1, 34, 1, 34, 1, 35, 1, 35, 1, 35, 5, 35, 512, 8, 35, 10, 35, 12, 35, 515, 9, 35, 1, 36, 1, 36, 1, 36, 1, 36, 3, 36, 521, 8, 36, 1, 37, 1, 37, 1, 37, 1, 37, 1, 38, 1, 38, 1, 38, 1, 39, 1, 39, 3, 39, 532, 8, 39, 1, 39, 1, 39, 3, 39, 536, 8, 39, 1, 39, 1, 39, 1, 39, 1, 40, 1, 40, 1, 41, 1, 41, 1, 42, 1, 42, 1, 42, 5, 42, 548, 8, 42, 10, 42, 12, 42, 551, 9, 42, 1, 43, 1, 43, 1, 44, 1, 44, 1, 44, 5, 44, 558, 8, 44, 10, 44, 12, 44, 561, 9, 44, 1, 45, 1, 45, 1, 45, 3, 45, 566, 8, 45, 1, 46, 1, 46, 1, 46, 1, 46, 3, 46, 572, 8, 46, 1, 46, 1, 46, 1, 46, 1, 47, 3, 47, 578, 8, 47, 1, 47, 1, 47, 1, 47, 1, 47, 1, 48, 1, 48, 3, 48, 586, 8, 48, 1, 48, 1, 48, 1, 49, 1, 49, 1, 49, 5, 49, 593, 8, 49, 10, 49, 12, 49, 596, 9, 49, 1, 50, 3, 50, 599, 8, 50, 1, 50, 1, 50, 1, 50, 1, 50, 3, 50, 605, 8, 50, 1, 51, 1, 51, 1, 51, 1, 51, 3, 51, 611, 8, 51, 1, 52, 1, 52, 1, 52, 1, 52, 1, 52, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 3, 53, 632, 8, 53, 1, 54, 1, 54, 1, 54, 3, 54, 637, 8, 54, 1, 54, 3, 54, 640, 8, 54, 1, 54, 1, 54, 1, 55, 1, 55, 5, 55, 646, 8, 55, 10, 55, 12, 55, 649, 9, 55, 1, 55, 1, 55, 1, 56, 1, 56, 1, 56, 1, 56, 3, 56, 657, 8, 56, 1, 57, 1, 57, 1, 57, 3, 57, 662, 8, 57, 1, 57, 3, 57, 665, 8, 57, 1, 57, 1, 57, 1, 58, 1, 58, 5, 58, 671, 8, 58, 10, 58, 12, 58, 674, 9, 58, 1, 58, 1, 58, 1, 59, 1, 59, 1, 59, 1, 59, 3, 59, 682, 8, 59, 1, 60, 1, 60, 1, 60, 1, 60, 5, 60, 688, 8, 60, 10, 60, 12, 60, 691, 9, 60, 1, 61, 1, 61, 1, 61, 1, 61, 1, 62, 1, 62, 3, 62, 699, 8, 62, 1, 63, 1, 63, 5, 63, 703, 8, 63, 10, 63, 12, 63, 706, 9, 63, 1, 63, 1, 63, 1, 64, 1, 64, 1, 65, 3, 65, 713, 8, 65, 1, 65, 1, 65, 1, 65, 3, 65, 718, 8, 65, 1, 65, 1, 65, 1, 66, 1, 66, 1, 66, 1, 66, 5, 66, 726, 8, 66, 10, 66, 12, 66, 729, 9, 66, 1, 66, 3, 66, 732, 8, 66, 1, 66, 1, 66, 1, 67, 1, 67, 1, 67, 1, 67, 1, 68, 1, 68, 3, 68, 742, 8, 68, 1, 69, 1, 69, 3, 69, 746, 8, 69, 1, 70, 1, 70, 3, 70, 750, 8, 70, 1, 70, 1, 70, 5, 70, 754, 8, 70, 10, 70, 12, 70, 757, 9, 70, 1, 70, 1, 70, 5, 70, 761, 8, 70, 10, 70, 12, 70, 764, 9, 70, 1, 70, 1, 70, 5, 70, 768, 8, 70, 10, 70, 12, 70, 771, 9, 70, 3, 70, 773, 8, 70, 1, 71, 1, 71, 1, 71, 1, 71, 5, 71, 779, 8, 71, 10, 71, 12, 71, 782, 9, 71, 1, 71, 1, 71, 1, 72, 1, 72, 3, 72, 788, 8, 72, 1, 73, 1, 73, 3, 73, 792, 8, 73, 1, 74, 1, 74, 1, 74, 1, 74, 3, 74, 798, 8, 74, 1, 75, 1, 75, 3, 75, 802, 8, 75, 1, 76, 1, 76, 1, 77, 1, 77, 1, 78, 1, 78, 3, 78, 810, 8, 78, 1, 78, 5, 78, 813, 8, 78, 10, 78, 12, 78, 816, 9, 78, 1, 78, 1, 78, 1, 79, 1, 79, 1, 79, 3, 79, 823, 8, 79, 1, 80, 1, 80, 1, 81, 1, 81, 1, 81, 1, 81, 5, 81, 831, 8, 81, 10, 81, 12, 81, 834, 9, 81, 1, 81, 1, 81, 1, 82, 1, 82, 1, 82, 1, 82, 5, 82, 842, 8, 82, 10, 82, 12, 82, 845, 9, 82, 1, 82, 1, 82, 1, 83, 1, 83, 1, 83, 3, 83, 852, 8, 83, 1, 84, 1, 84, 1, 84, 1, 84, 4, 84, 858, 8, 84, 11, 84, 12, 84, 859, 1, 84, 1, 84, 1, 85, 1, 85, 1, 85, 1, 85, 1, 86, 1, 86, 1, 87, 1, 87, 1, 88, 1, 88, 1, 88, 1, 88, 3, 88, 876, 8, 88, 1, 89, 1, 89, 1, 89, 1, 89, 1, 90, 1, 90, 1, 91, 1, 91, 1, 91, 5, 91, 887, 8, 91, 10, 91, 12, 91, 890, 9, 91, 1, 92, 1, 92, 1, 92, 5, 92, 895, 8, 92, 10, 92, 12, 92, 898, 9, 92, 1, 93, 1, 93, 1, 93, 5, 93, 903, 8, 93, 10, 93, 12, 93, 906, 9, 93, 1, 94, 1, 94, 1, 94, 5, 94, 911, 8, 94, 10, 94, 12, 94, 914, 9, 94, 1, 95, 1, 95, 1, 95, 5, 95, 919, 8, 95, 10, 95, 12, 95, 922, 9, 95, 1, 96, 1, 96, 1, 96, 5, 96, 927, 8, 96, 10, 96, 12, 96, 930, 9, 96, 1, 97, 1, 97, 1, 97, 1, 97, 1, 97, 1, 97, 3, 97, 938, 8, 97, 3, 97, 940, 8, 97, 1, 98, 1, 98, 1, 98, 3, 98, 945, 8, 98, 1, 98, 1, 98, 5, 98, 949, 8, 98, 10, 98, 12, 98, 952, 9, 98, 1, 99, 1, 99, 1, 99, 1, 100, 1, 100, 1, 100, 1, 101, 1, 101, 1, 101, 5, 101, 963, 8, 101, 10, 101, 12, 101, 966, 9, 101, 1, 102, 1, 102, 1, 102, 5, 102, 971, 8, 102, 10, 102, 12, 102, 974, 9, 102, 1, 103, 1, 103, 1, 103, 3, 103, 979, 8, 103, 1, 104, 1, 104, 1, 104, 1, 104, 3, 104, 985, 8, 104, 1, 105, 1, 105, 1, 105, 1, 105, 1, 105, 1, 106, 1, 106, 5, 106, 994, 8, 106, 10, 106, 12, 106, 997, 9, 106, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 3, 107, 1010, 8, 107, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 3, 108, 1018, 8, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 3, 108, 1027, 8, 108, 1, 109, 1, 109, 3, 109, 1031, 8, 109, 1, 109, 1, 109, 1, 110, 1, 110, 1, 110, 5, 110, 1038, 8, 110, 10, 110, 12, 110, 1041, 9, 110, 1, 111, 1, 111, 3, 111, 1045, 8, 111, 1, 111, 1, 111, 1, 112, 1, 112, 1, 112, 5, 112, 1052, 8, 112, 10, 112, 12, 112, 1055, 9, 112, 1, 113, 1, 113, 1, 113, 1, 113, 1, 114, 1, 114, 1, 115, 1, 115, 3, 115, 1065, 8, 115, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 3, 116, 1076, 8, 116, 1, 117, 1, 117, 3, 117, 1080, 8, 117, 1, 118, 1, 118, 5, 118, 1084, 8, 118, 10, 118, 12, 118, 1087, 9, 118, 1, 118, 1, 118, 1, 119, 1, 119, 1, 119, 1, 119, 3, 119, 1095, 8, 119, 1, 120, 1, 120, 1, 120, 5, 120, 1100, 8, 120, 10, 120, 12, 120, 1103, 9, 120, 1, 120, 1, 120, 4, 120, 1107, 8, 120, 11, 120, 12, 120, 1108, 3, 120, 1111, 8, 120, 1, 120, 0, 1, 18, 121, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 82, 84, 86, 88, 90, 92, 94, 96, 98, 100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 130, 132, 134, 136, 138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 182, 184, 186, 188, 190, 192, 194, 196, 198, 200, 202, 204, 206, 208, 210, 212, 214, 216, 218, 220, 222, 224, 226, 228, 230, 232, 234, 236, 238, 240, 0, 10, 1, 0, 44, 46, 2, 0, 20, 20, 38, 38, 2, 0, 31, 34, 57, 60, 2, 0, 18, 18, 25, 26, 3, 0, 100, 100, 113, 115, 117, 122, 1, 0, 109, 110, 2, 0, 101, 102, 111, 112, 1, 0, 89, 90, 2, 0, 91, 91, 93, 94, 2, 0, 89, 90, 98, 99, 1169, 0, 245, 1, 0, 0, 0, 2, 251, 1, 0, 0, 0, 4, 264, 1, 0, 0, 0, 6, 266, 1, 0, 0, 0, 8, 279, 1, 0, 0, 0, 10, 281, 1, 0, 0, 0, 12, 285, 1, 0, 0, 0, 14, 302, 1, 0, 0, 0, 16, 304, 1, 0, 0, 0, 18, 320, 1, 0, 0, 0, 20, 333, 1, 0, 0, 0, 22, 346, 1, 0, 0, 0, 24, 354, 1, 0, 0, 0, 26, 358, 1, 0, 0, 0, 28, 380, 1, 0, 0, 0, 30, 393, 1, 0, 0, 0, 32, 395, 1, 0, 0, 0, 34, 398, 1, 0, 0, 0, 36, 407, 1, 0, 0, 0, 38, 416, 1, 0, 0, 0, 40, 419, 1, 0, 0, 0, 42, 421, 1, 0, 0, 0, 44, 427, 1, 0, 0, 0, 46, 434, 1, 0, 0, 0, 48, 438, 1, 0, 0, 0, 50, 445, 1, 0, 0, 0, 52, 460, 1, 0, 0, 0, 54, 462, 1, 0, 0, 0, 56, 464, 1, 0, 0, 0, 58, 468, 1, 0, 0, 0, 60, 472, 1, 0, 0, 0, 62, 482, 1, 0, 0, 0, 64, 488, 1, 0, 0, 0, 66, 502, 1, 0, 0, 0, 68, 506, 1, 0, 0, 0, 70, 508, 1, 0, 0, 0, 72, 520, 1, 0, 0, 0, 74, 522, 1, 0, 0, 0, 76, 526, 1, 0, 0, 0, 78, 529, 1, 0, 0, 0, 80, 540, 1, 0, 0, 0, 82, 542, 1, 0, 0, 0, 84, 549, 1, 0, 0, 0, 86, 552, 1, 0, 0, 0, 88, 554, 1, 0, 0, 0, 90, 562, 1, 0, 0, 0, 92, 567, 1, 0, 0, 0, 94, 577, 1, 0, 0, 0, 96, 583, 1, 0, 0, 0, 98, 589, 1, 0, 0, 0, 100, 598, 1, 0, 0, 0, 102, 610, 1, 0, 0, 0, 104, 612, 1, 0, 0, 0, 106, 631, 1, 0, 0, 0, 108, 633, 1, 0, 0, 0, 110, 643, 1, 0, 0, 0, 112, 656, 1, 0, 0, 0, 114, 658, 1, 0, 0, 0, 116, 668, 1, 0, 0, 0, 118, 681, 1, 0, 0, 0, 120, 683, 1, 0, 0, 0, 122, 692, 1, 0, 0, 0, 124, 698, 1, 0, 0, 0, 126, 700, 1, 0, 0, 0, 128, 709, 1, 0, 0, 0, 130, 712, 1, 0, 0, 0, 132, 721, 1, 0, 0, 0, 134, 735, 1, 0, 0, 0, 136, 739, 1, 0, 0, 0, 138, 745, 1, 0, 0, 0, 140, 749, 1, 0, 0, 0, 142, 774, 1, 0, 0, 0, 144, 785, 1, 0, 0, 0, 146, 789, 1, 0, 0, 0, 148, 797, 1, 0, 0, 0, 150, 801, 1, 0, 0, 0, 152, 803, 1, 0, 0, 0, 154, 805, 1, 0, 0, 0, 156, 807, 1, 0, 0, 0, 158, 819, 1, 0, 0, 0, 160, 824, 1, 0, 0, 0, 162, 826, 1, 0, 0, 0, 164, 837, 1, 0, 0, 0, 166, 851, 1, 0, 0, 0, 168, 853, 1, 0, 0, 0, 170, 863, 1, 0, 0, 0, 172, 867, 1, 0, 0, 0, 174, 869, 1, 0, 0, 0, 176, 871, 1, 0, 0, 0, 178, 877, 1, 0, 0, 0, 180, 881, 1, 0, 0, 0, 182, 883, 1, 0, 0, 0, 184, 891, 1, 0, 0, 0, 186, 899, 1, 0, 0, 0, 188, 907, 1, 0, 0, 0, 190, 915, 1, 0, 0, 0, 192, 923, 1, 0, 0, 0, 194, 931, 1, 0, 0, 0, 196, 941, 1, 0, 0, 0, 198, 953, 1, 0, 0, 0, 200, 956, 1, 0, 0, 0, 202, 959, 1, 0, 0, 0, 204, 967, 1, 0, 0, 0, 206, 975, 1, 0, 0, 0, 208, 984, 1, 0, 0, 0, 210, 986, 1, 0, 0, 0, 212, 991, 1, 0, 0, 0, 214, 1009, 1, 0, 0, 0, 216, 1026, 1, 0, 0, 0, 218, 1028, 1, 0, 0, 0, 220, 1034, 1, 0, 0, 0, 222, 1042, 1, 0, 0, 0, 224, 1048, 1, 0, 0, 0, 226, 1056, 1, 0, 0, 0, 228, 1060, 1, 0, 0, 0, 230, 1064, 1, 0, 0, 0, 232, 1075, 1, 0, 0, 0, 234, 1079, 1, 0, 0, 0, 236, 1081, 1, 0, 0, 0, 238, 1094, 1, 0, 0, 0, 240, 1096, 1, 0, 0, 0, 242, 244, 3, 28, 14, 0, 243, 242, 1, 0, 0, 0, 244, 247, 1, 0, 0, 0, 245, 243, 1, 0, 0, 0, 245, 246, 1, 0, 0, 0, 246, 248, 1, 0, 0, 0, 247, 245, 1, 0, 0, 0, 248, 249, 5, 0, 0, 1, 249, 1, 1, 0, 0, 0, 250, 252, 3, 84, 42, 0, 251, 250, 1, 0, 0, 0, 251, 252, 1, 0, 0, 0, 252, 253, 1, 0, 0, 0, 253, 254, 5, 23, 0, 0, 254, 255, 5, 74, 0, 0, 255, 259, 5, 78, 0, 0, 256, 258, 3, 4, 2, 0, 257, 256, 1, 0, 0, 0, 258, 261, 1, 0, 0, 0, 259, 257, 1, 0, 0, 0, 259, 260, 1, 0, 0, 0, 260, 262, 1, 0, 0, 0, 261, 259, 1, 0, 0, 0, 262, 263, 5, 79, 0, 0, 263, 3, 1, 0, 0, 0, 264, 265, 3, 92, 46, 0, 265, 5, 1, 0, 0, 0, 266, 267, 5, 62, 0, 0, 267, 269, 3, 22, 11, 0, 268, 270, 3, 8, 4, 0, 269, 268, 1, 0, 0, 0, 269, 270, 1, 0, 0, 0, 270, 271, 1, 0, 0, 0, 271, 272, 5, 88, 0, 0, 272, 7, 1, 0, 0, 0, 273, 274, 5, 86, 0, 0, 274, 276, 5, 67, 0, 0, 275, 277, 3, 10, 5, 0, 276, 275, 1, 0, 0, 0, 276, 277, 1, 0, 0, 0, 277, 280, 1, 0, 0, 0, 278, 280, 3, 10, 5, 0, 279, 273, 1, 0, 0, 0, 279, 278, 1, 0, 0, 0, 280, 9, 1, 0, 0, 0, 281, 282, 5, 8, 0, 0, 282, 283, 5, 67, 0, 0, 283, 11, 1, 0, 0, 0, 284, 286, 3, 80, 40, 0, 285, 284, 1, 0, 0, 0, 285, 286, 1, 0, 0, 0, 286, 287, 1, 0, 0, 0, 287, 288, 5, 52, 0, 0, 288, 289, 3, 14, 7, 0, 289, 290, 5, 8, 0, 0, 290, 291, 5, 67, 0, 0, 291, 292, 5, 88, 0, 0, 292, 13, 1, 0, 0, 0, 293, 303, 3, 140, 70, 0, 294, 295, 5, 78, 0, 0, 295, 296, 3, 16, 8, 0, 296, 297, 5, 79, 0, 0, 297, 303, 1, 0, 0, 0, 298, 299, 5, 78, 0, 0, 299, 300, 3, 18, 9, 0, 300, 301, 5, 79, 0, 0, 301, 303, 1, 0, 0, 0, 302, 293, 1, 0, 0, 0, 302, 294, 1, 0, 0, 0, 302, 298, 1, 0, 0, 0, 303, 15, 1, 0, 0, 0, 304, 309, 3, 140, 70, 0, 305, 306, 5, 85, 0, 0, 306, 308, 3, 140, 70, 0, 307, 305, 1, 0, 0, 0, 308, 311, 1, 0, 0, 0, 309, 307, 1, 0, 0, 0, 309, 310, 1, 0, 0, 0, 310, 17, 1, 0, 0, 0, 311, 309, 1, 0, 0, 0, 312, 313, 6, 9, -1, 0, 313, 314, 5, 82, 0, 0, 314, 315, 3, 18, 9, 0, 315, 316, 5, 83, 0, 0, 316, 321, 1, 0, 0, 0, 317, 318, 5, 98, 0, 0, 318, 321, 3, 18, 9, 4, 319, 321, 3, 140, 70, 0, 320, 312, 1, 0, 0, 0, 320, 317, 1, 0, 0, 0, 320, 319, 1, 0, 0, 0, 321, 330, 1, 0, 0, 0, 322, 323, 10, 3, 0, 0, 323, 324, 5, 95, 0, 0, 324, 329, 3, 18, 9, 4, 325, 326, 10, 2, 0, 0, 326, 327, 5, 96, 0, 0, 327, 329, 3, 18, 9, 3, 328, 322, 1, 0, 0, 0, 328, 325, 1, 0, 0, 0, 329, 332, 1, 0, 0, 0, 330, 328, 1, 0, 0, 0, 330, 331, 1, 0, 0, 0, 331, 19, 1, 0, 0, 0, 332, 330, 1, 0, 0, 0, 333, 334, 5, 39, 0, 0, 334, 344, 3, 22, 11, 0, 335, 339, 5, 78, 0, 0, 336, 338, 3, 28, 14, 0, 337, 336, 1, 0, 0, 0, 338, 341, 1, 0, 0, 0, 339, 337, 1, 0, 0, 0, 339, 340, 1, 0, 0, 0, 340, 342, 1, 0, 0, 0, 341, 339, 1, 0, 0, 0, 342, 345, 5, 79, 0, 0, 343, 345, 5, 88, 0, 0, 344, 335, 1, 0, 0, 0, 344, 343, 1, 0, 0, 0, 345, 21, 1, 0, 0, 0, 346, 351, 5, 67, 0, 0, 347, 348, 5, 86, 0, 0, 348, 350, 5, 67, 0, 0, 349, 347, 1, 0, 0, 0, 350, 353, 1, 0, 0, 0, 351, 349, 1, 0, 0, 0, 351, 352, 1, 0, 0, 0, 352, 23, 1, 0, 0, 0, 353, 351, 1, 0, 0, 0, 354, 355, 5, 22, 0, 0, 355, 356, 5, 67, 0, 0, 356, 357, 3, 26, 13, 0, 357, 25, 1, 0, 0, 0, 358, 359, 5, 78, 0, 0, 359, 364, 5, 67, 0, 0, 360, 361, 5, 85, 0, 0, 361, 363, 5, 67, 0, 0, 362, 360, 1, 0, 0, 0, 363, 366, 1, 0, 0, 0, 364, 362, 1, 0, 0, 0, 364, 365, 1, 0, 0, 0, 365, 367, 1, 0, 0, 0, 366, 364, 1, 0, 0, 0, 367, 368, 5, 79, 0, 0, 368, 27, 1, 0, 0, 0, 369, 381, 3, 6, 3, 0, 370, 381, 3, 12, 6, 0, 371, 381, 3, 24, 12, 0, 372, 381, 3, 76, 38, 0, 373, 381, 3, 92, 46, 0, 374, 381, 3, 108, 54, 0, 375, 381, 3, 114, 57, 0, 376, 381, 3, 122, 61, 0, 377, 381, 3, 130, 65, 0, 378, 381, 3, 20, 10, 0, 379, 381, 3, 2, 1, 0, 380, 369, 1, 0, 0, 0, 380, 370, 1, 0, 0, 0, 380, 371, 1, 0, 0, 0, 380, 372, 1, 0, 0, 0, 380, 373, 1, 0, 0, 0, 380, 374, 1, 0, 0, 0, 380, 375, 1, 0, 0, 0, 380, 376, 1, 0, 0, 0, 380, 377, 1, 0, 0, 0, 380, 378, 1, 0, 0, 0, 380, 379, 1, 0, 0, 0, 381, 29, 1, 0, 0, 0, 382, 394, 3, 6, 3, 0, 383, 394, 3, 12, 6, 0, 384, 394, 3, 76, 38, 0, 385, 394, 3, 78, 39, 0, 386, 394, 3, 36, 18, 0, 387, 394, 3, 44, 22, 0, 388, 394, 3, 48, 24, 0, 389, 394, 3, 56, 28, 0, 390, 394, 3, 58, 29, 0, 391, 394, 3, 62, 31, 0, 392, 394, 3, 32, 16, 0, 393, 382, 1, 0, 0, 0, 393, 383, 1, 0, 0, 0, 393, 384, 1, 0, 0, 0, 393, 385, 1, 0, 0, 0, 393, 386, 1, 0, 0, 0, 393, 387, 1, 0, 0, 0, 393, 388, 1, 0, 0, 0, 393, 389, 1, 0, 0, 0, 393, 390, 1, 0, 0, 0, 393, 391, 1, 0, 0, 0, 393, 392, 1, 0, 0, 0, 394, 31, 1, 0, 0, 0, 395, 396, 3, 174, 87, 0, 396, 397, 5, 88, 0, 0, 397, 33, 1, 0, 0, 0, 398, 400, 5, 78, 0, 0, 399, 401, 3, 38, 19, 0, 400, 399, 1, 0, 0, 0, 400, 401, 1, 0, 0, 0, 401, 403, 1, 0, 0, 0, 402, 404, 3, 40, 20, 0, 403, 402, 1, 0, 0, 0, 403, 404, 1, 0, 0, 0, 404, 405, 1, 0, 0, 0, 405, 406, 5, 79, 0, 0, 406, 35, 1, 0, 0, 0, 407, 409, 5, 78, 0, 0, 408, 410, 3, 38, 19, 0, 409, 408, 1, 0, 0, 0, 409, 410, 1, 0, 0, 0, 410, 411, 1, 0, 0, 0, 411, 412, 5, 79, 0, 0, 412, 37, 1, 0, 0, 0, 413, 415, 3, 30, 15, 0, 414, 413, 1, 0, 0, 0, 415, 418, 1, 0, 0, 0, 416, 414, 1, 0, 0, 0, 416, 417, 1, 0, 0, 0, 417, 39, 1, 0, 0, 0, 418, 416, 1, 0, 0, 0, 419, 420, 3, 174, 87, 0, 420, 41, 1, 0, 0, 0, 421, 422, 5, 29, 0, 0, 422, 423, 3, 170, 85, 0, 423, 424, 3, 34, 17, 0, 424, 425, 5, 21, 0, 0, 425, 426, 3, 34, 17, 0, 426, 43, 1, 0, 0, 0, 427, 428, 5, 29, 0, 0, 428, 429, 3, 170, 85, 0, 429, 432, 3, 30, 15, 0, 430, 431, 5, 21, 0, 0, 431, 433, 3, 30, 15, 0, 432, 430, 1, 0, 0, 0, 432, 433, 1, 0, 0, 0, 433, 45, 1, 0, 0, 0, 434, 435, 5, 41, 0, 0, 435, 436, 3, 170, 85, 0, 436, 437, 3, 64, 32, 0, 437, 47, 1, 0, 0, 0, 438, 441, 5, 27, 0, 0, 439, 442, 3, 50, 25, 0, 440, 442, 3, 170, 85, 0, 441, 439, 1, 0, 0, 0, 441, 440, 1, 0, 0, 0, 442, 443, 1, 0, 0, 0, 443, 444, 3, 30, 15, 0, 444, 49, 1, 0, 0, 0, 445, 447, 5, 82, 0, 0, 446, 448, 3, 52, 26, 0, 447, 446, 1, 0, 0, 0, 447, 448, 1, 0, 0, 0, 448, 450, 1, 0, 0, 0, 449, 451, 3, 174, 87, 0, 450, 449, 1, 0, 0, 0, 450, 451, 1, 0, 0, 0, 451, 452, 1, 0, 0, 0, 452, 454, 5, 88, 0, 0, 453, 455, 3, 54, 27, 0, 454, 453, 1, 0, 0, 0, 454, 455, 1, 0, 0, 0, 455, 456, 1, 0, 0, 0, 456, 457, 5, 83, 0, 0, 457, 51, 1, 0, 0, 0, 458, 461, 3, 78, 39, 0, 459, 461, 3, 220, 110, 0, 460, 458, 1, 0, 0, 0, 460, 459, 1, 0, 0, 0, 461, 53, 1, 0, 0, 0, 462, 463, 3, 220, 110, 0, 463, 55, 1, 0, 0, 0, 464, 465, 5, 65, 0, 0, 465, 466, 3, 170, 85, 0, 466, 467, 3, 30, 15, 0, 467, 57, 1, 0, 0, 0, 468, 469, 5, 28, 0, 0, 469, 470, 3, 60, 30, 0, 470, 471, 3, 36, 18, 0, 471, 59, 1, 0, 0, 0, 472, 475, 5, 82, 0, 0, 473, 476, 5, 63, 0, 0, 474, 476, 3, 140, 70, 0, 475, 473, 1, 0, 0, 0, 475, 474, 1, 0, 0, 0, 476, 477, 1, 0, 0, 0, 477, 478, 5, 67, 0, 0, 478, 479, 5, 30, 0, 0, 479, 480, 3, 174, 87, 0, 480, 481, 5, 83, 0, 0, 481, 61, 1, 0, 0, 0, 482, 484, 5, 47, 0, 0, 483, 485, 3, 174, 87, 0, 484, 483, 1, 0, 0, 0, 484, 485, 1, 0, 0, 0, 485, 486, 1, 0, 0, 0, 486, 487, 5, 88, 0, 0, 487, 63, 1, 0, 0, 0, 488, 489, 5, 78, 0, 0, 489, 494, 3, 66, 33, 0, 490, 491, 5, 85, 0, 0, 491, 493, 3, 66, 33, 0, 492, 490, 1, 0, 0, 0, 493, 496, 1, 0, 0, 0, 494, 492, 1, 0, 0, 0, 494, 495, 1, 0, 0, 0, 495, 498, 1, 0, 0, 0, 496, 494, 1, 0, 0, 0, 497, 499, 5, 85, 0, 0, 498, 497, 1, 0, 0, 0, 498, 499, 1, 0, 0, 0, 499, 500, 1, 0, 0, 0, 500, 501, 5, 79, 0, 0, 501, 65, 1, 0, 0, 0, 502, 503, 3, 68, 34, 0, 503, 504, 5, 124, 0, 0, 504, 505, 3, 174, 87, 0, 505, 67, 1, 0, 0, 0, 506, 507, 3, 70, 35, 0, 507, 69, 1, 0, 0, 0, 508, 513, 3, 72, 36, 0, 509, 510, 5, 96, 0, 0, 510, 512, 3, 72, 36, 0, 511, 509, 1, 0, 0, 0, 512, 515, 1, 0, 0, 0, 513, 511, 1, 0, 0, 0, 513, 514, 1, 0, 0, 0, 514, 71, 1, 0, 0, 0, 515, 513, 1, 0, 0, 0, 516, 521, 3, 232, 116, 0, 517, 521, 5, 66, 0, 0, 518, 521, 5, 67, 0, 0, 519, 521, 3, 74, 37, 0, 520, 516, 1, 0, 0, 0, 520, 517, 1, 0, 0, 0, 520, 518, 1, 0, 0, 0, 520, 519, 1, 0, 0, 0, 521, 73, 1, 0, 0, 0, 522, 523, 5, 82, 0, 0, 523, 524, 3, 68, 34, 0, 524, 525, 5, 83, 0, 0, 525, 75, 1, 0, 0, 0, 526, 527, 5, 16, 0, 0, 527, 528, 3, 78, 39, 0, 528, 77, 1, 0, 0, 0, 529, 531, 3, 84, 42, 0, 530, 532, 5, 16, 0, 0, 531, 530, 1, 0, 0, 0, 531, 532, 1, 0, 0, 0, 532, 535, 1, 0, 0, 0, 533, 536, 5, 63, 0, 0, 534, 536, 3, 140, 70, 0, 535, 533, 1, 0, 0, 0, 535, 534, 1, 0, 0, 0, 536, 537, 1, 0, 0, 0, 537, 538, 3, 88, 44, 0, 538, 539, 5, 88, 0, 0, 539, 79, 1, 0, 0, 0, 540, 541, 7, 0, 0, 0, 541, 81, 1, 0, 0, 0, 542, 543, 7, 1, 0, 0, 543, 83, 1, 0, 0, 0, 544, 548, 3, 80, 40, 0, 545, 548, 5, 48, 0, 0, 546, 548, 5, 43, 0, 0, 547, 544, 1, 0, 0, 0, 547, 545, 1, 0, 0, 0, 547, 546, 1, 0, 0, 0, 548, 551, 1, 0, 0, 0, 549, 547, 1, 0, 0, 0, 549, 550, 1, 0, 0, 0, 550, 85, 1, 0, 0, 0, 551, 549, 1, 0, 0, 0, 552, 553, 3, 78, 39, 0, 553, 87, 1, 0, 0, 0, 554, 559, 3, 90, 45, 0, 555, 556, 5, 85, 0, 0, 556, 558, 3, 90, 45, 0, 557, 555, 1, 0, 0, 0, 558, 561, 1, 0, 0, 0, 559, 557, 1, 0, 0, 0, 559, 560, 1, 0, 0, 0, 560, 89, 1, 0, 0, 0, 561, 559, 1, 0, 0, 0, 562, 565, 5, 67, 0, 0, 563, 564, 5, 100, 0, 0, 564, 566, 3, 172, 86, 0, 565, 563, 1, 0, 0, 0, 565, 566, 1, 0, 0, 0, 566, 91, 1, 0, 0, 0, 567, 568, 3, 84, 42, 0, 568, 569, 3, 138, 69, 0, 569, 571, 5, 67, 0, 0, 570, 572, 3, 162, 81, 0, 571, 570, 1, 0, 0, 0, 571, 572, 1, 0, 0, 0, 572, 573, 1, 0, 0, 0, 573, 574, 3, 96, 48, 0, 574, 575, 3, 102, 51, 0, 575, 93, 1, 0, 0, 0, 576, 578, 3, 80, 40, 0, 577, 576, 1, 0, 0, 0, 577, 578, 1, 0, 0, 0, 578, 579, 1, 0, 0, 0, 579, 580, 5, 67, 0, 0, 580, 581, 3, 96, 48, 0, 581, 582, 3, 36, 18, 0, 582, 95, 1, 0, 0, 0, 583, 585, 5, 82, 0, 0, 584, 586, 3, 98, 49, 0, 585, 584, 1, 0, 0, 0, 585, 586, 1, 0, 0, 0, 586, 587, 1, 0, 0, 0, 587, 588, 5, 83, 0, 0, 588, 97, 1, 0, 0, 0, 589, 594, 3, 100, 50, 0, 590, 591, 5, 85, 0, 0, 591, 593, 3, 100, 50, 0, 592, 590, 1, 0, 0, 0, 593, 596, 1, 0, 0, 0, 594, 592, 1, 0, 0, 0, 594, 595, 1, 0, 0, 0, 595, 99, 1, 0, 0, 0, 596, 594, 1, 0, 0, 0, 597, 599, 3, 82, 41, 0, 598, 597, 1, 0, 0, 0, 598, 599, 1, 0, 0, 0, 599, 600, 1, 0, 0, 0, 600, 601, 3, 140, 70, 0, 601, 604, 5, 67, 0, 0, 602, 603, 5, 100, 0, 0, 603, 605, 3, 174, 87, 0, 604, 602, 1, 0, 0, 0, 604, 605, 1, 0, 0, 0, 605, 101, 1, 0, 0, 0, 606, 611, 3, 34, 17, 0, 607, 608, 5, 124, 0, 0, 608, 611, 3, 174, 87, 0, 609, 611, 5, 88, 0, 0, 610, 606, 1, 0, 0, 0, 610, 607, 1, 0, 0, 0, 610, 609, 1, 0, 0, 0, 611, 103, 1, 0, 0, 0, 612, 613, 5, 42, 0, 0, 613, 614, 3, 106, 53, 0, 614, 615, 3, 96, 48, 0, 615, 616, 3, 102, 51, 0, 616, 105, 1, 0, 0, 0, 617, 632, 5, 89, 0, 0, 618, 632, 5, 90, 0, 0, 619, 632, 5, 91, 0, 0, 620, 632, 5, 93, 0, 0, 621, 632, 5, 94, 0, 0, 622, 632, 5, 97, 0, 0, 623, 632, 5, 95, 0, 0, 624, 632, 5, 96, 0, 0, 625, 626, 5, 101, 0, 0, 626, 632, 5, 101, 0, 0, 627, 628, 5, 102, 0, 0, 628, 632, 5, 102, 0, 0, 629, 632, 5, 109, 0, 0, 630, 632, 5, 110, 0, 0, 631, 617, 1, 0, 0, 0, 631, 618, 1, 0, 0, 0, 631, 619, 1, 0, 0, 0, 631, 620, 1, 0, 0, 0, 631, 621, 1, 0, 0, 0, 631, 622, 1, 0, 0, 0, 631, 623, 1, 0, 0, 0, 631, 624, 1, 0, 0, 0, 631, 625, 1, 0, 0, 0, 631, 627, 1, 0, 0, 0, 631, 629, 1, 0, 0, 0, 631, 630, 1, 0, 0, 0, 632, 107, 1, 0, 0, 0, 633, 634, 5, 15, 0, 0, 634, 636, 5, 67, 0, 0, 635, 637, 3, 162, 81, 0, 636, 635, 1, 0, 0, 0, 636, 637, 1, 0, 0, 0, 637, 639, 1, 0, 0, 0, 638, 640, 3, 120, 60, 0, 639, 638, 1, 0, 0, 0, 639, 640, 1, 0, 0, 0, 640, 641, 1, 0, 0, 0, 641, 642, 3, 110, 55, 0, 642, 109, 1, 0, 0, 0, 643, 647, 5, 78, 0, 0, 644, 646, 3, 112, 56, 0, 645, 644, 1, 0, 0, 0, 646, 649, 1, 0, 0, 0, 647, 645, 1, 0, 0, 0, 647, 648, 1, 0, 0, 0, 648, 650, 1, 0, 0, 0, 649, 647, 1, 0, 0, 0, 650, 651, 5, 79, 0, 0, 651, 111, 1, 0, 0, 0, 652, 657, 3, 86, 43, 0, 653, 657, 3, 92, 46, 0, 654, 657, 3, 104, 52, 0, 655, 657, 3, 94, 47, 0, 656, 652, 1, 0, 0, 0, 656, 653, 1, 0, 0, 0, 656, 654, 1, 0, 0, 0, 656, 655, 1, 0, 0, 0, 657, 113, 1, 0, 0, 0, 658, 659, 5, 50, 0, 0, 659, 661, 5, 67, 0, 0, 660, 662, 3, 162, 81, 0, 661, 660, 1, 0, 0, 0, 661, 662, 1, 0, 0, 0, 662, 664, 1, 0, 0, 0, 663, 665, 3, 120, 60, 0, 664, 663, 1, 0, 0, 0, 664, 665, 1, 0, 0, 0, 665, 666, 1, 0, 0, 0, 666, 667, 3, 116, 58, 0, 667, 115, 1, 0, 0, 0, 668, 672, 5, 78, 0, 0, 669, 671, 3, 118, 59, 0, 670, 669, 1, 0, 0, 0, 671, 674, 1, 0, 0, 0, 672, 670, 1, 0, 0, 0, 672, 673, 1, 0, 0, 0, 673, 675, 1, 0, 0, 0, 674, 672, 1, 0, 0, 0, 675, 676, 5, 79, 0, 0, 676, 117, 1, 0, 0, 0, 677, 682, 3, 86, 43, 0, 678, 682, 3, 92, 46, 0, 679, 682, 3, 104, 52, 0, 680, 682, 3, 94, 47, 0, 681, 677, 1, 0, 0, 0, 681, 678, 1, 0, 0, 0, 681, 679, 1, 0, 0, 0, 681, 680, 1, 0, 0, 0, 682, 119, 1, 0, 0, 0, 683, 684, 5, 87, 0, 0, 684, 689, 3, 140, 70, 0, 685, 686, 5, 85, 0, 0, 686, 688, 3, 140, 70, 0, 687, 685, 1, 0, 0, 0, 688, 691, 1, 0, 0, 0, 689, 687, 1, 0, 0, 0, 689, 690, 1, 0, 0, 0, 690, 121, 1, 0, 0, 0, 691, 689, 1, 0, 0, 0, 692, 693, 5, 55, 0, 0, 693, 694, 5, 67, 0, 0, 694, 695, 3, 124, 62, 0, 695, 123, 1, 0, 0, 0, 696, 699, 3, 126, 63, 0, 697, 699, 3, 92, 46, 0, 698, 696, 1, 0, 0, 0, 698, 697, 1, 0, 0, 0, 699, 125, 1, 0, 0, 0, 700, 704, 5, 78, 0, 0, 701, 703, 3, 128, 64, 0, 702, 701, 1, 0, 0, 0, 703, 706, 1, 0, 0, 0, 704, 702, 1, 0, 0, 0, 704, 705, 1, 0, 0, 0, 705, 707, 1, 0, 0, 0, 706, 704, 1, 0, 0, 0, 707, 708, 5, 79, 0, 0, 708, 127, 1, 0, 0, 0, 709, 710, 3, 92, 46, 0, 710, 129, 1, 0, 0, 0, 711, 713, 5, 53, 0, 0, 712, 711, 1, 0, 0, 0, 712, 713, 1, 0, 0, 0, 713, 714, 1, 0, 0, 0, 714, 715, 5, 61, 0, 0, 715, 717, 5, 67, 0, 0, 716, 718, 3, 162, 81, 0, 717, 716, 1, 0, 0, 0, 717, 718, 1, 0, 0, 0, 718, 719, 1, 0, 0, 0, 719, 720, 3, 132, 66, 0, 720, 131, 1, 0, 0, 0, 721, 722, 5, 78, 0, 0, 722, 727, 3, 136, 68, 0, 723, 724, 5, 85, 0, 0, 724, 726, 3, 136, 68, 0, 725, 723, 1, 0, 0, 0, 726, 729, 1, 0, 0, 0, 727, 725, 1, 0, 0, 0, 727, 728, 1, 0, 0, 0, 728, 731, 1, 0, 0, 0, 729, 727, 1, 0, 0, 0, 730, 732, 5, 85, 0, 0, 731, 730, 1, 0, 0, 0, 731, 732, 1, 0, 0, 0, 732, 733, 1, 0, 0, 0, 733, 734, 5, 79, 0, 0, 734, 133, 1, 0, 0, 0, 735, 736, 5, 82, 0, 0, 736, 737, 3, 100, 50, 0, 737, 738, 5, 83, 0, 0, 738, 135, 1, 0, 0, 0, 739, 741, 5, 67, 0, 0, 740, 742, 3, 134, 67, 0, 741, 740, 1, 0, 0, 0, 741, 742, 1, 0, 0, 0, 742, 137, 1, 0, 0, 0, 743, 746, 5, 64, 0, 0, 744, 746, 3, 140, 70, 0, 745, 743, 1, 0, 0, 0, 745, 744, 1, 0, 0, 0, 746, 139, 1, 0, 0, 0, 747, 748, 5, 67, 0, 0, 748, 750, 5, 87, 0, 0, 749, 747, 1, 0, 0, 0, 749, 750, 1, 0, 0, 0, 750, 772, 1, 0, 0, 0, 751, 755, 3, 146, 73, 0, 752, 754, 3, 156, 78, 0, 753, 752, 1, 0, 0, 0, 754, 757, 1, 0, 0, 0, 755, 753, 1, 0, 0, 0, 755, 756, 1, 0, 0, 0, 756, 773, 1, 0, 0, 0, 757, 755, 1, 0, 0, 0, 758, 762, 3, 148, 74, 0, 759, 761, 3, 156, 78, 0, 760, 759, 1, 0, 0, 0, 761, 764, 1, 0, 0, 0, 762, 760, 1, 0, 0, 0, 762, 763, 1, 0, 0, 0, 763, 773, 1, 0, 0, 0, 764, 762, 1, 0, 0, 0, 765, 769, 3, 142, 71, 0, 766, 768, 3, 156, 78, 0, 767, 766, 1, 0, 0, 0, 768, 771, 1, 0, 0, 0, 769, 767, 1, 0, 0, 0, 769, 770, 1, 0, 0, 0, 770, 773, 1, 0, 0, 0, 771, 769, 1, 0, 0, 0, 772, 751, 1, 0, 0, 0, 772, 758, 1, 0, 0, 0, 772, 765, 1, 0, 0, 0, 773, 141, 1, 0, 0, 0, 774, 775, 5, 82, 0, 0, 775, 780, 3, 144, 72, 0, 776, 777, 5, 85, 0, 0, 777, 779, 3, 144, 72, 0, 778, 776, 1, 0, 0, 0, 779, 782, 1, 0, 0, 0, 780, 778, 1, 0, 0, 0, 780, 781, 1, 0, 0, 0, 781, 783, 1, 0, 0, 0, 782, 780, 1, 0, 0, 0, 783, 784, 5, 83, 0, 0, 784, 143, 1, 0, 0, 0, 785, 787, 3, 140, 70, 0, 786, 788, 5, 67, 0, 0, 787, 786, 1, 0, 0, 0, 787, 788, 1, 0, 0, 0, 788, 145, 1, 0, 0, 0, 789, 791, 3, 22, 11, 0, 790, 792, 3, 164, 82, 0, 791, 790, 1, 0, 0, 0, 791, 792, 1, 0, 0, 0, 792, 147, 1, 0, 0, 0, 793, 798, 5, 11, 0, 0, 794, 798, 5, 14, 0, 0, 795, 798, 5, 49, 0, 0, 796, 798, 3, 150, 75, 0, 797, 793, 1, 0, 0, 0, 797, 794, 1, 0, 0, 0, 797, 795, 1, 0, 0, 0, 797, 796, 1, 0, 0, 0, 798, 149, 1, 0, 0, 0, 799, 802, 3, 152, 76, 0, 800, 802, 3, 154, 77, 0, 801, 799, 1, 0, 0, 0, 801, 800, 1, 0, 0, 0, 802, 151, 1, 0, 0, 0, 803, 804, 7, 2, 0, 0, 804, 153, 1, 0, 0, 0, 805, 806, 7, 3, 0, 0, 806, 155, 1, 0, 0, 0, 807, 809, 5, 80, 0, 0, 808, 810, 3, 174, 87, 0, 809, 808, 1, 0, 0, 0, 809, 810, 1, 0, 0, 0, 810, 814, 1, 0, 0, 0, 811, 813, 5, 85, 0, 0, 812, 811, 1, 0, 0, 0, 813, 816, 1, 0, 0, 0, 814, 812, 1, 0, 0, 0, 814, 815, 1, 0, 0, 0, 815, 817, 1, 0, 0, 0, 816, 814, 1, 0, 0, 0, 817, 818, 5, 81, 0, 0, 818, 157, 1, 0, 0, 0, 819, 822, 5, 67, 0, 0, 820, 821, 5, 87, 0, 0, 821, 823, 3, 160, 80, 0, 822, 820, 1, 0, 0, 0, 822, 823, 1, 0, 0, 0, 823, 159, 1, 0, 0, 0, 824, 825, 5, 67, 0, 0, 825, 161, 1, 0, 0, 0, 826, 827, 5, 101, 0, 0, 827, 832, 3, 158, 79, 0, 828, 829, 5, 85, 0, 0, 829, 831, 3, 158, 79, 0, 830, 828, 1, 0, 0, 0, 831, 834, 1, 0, 0, 0, 832, 830, 1, 0, 0, 0, 832, 833, 1, 0, 0, 0, 833, 835, 1, 0, 0, 0, 834, 832, 1, 0, 0, 0, 835, 836, 5, 102, 0, 0, 836, 163, 1, 0, 0, 0, 837, 838, 5, 101, 0, 0, 838, 843, 3, 140, 70, 0, 839, 840, 5, 85, 0, 0, 840, 842, 3, 140, 70, 0, 841, 839, 1, 0, 0, 0, 842, 845, 1, 0, 0, 0, 843, 841, 1, 0, 0, 0, 843, 844, 1, 0, 0, 0, 844, 846, 1, 0, 0, 0, 845, 843, 1, 0, 0, 0, 846, 847, 3, 166, 83, 0, 847, 165, 1, 0, 0, 0, 848, 852, 5, 102, 0, 0, 849, 850, 5, 102, 0, 0, 850, 852, 3, 166, 83, 0, 851, 848, 1, 0, 0, 0, 851, 849, 1, 0, 0, 0, 852, 167, 1, 0, 0, 0, 853, 854, 5, 82, 0, 0, 854, 857, 3, 230, 115, 0, 855, 856, 5, 85, 0, 0, 856, 858, 3, 230, 115, 0, 857, 855, 1, 0, 0, 0, 858, 859, 1, 0, 0, 0, 859, 857, 1, 0, 0, 0, 859, 860, 1, 0, 0, 0, 860, 861, 1, 0, 0, 0, 861, 862, 5, 83, 0, 0, 862, 169, 1, 0, 0, 0, 863, 864, 5, 82, 0, 0, 864, 865, 3, 174, 87, 0, 865, 866, 5, 83, 0, 0, 866, 171, 1, 0, 0, 0, 867, 868, 3, 182, 91, 0, 868, 173, 1, 0, 0, 0, 869, 870, 3, 176, 88, 0, 870, 175, 1, 0, 0, 0, 871, 875, 3, 182, 91, 0, 872, 873, 3, 180, 90, 0, 873, 874, 3, 176, 88, 0, 874, 876, 1, 0, 0, 0, 875, 872, 1, 0, 0, 0, 875, 876, 1, 0, 0, 0, 876, 177, 1, 0, 0, 0, 877, 878, 5, 40, 0, 0, 878, 879, 3, 140, 70, 0, 879, 880, 3, 222, 111, 0, 880, 179, 1, 0, 0, 0, 881, 882, 7, 4, 0, 0, 882, 181, 1, 0, 0, 0, 883, 888, 3, 184, 92, 0, 884, 885, 5, 108, 0, 0, 885, 887, 3, 184, 92, 0, 886, 884, 1, 0, 0, 0, 887, 890, 1, 0, 0, 0, 888, 886, 1, 0, 0, 0, 888, 889, 1, 0, 0, 0, 889, 183, 1, 0, 0, 0, 890, 888, 1, 0, 0, 0, 891, 896, 3, 186, 93, 0, 892, 893, 5, 107, 0, 0, 893, 895, 3, 186, 93, 0, 894, 892, 1, 0, 0, 0, 895, 898, 1, 0, 0, 0, 896, 894, 1, 0, 0, 0, 896, 897, 1, 0, 0, 0, 897, 185, 1, 0, 0, 0, 898, 896, 1, 0, 0, 0, 899, 904, 3, 188, 94, 0, 900, 901, 5, 96, 0, 0, 901, 903, 3, 188, 94, 0, 902, 900, 1, 0, 0, 0, 903, 906, 1, 0, 0, 0, 904, 902, 1, 0, 0, 0, 904, 905, 1, 0, 0, 0, 905, 187, 1, 0, 0, 0, 906, 904, 1, 0, 0, 0, 907, 912, 3, 190, 95, 0, 908, 909, 5, 97, 0, 0, 909, 911, 3, 190, 95, 0, 910, 908, 1, 0, 0, 0, 911, 914, 1, 0, 0, 0, 912, 910, 1, 0, 0, 0, 912, 913, 1, 0, 0, 0, 913, 189, 1, 0, 0, 0, 914, 912, 1, 0, 0, 0, 915, 920, 3, 192, 96, 0, 916, 917, 5, 95, 0, 0, 917, 919, 3, 192, 96, 0, 918, 916, 1, 0, 0, 0, 919, 922, 1, 0, 0, 0, 920, 918, 1, 0, 0, 0, 920, 921, 1, 0, 0, 0, 921, 191, 1, 0, 0, 0, 922, 920, 1, 0, 0, 0, 923, 928, 3, 194, 97, 0, 924, 925, 7, 5, 0, 0, 925, 927, 3, 194, 97, 0, 926, 924, 1, 0, 0, 0, 927, 930, 1, 0, 0, 0, 928, 926, 1, 0, 0, 0, 928, 929, 1, 0, 0, 0, 929, 193, 1, 0, 0, 0, 930, 928, 1, 0, 0, 0, 931, 939, 3, 196, 98, 0, 932, 933, 7, 6, 0, 0, 933, 940, 3, 196, 98, 0, 934, 935, 5, 37, 0, 0, 935, 937, 3, 140, 70, 0, 936, 938, 5, 67, 0, 0, 937, 936, 1, 0, 0, 0, 937, 938, 1, 0, 0, 0, 938, 940, 1, 0, 0, 0, 939, 932, 1, 0, 0, 0, 939, 934, 1, 0, 0, 0, 939, 940, 1, 0, 0, 0, 940, 195, 1, 0, 0, 0, 941, 950, 3, 202, 101, 0, 942, 945, 3, 198, 99, 0, 943, 945, 3, 200, 100, 0, 944, 942, 1, 0, 0, 0, 944, 943, 1, 0, 0, 0, 945, 946, 1, 0, 0, 0, 946, 947, 3, 202, 101, 0, 947, 949, 1, 0, 0, 0, 948, 944, 1, 0, 0, 0, 949, 952, 1, 0, 0, 0, 950, 948, 1, 0, 0, 0, 950, 951, 1, 0, 0, 0, 951, 197, 1, 0, 0, 0, 952, 950, 1, 0, 0, 0, 953, 954, 5, 101, 0, 0, 954, 955, 5, 101, 0, 0, 955, 199, 1, 0, 0, 0, 956, 957, 5, 102, 0, 0, 957, 958, 5, 102, 0, 0, 958, 201, 1, 0, 0, 0, 959, 964, 3, 204, 102, 0, 960, 961, 7, 7, 0, 0, 961, 963, 3, 204, 102, 0, 962, 960, 1, 0, 0, 0, 963, 966, 1, 0, 0, 0, 964, 962, 1, 0, 0, 0, 964, 965, 1, 0, 0, 0, 965, 203, 1, 0, 0, 0, 966, 964, 1, 0, 0, 0, 967, 972, 3, 206, 103, 0, 968, 969, 7, 8, 0, 0, 969, 971, 3, 206, 103, 0, 970, 968, 1, 0, 0, 0, 971, 974, 1, 0, 0, 0, 972, 970, 1, 0, 0, 0, 972, 973, 1, 0, 0, 0, 973, 205, 1, 0, 0, 0, 974, 972, 1, 0, 0, 0, 975, 978, 3, 208, 104, 0, 976, 977, 5, 92, 0, 0, 977, 979, 3, 206, 103, 0, 978, 976, 1, 0, 0, 0, 978, 979, 1, 0, 0, 0, 979, 207, 1, 0, 0, 0, 980, 985, 3, 210, 105, 0, 981, 982, 7, 9, 0, 0, 982, 985, 3, 208, 104, 0, 983, 985, 3, 212, 106, 0, 984, 980, 1, 0, 0, 0, 984, 981, 1, 0, 0, 0, 984, 983, 1, 0, 0, 0, 985, 209, 1, 0, 0, 0, 986, 987, 5, 82, 0, 0, 987, 988, 3, 140, 70, 0, 988, 989, 5, 83, 0, 0, 989, 990, 3, 208, 104, 0, 990, 211, 1, 0, 0, 0, 991, 995, 3, 214, 107, 0, 992, 994, 3, 216, 108, 0, 993, 992, 1, 0, 0, 0, 994, 997, 1, 0, 0, 0, 995, 993, 1, 0, 0, 0, 995, 996, 1, 0, 0, 0, 996, 213, 1, 0, 0, 0, 997, 995, 1, 0, 0, 0, 998, 1010, 3, 232, 116, 0, 999, 1010, 3, 170, 85, 0, 1000, 1010, 3, 168, 84, 0, 1001, 1010, 3, 42, 21, 0, 1002, 1010, 3, 46, 23, 0, 1003, 1010, 3, 34, 17, 0, 1004, 1010, 5, 54, 0, 0, 1005, 1010, 3, 218, 109, 0, 1006, 1010, 3, 178, 89, 0, 1007, 1010, 5, 67, 0, 0, 1008, 1010, 3, 22, 11, 0, 1009, 998, 1, 0, 0, 0, 1009, 999, 1, 0, 0, 0, 1009, 1000, 1, 0, 0, 0, 1009, 1001, 1, 0, 0, 0, 1009, 1002, 1, 0, 0, 0, 1009, 1003, 1, 0, 0, 0, 1009, 1004, 1, 0, 0, 0, 1009, 1005, 1, 0, 0, 0, 1009, 1006, 1, 0, 0, 0, 1009, 1007, 1, 0, 0, 0, 1009, 1008, 1, 0, 0, 0, 1010, 215, 1, 0, 0, 0, 1011, 1012, 5, 84, 0, 0, 1012, 1027, 5, 67, 0, 0, 1013, 1014, 5, 84, 0, 0, 1014, 1027, 5, 69, 0, 0, 1015, 1017, 5, 82, 0, 0, 1016, 1018, 3, 224, 112, 0, 1017, 1016, 1, 0, 0, 0, 1017, 1018, 1, 0, 0, 0, 1018, 1019, 1, 0, 0, 0, 1019, 1027, 5, 83, 0, 0, 1020, 1021, 5, 80, 0, 0, 1021, 1022, 3, 220, 110, 0, 1022, 1023, 5, 81, 0, 0, 1023, 1027, 1, 0, 0, 0, 1024, 1027, 5, 105, 0, 0, 1025, 1027, 5, 106, 0, 0, 1026, 1011, 1, 0, 0, 0, 1026, 1013, 1, 0, 0, 0, 1026, 1015, 1, 0, 0, 0, 1026, 1020, 1, 0, 0, 0, 1026, 1024, 1, 0, 0, 0, 1026, 1025, 1, 0, 0, 0, 1027, 217, 1, 0, 0, 0, 1028, 1030, 5, 80, 0, 0, 1029, 1031, 3, 220, 110, 0, 1030, 1029, 1, 0, 0, 0, 1030, 1031, 1, 0, 0, 0, 1031, 1032, 1, 0, 0, 0, 1032, 1033, 5, 81, 0, 0, 1033, 219, 1, 0, 0, 0, 1034, 1039, 3, 174, 87, 0, 1035, 1036, 5, 85, 0, 0, 1036, 1038, 3, 174, 87, 0, 1037, 1035, 1, 0, 0, 0, 1038, 1041, 1, 0, 0, 0, 1039, 1037, 1, 0, 0, 0, 1039, 1040, 1, 0, 0, 0, 1040, 221, 1, 0, 0, 0, 1041, 1039, 1, 0, 0, 0, 1042, 1044, 5, 82, 0, 0, 1043, 1045, 3, 224, 112, 0, 1044, 1043, 1, 0, 0, 0, 1044, 1045, 1, 0, 0, 0, 1045, 1046, 1, 0, 0, 0, 1046, 1047, 5, 83, 0, 0, 1047, 223, 1, 0, 0, 0, 1048, 1053, 3, 230, 115, 0, 1049, 1050, 5, 85, 0, 0, 1050, 1052, 3, 230, 115, 0, 1051, 1049, 1, 0, 0, 0, 1052, 1055, 1, 0, 0, 0, 1053, 1051, 1, 0, 0, 0, 1053, 1054, 1, 0, 0, 0, 1054, 225, 1, 0, 0, 0, 1055, 1053, 1, 0, 0, 0, 1056, 1057, 5, 67, 0, 0, 1057, 1058, 5, 87, 0, 0, 1058, 1059, 3, 174, 87, 0, 1059, 227, 1, 0, 0, 0, 1060, 1061, 3, 172, 86, 0, 1061, 229, 1, 0, 0, 0, 1062, 1065, 3, 226, 113, 0, 1063, 1065, 3, 228, 114, 0, 1064, 1062, 1, 0, 0, 0, 1064, 1063, 1, 0, 0, 0, 1065, 231, 1, 0, 0, 0, 1066, 1076, 5, 56, 0, 0, 1067, 1076, 5, 24, 0, 0, 1068, 1076, 5, 69, 0, 0, 1069, 1076, 5, 70, 0, 0, 1070, 1076, 5, 71, 0, 0, 1071, 1076, 5, 72, 0, 0, 1072, 1076, 5, 73, 0, 0, 1073, 1076, 3, 234, 117, 0, 1074, 1076, 5, 68, 0, 0, 1075, 1066, 1, 0, 0, 0, 1075, 1067, 1, 0, 0, 0, 1075, 1068, 1, 0, 0, 0, 1075, 1069, 1, 0, 0, 0, 1075, 1070, 1, 0, 0, 0, 1075, 1071, 1, 0, 0, 0, 1075, 1072, 1, 0, 0, 0, 1075, 1073, 1, 0, 0, 0, 1075, 1074, 1, 0, 0, 0, 1076, 233, 1, 0, 0, 0, 1077, 1080, 5, 74, 0, 0, 1078, 1080, 3, 236, 118, 0, 1079, 1077, 1, 0, 0, 0, 1079, 1078, 1, 0, 0, 0, 1080, 235, 1, 0, 0, 0, 1081, 1085, 5, 76, 0, 0, 1082, 1084, 3, 238, 119, 0, 1083, 1082, 1, 0, 0, 0, 1084, 1087, 1, 0, 0, 0, 1085, 1083, 1, 0, 0, 0, 1085, 1086, 1, 0, 0, 0, 1086, 1088, 1, 0, 0, 0, 1087, 1085, 1, 0, 0, 0, 1088, 1089, 5, 131, 0, 0, 1089, 237, 1, 0, 0, 0, 1090, 1095, 3, 240, 120, 0, 1091, 1095, 5, 125, 0, 0, 1092, 1095, 5, 127, 0, 0, 1093, 1095, 5, 128, 0, 0, 1094, 1090, 1, 0, 0, 0, 1094, 1091, 1, 0, 0, 0, 1094, 1092, 1, 0, 0, 0, 1094, 1093, 1, 0, 0, 0, 1095, 239, 1, 0, 0, 0, 1096, 1101, 3, 174, 87, 0, 1097, 1098, 5, 85, 0, 0, 1098, 1100, 3, 174, 87, 0, 1099, 1097, 1, 0, 0, 0, 1100, 1103, 1, 0, 0, 0, 1101, 1099, 1, 0, 0, 0, 1101, 1102, 1, 0, 0, 0, 1102, 1110, 1, 0, 0, 0, 1103, 1101, 1, 0, 0, 0, 1104, 1106, 5, 87, 0, 0, 1105, 1107, 5, 133, 0, 0, 1106, 1105, 1, 0, 0, 0, 1107, 1108, 1, 0, 0, 0, 1108, 1106, 1, 0, 0, 0, 1108, 1109, 1, 0, 0, 0, 1109, 1111, 1, 0, 0, 0, 1110, 1104, 1, 0, 0, 0, 1110, 1111, 1, 0, 0, 0, 1111, 241, 1, 0, 0, 0, 113, 245, 251, 259, 269, 276, 279, 285, 302, 309, 320, 328, 330, 339, 344, 351, 364, 380, 393, 400, 403, 409, 416, 432, 441, 447, 450, 454, 460, 475, 484, 494, 498, 513, 520, 531, 535, 547, 549, 559, 565, 571, 577, 585, 594, 598, 604, 610, 631, 636, 639, 647, 656, 661, 664, 672, 681, 689, 698, 704, 712, 717, 727, 731, 741, 745, 749, 755, 762, 769, 772, 780, 787, 791, 797, 801, 809, 814, 822, 832, 843, 851, 859, 875, 888, 896, 904, 912, 920, 928, 937, 939, 944, 950, 964, 972, 978, 984, 995, 1009, 1017, 1026, 1030, 1039, 1044, 1053, 1064, 1075, 1079, 1085, 1094, 1101, 1108, 1110]
+\ No newline at end of file
++[4, 1, 134, 1107, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7, 4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7, 10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 15, 7, 15, 2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 20, 7, 20, 2, 21, 7, 21, 2, 22, 7, 22, 2, 23, 7, 23, 2, 24, 7, 24, 2, 25, 7, 25, 2, 26, 7, 26, 2, 27, 7, 27, 2, 28, 7, 28, 2, 29, 7, 29, 2, 30, 7, 30, 2, 31, 7, 31, 2, 32, 7, 32, 2, 33, 7, 33, 2, 34, 7, 34, 2, 35, 7, 35, 2, 36, 7, 36, 2, 37, 7, 37, 2, 38, 7, 38, 2, 39, 7, 39, 2, 40, 7, 40, 2, 41, 7, 41, 2, 42, 7, 42, 2, 43, 7, 43, 2, 44, 7, 44, 2, 45, 7, 45, 2, 46, 7, 46, 2, 47, 7, 47, 2, 48, 7, 48, 2, 49, 7, 49, 2, 50, 7, 50, 2, 51, 7, 51, 2, 52, 7, 52, 2, 53, 7, 53, 2, 54, 7, 54, 2, 55, 7, 55, 2, 56, 7, 56, 2, 57, 7, 57, 2, 58, 7, 58, 2, 59, 7, 59, 2, 60, 7, 60, 2, 61, 7, 61, 2, 62, 7, 62, 2, 63, 7, 63, 2, 64, 7, 64, 2, 65, 7, 65, 2, 66, 7, 66, 2, 67, 7, 67, 2, 68, 7, 68, 2, 69, 7, 69, 2, 70, 7, 70, 2, 71, 7, 71, 2, 72, 7, 72, 2, 73, 7, 73, 2, 74, 7, 74, 2, 75, 7, 75, 2, 76, 7, 76, 2, 77, 7, 77, 2, 78, 7, 78, 2, 79, 7, 79, 2, 80, 7, 80, 2, 81, 7, 81, 2, 82, 7, 82, 2, 83, 7, 83, 2, 84, 7, 84, 2, 85, 7, 85, 2, 86, 7, 86, 2, 87, 7, 87, 2, 88, 7, 88, 2, 89, 7, 89, 2, 90, 7, 90, 2, 91, 7, 91, 2, 92, 7, 92, 2, 93, 7, 93, 2, 94, 7, 94, 2, 95, 7, 95, 2, 96, 7, 96, 2, 97, 7, 97, 2, 98, 7, 98, 2, 99, 7, 99, 2, 100, 7, 100, 2, 101, 7, 101, 2, 102, 7, 102, 2, 103, 7, 103, 2, 104, 7, 104, 2, 105, 7, 105, 2, 106, 7, 106, 2, 107, 7, 107, 2, 108, 7, 108, 2, 109, 7, 109, 2, 110, 7, 110, 2, 111, 7, 111, 2, 112, 7, 112, 2, 113, 7, 113, 2, 114, 7, 114, 2, 115, 7, 115, 2, 116, 7, 116, 2, 117, 7, 117, 2, 118, 7, 118, 2, 119, 7, 119, 2, 120, 7, 120, 1, 0, 5, 0, 244, 8, 0, 10, 0, 12, 0, 247, 9, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 1, 256, 8, 1, 10, 1, 12, 1, 259, 9, 1, 1, 1, 1, 1, 1, 2, 1, 2, 1, 3, 1, 3, 1, 3, 3, 3, 268, 8, 3, 1, 3, 1, 3, 1, 4, 1, 4, 1, 4, 3, 4, 275, 8, 4, 1, 4, 3, 4, 278, 8, 4, 1, 5, 1, 5, 1, 5, 1, 6, 3, 6, 284, 8, 6, 1, 6, 1, 6, 1, 6, 1, 6, 1, 6, 1, 6, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 1, 7, 3, 7, 301, 8, 7, 1, 8, 1, 8, 1, 8, 5, 8, 306, 8, 8, 10, 8, 12, 8, 309, 9, 8, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 3, 9, 319, 8, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 1, 9, 5, 9, 327, 8, 9, 10, 9, 12, 9, 330, 9, 9, 1, 10, 1, 10, 1, 10, 1, 10, 5, 10, 336, 8, 10, 10, 10, 12, 10, 339, 9, 10, 1, 10, 1, 10, 3, 10, 343, 8, 10, 1, 11, 1, 11, 1, 11, 5, 11, 348, 8, 11, 10, 11, 12, 11, 351, 9, 11, 1, 12, 1, 12, 1, 12, 1, 12, 1, 13, 1, 13, 1, 13, 1, 13, 5, 13, 361, 8, 13, 10, 13, 12, 13, 364, 9, 13, 1, 13, 1, 13, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 1, 14, 3, 14, 379, 8, 14, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 3, 15, 392, 8, 15, 1, 16, 1, 16, 1, 16, 1, 17, 1, 17, 1, 17, 3, 17, 400, 8, 17, 1, 17, 1, 17, 1, 18, 1, 18, 1, 18, 1, 18, 1, 19, 5, 19, 409, 8, 19, 10, 19, 12, 19, 412, 9, 19, 1, 20, 1, 20, 1, 21, 1, 21, 1, 21, 1, 21, 1, 21, 1, 21, 1, 22, 1, 22, 1, 22, 1, 22, 1, 22, 3, 22, 427, 8, 22, 1, 23, 1, 23, 1, 23, 1, 23, 1, 24, 1, 24, 1, 24, 3, 24, 436, 8, 24, 1, 24, 1, 24, 1, 25, 1, 25, 3, 25, 442, 8, 25, 1, 25, 3, 25, 445, 8, 25, 1, 25, 1, 25, 3, 25, 449, 8, 25, 1, 25, 1, 25, 1, 26, 1, 26, 3, 26, 455, 8, 26, 1, 27, 1, 27, 1, 28, 1, 28, 1, 28, 1, 28, 1, 29, 1, 29, 1, 29, 1, 29, 1, 30, 1, 30, 1, 30, 3, 30, 470, 8, 30, 1, 30, 1, 30, 1, 30, 1, 30, 1, 30, 1, 31, 1, 31, 3, 31, 479, 8, 31, 1, 31, 1, 31, 1, 32, 1, 32, 1, 32, 1, 32, 5, 32, 487, 8, 32, 10, 32, 12, 32, 490, 9, 32, 1, 32, 3, 32, 493, 8, 32, 1, 32, 1, 32, 1, 33, 1, 33, 1, 33, 1, 33, 1, 34, 1, 34, 1, 35, 1, 35, 1, 35, 5, 35, 506, 8, 35, 10, 35, 12, 35, 509, 9, 35, 1, 36, 1, 36, 1, 36, 1, 36, 3, 36, 515, 8, 36, 1, 37, 1, 37, 1, 37, 1, 37, 1, 38, 1, 38, 1, 38, 1, 39, 1, 39, 3, 39, 526, 8, 39, 1, 39, 1, 39, 3, 39, 530, 8, 39, 1, 39, 1, 39, 1, 39, 1, 40, 1, 40, 1, 41, 1, 41, 1, 42, 1, 42, 1, 42, 5, 42, 542, 8, 42, 10, 42, 12, 42, 545, 9, 42, 1, 43, 1, 43, 1, 44, 1, 44, 1, 44, 5, 44, 552, 8, 44, 10, 44, 12, 44, 555, 9, 44, 1, 45, 1, 45, 1, 45, 3, 45, 560, 8, 45, 1, 46, 1, 46, 1, 46, 1, 46, 3, 46, 566, 8, 46, 1, 46, 1, 46, 1, 46, 1, 47, 3, 47, 572, 8, 47, 1, 47, 1, 47, 1, 47, 1, 47, 1, 48, 1, 48, 3, 48, 580, 8, 48, 1, 48, 1, 48, 1, 49, 1, 49, 1, 49, 5, 49, 587, 8, 49, 10, 49, 12, 49, 590, 9, 49, 1, 50, 3, 50, 593, 8, 50, 1, 50, 1, 50, 1, 50, 1, 50, 3, 50, 599, 8, 50, 1, 51, 1, 51, 1, 51, 1, 51, 3, 51, 605, 8, 51, 1, 52, 1, 52, 1, 52, 1, 52, 1, 52, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 1, 53, 3, 53, 626, 8, 53, 1, 54, 1, 54, 1, 54, 3, 54, 631, 8, 54, 1, 54, 3, 54, 634, 8, 54, 1, 54, 1, 54, 1, 55, 1, 55, 5, 55, 640, 8, 55, 10, 55, 12, 55, 643, 9, 55, 1, 55, 1, 55, 1, 56, 1, 56, 1, 56, 1, 56, 3, 56, 651, 8, 56, 1, 57, 1, 57, 1, 57, 3, 57, 656, 8, 57, 1, 57, 3, 57, 659, 8, 57, 1, 57, 1, 57, 1, 58, 1, 58, 5, 58, 665, 8, 58, 10, 58, 12, 58, 668, 9, 58, 1, 58, 1, 58, 1, 59, 1, 59, 1, 59, 1, 59, 3, 59, 676, 8, 59, 1, 60, 1, 60, 1, 60, 1, 60, 5, 60, 682, 8, 60, 10, 60, 12, 60, 685, 9, 60, 1, 61, 1, 61, 1, 61, 1, 61, 1, 62, 1, 62, 3, 62, 693, 8, 62, 1, 63, 1, 63, 5, 63, 697, 8, 63, 10, 63, 12, 63, 700, 9, 63, 1, 63, 1, 63, 1, 64, 1, 64, 1, 65, 3, 65, 707, 8, 65, 1, 65, 1, 65, 1, 65, 3, 65, 712, 8, 65, 1, 65, 1, 65, 1, 66, 1, 66, 1, 66, 1, 66, 5, 66, 720, 8, 66, 10, 66, 12, 66, 723, 9, 66, 1, 66, 3, 66, 726, 8, 66, 1, 66, 1, 66, 1, 67, 1, 67, 1, 67, 1, 67, 1, 68, 1, 68, 3, 68, 736, 8, 68, 1, 69, 1, 69, 3, 69, 740, 8, 69, 1, 70, 1, 70, 3, 70, 744, 8, 70, 1, 70, 1, 70, 5, 70, 748, 8, 70, 10, 70, 12, 70, 751, 9, 70, 1, 70, 1, 70, 5, 70, 755, 8, 70, 10, 70, 12, 70, 758, 9, 70, 1, 70, 1, 70, 5, 70, 762, 8, 70, 10, 70, 12, 70, 765, 9, 70, 3, 70, 767, 8, 70, 1, 71, 1, 71, 1, 71, 1, 71, 5, 71, 773, 8, 71, 10, 71, 12, 71, 776, 9, 71, 1, 71, 1, 71, 1, 72, 1, 72, 3, 72, 782, 8, 72, 1, 73, 1, 73, 3, 73, 786, 8, 73, 1, 74, 1, 74, 1, 74, 1, 74, 3, 74, 792, 8, 74, 1, 75, 1, 75, 3, 75, 796, 8, 75, 1, 76, 1, 76, 1, 77, 1, 77, 1, 78, 1, 78, 3, 78, 804, 8, 78, 1, 78, 5, 78, 807, 8, 78, 10, 78, 12, 78, 810, 9, 78, 1, 78, 1, 78, 1, 79, 1, 79, 1, 79, 3, 79, 817, 8, 79, 1, 80, 1, 80, 1, 81, 1, 81, 1, 81, 1, 81, 5, 81, 825, 8, 81, 10, 81, 12, 81, 828, 9, 81, 1, 81, 1, 81, 1, 82, 1, 82, 1, 82, 1, 82, 5, 82, 836, 8, 82, 10, 82, 12, 82, 839, 9, 82, 1, 82, 1, 82, 1, 83, 1, 83, 1, 83, 3, 83, 846, 8, 83, 1, 84, 1, 84, 1, 84, 1, 84, 4, 84, 852, 8, 84, 11, 84, 12, 84, 853, 1, 84, 1, 84, 1, 85, 1, 85, 1, 85, 1, 85, 1, 86, 1, 86, 1, 87, 1, 87, 1, 88, 1, 88, 1, 88, 1, 88, 3, 88, 870, 8, 88, 1, 89, 1, 89, 1, 89, 1, 89, 1, 90, 1, 90, 1, 91, 1, 91, 1, 91, 5, 91, 881, 8, 91, 10, 91, 12, 91, 884, 9, 91, 1, 92, 1, 92, 1, 92, 5, 92, 889, 8, 92, 10, 92, 12, 92, 892, 9, 92, 1, 93, 1, 93, 1, 93, 5, 93, 897, 8, 93, 10, 93, 12, 93, 900, 9, 93, 1, 94, 1, 94, 1, 94, 5, 94, 905, 8, 94, 10, 94, 12, 94, 908, 9, 94, 1, 95, 1, 95, 1, 95, 5, 95, 913, 8, 95, 10, 95, 12, 95, 916, 9, 95, 1, 96, 1, 96, 1, 96, 5, 96, 921, 8, 96, 10, 96, 12, 96, 924, 9, 96, 1, 97, 1, 97, 1, 97, 1, 97, 1, 97, 1, 97, 3, 97, 932, 8, 97, 3, 97, 934, 8, 97, 1, 98, 1, 98, 1, 98, 3, 98, 939, 8, 98, 1, 98, 1, 98, 5, 98, 943, 8, 98, 10, 98, 12, 98, 946, 9, 98, 1, 99, 1, 99, 1, 99, 1, 100, 1, 100, 1, 100, 1, 101, 1, 101, 1, 101, 5, 101, 957, 8, 101, 10, 101, 12, 101, 960, 9, 101, 1, 102, 1, 102, 1, 102, 5, 102, 965, 8, 102, 10, 102, 12, 102, 968, 9, 102, 1, 103, 1, 103, 1, 103, 3, 103, 973, 8, 103, 1, 104, 1, 104, 1, 104, 1, 104, 3, 104, 979, 8, 104, 1, 105, 1, 105, 1, 105, 1, 105, 1, 105, 1, 106, 1, 106, 5, 106, 988, 8, 106, 10, 106, 12, 106, 991, 9, 106, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 1, 107, 3, 107, 1004, 8, 107, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 3, 108, 1012, 8, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 1, 108, 3, 108, 1021, 8, 108, 1, 109, 1, 109, 3, 109, 1025, 8, 109, 1, 109, 1, 109, 1, 110, 1, 110, 1, 110, 5, 110, 1032, 8, 110, 10, 110, 12, 110, 1035, 9, 110, 1, 111, 1, 111, 3, 111, 1039, 8, 111, 1, 111, 1, 111, 1, 112, 1, 112, 1, 112, 5, 112, 1046, 8, 112, 10, 112, 12, 112, 1049, 9, 112, 1, 113, 1, 113, 1, 113, 1, 113, 1, 114, 1, 114, 1, 115, 1, 115, 3, 115, 1059, 8, 115, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 1, 116, 3, 116, 1070, 8, 116, 1, 117, 1, 117, 3, 117, 1074, 8, 117, 1, 118, 1, 118, 5, 118, 1078, 8, 118, 10, 118, 12, 118, 1081, 9, 118, 1, 118, 1, 118, 1, 119, 1, 119, 1, 119, 1, 119, 3, 119, 1089, 8, 119, 1, 120, 1, 120, 1, 120, 5, 120, 1094, 8, 120, 10, 120, 12, 120, 1097, 9, 120, 1, 120, 1, 120, 4, 120, 1101, 8, 120, 11, 120, 12, 120, 1102, 3, 120, 1105, 8, 120, 1, 120, 0, 1, 18, 121, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 82, 84, 86, 88, 90, 92, 94, 96, 98, 100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 130, 132, 134, 136, 138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 182, 184, 186, 188, 190, 192, 194, 196, 198, 200, 202, 204, 206, 208, 210, 212, 214, 216, 218, 220, 222, 224, 226, 228, 230, 232, 234, 236, 238, 240, 0, 10, 1, 0, 44, 46, 2, 0, 20, 20, 38, 38, 2, 0, 31, 34, 57, 60, 2, 0, 18, 18, 25, 26, 3, 0, 100, 100, 113, 115, 117, 122, 1, 0, 109, 110, 2, 0, 101, 102, 111, 112, 1, 0, 89, 90, 2, 0, 91, 91, 93, 94, 2, 0, 89, 90, 98, 99, 1160, 0, 245, 1, 0, 0, 0, 2, 250, 1, 0, 0, 0, 4, 262, 1, 0, 0, 0, 6, 264, 1, 0, 0, 0, 8, 277, 1, 0, 0, 0, 10, 279, 1, 0, 0, 0, 12, 283, 1, 0, 0, 0, 14, 300, 1, 0, 0, 0, 16, 302, 1, 0, 0, 0, 18, 318, 1, 0, 0, 0, 20, 331, 1, 0, 0, 0, 22, 344, 1, 0, 0, 0, 24, 352, 1, 0, 0, 0, 26, 356, 1, 0, 0, 0, 28, 378, 1, 0, 0, 0, 30, 391, 1, 0, 0, 0, 32, 393, 1, 0, 0, 0, 34, 396, 1, 0, 0, 0, 36, 403, 1, 0, 0, 0, 38, 410, 1, 0, 0, 0, 40, 413, 1, 0, 0, 0, 42, 415, 1, 0, 0, 0, 44, 421, 1, 0, 0, 0, 46, 428, 1, 0, 0, 0, 48, 432, 1, 0, 0, 0, 50, 439, 1, 0, 0, 0, 52, 454, 1, 0, 0, 0, 54, 456, 1, 0, 0, 0, 56, 458, 1, 0, 0, 0, 58, 462, 1, 0, 0, 0, 60, 466, 1, 0, 0, 0, 62, 476, 1, 0, 0, 0, 64, 482, 1, 0, 0, 0, 66, 496, 1, 0, 0, 0, 68, 500, 1, 0, 0, 0, 70, 502, 1, 0, 0, 0, 72, 514, 1, 0, 0, 0, 74, 516, 1, 0, 0, 0, 76, 520, 1, 0, 0, 0, 78, 523, 1, 0, 0, 0, 80, 534, 1, 0, 0, 0, 82, 536, 1, 0, 0, 0, 84, 543, 1, 0, 0, 0, 86, 546, 1, 0, 0, 0, 88, 548, 1, 0, 0, 0, 90, 556, 1, 0, 0, 0, 92, 561, 1, 0, 0, 0, 94, 571, 1, 0, 0, 0, 96, 577, 1, 0, 0, 0, 98, 583, 1, 0, 0, 0, 100, 592, 1, 0, 0, 0, 102, 604, 1, 0, 0, 0, 104, 606, 1, 0, 0, 0, 106, 625, 1, 0, 0, 0, 108, 627, 1, 0, 0, 0, 110, 637, 1, 0, 0, 0, 112, 650, 1, 0, 0, 0, 114, 652, 1, 0, 0, 0, 116, 662, 1, 0, 0, 0, 118, 675, 1, 0, 0, 0, 120, 677, 1, 0, 0, 0, 122, 686, 1, 0, 0, 0, 124, 692, 1, 0, 0, 0, 126, 694, 1, 0, 0, 0, 128, 703, 1, 0, 0, 0, 130, 706, 1, 0, 0, 0, 132, 715, 1, 0, 0, 0, 134, 729, 1, 0, 0, 0, 136, 733, 1, 0, 0, 0, 138, 739, 1, 0, 0, 0, 140, 743, 1, 0, 0, 0, 142, 768, 1, 0, 0, 0, 144, 779, 1, 0, 0, 0, 146, 783, 1, 0, 0, 0, 148, 791, 1, 0, 0, 0, 150, 795, 1, 0, 0, 0, 152, 797, 1, 0, 0, 0, 154, 799, 1, 0, 0, 0, 156, 801, 1, 0, 0, 0, 158, 813, 1, 0, 0, 0, 160, 818, 1, 0, 0, 0, 162, 820, 1, 0, 0, 0, 164, 831, 1, 0, 0, 0, 166, 845, 1, 0, 0, 0, 168, 847, 1, 0, 0, 0, 170, 857, 1, 0, 0, 0, 172, 861, 1, 0, 0, 0, 174, 863, 1, 0, 0, 0, 176, 865, 1, 0, 0, 0, 178, 871, 1, 0, 0, 0, 180, 875, 1, 0, 0, 0, 182, 877, 1, 0, 0, 0, 184, 885, 1, 0, 0, 0, 186, 893, 1, 0, 0, 0, 188, 901, 1, 0, 0, 0, 190, 909, 1, 0, 0, 0, 192, 917, 1, 0, 0, 0, 194, 925, 1, 0, 0, 0, 196, 935, 1, 0, 0, 0, 198, 947, 1, 0, 0, 0, 200, 950, 1, 0, 0, 0, 202, 953, 1, 0, 0, 0, 204, 961, 1, 0, 0, 0, 206, 969, 1, 0, 0, 0, 208, 978, 1, 0, 0, 0, 210, 980, 1, 0, 0, 0, 212, 985, 1, 0, 0, 0, 214, 1003, 1, 0, 0, 0, 216, 1020, 1, 0, 0, 0, 218, 1022, 1, 0, 0, 0, 220, 1028, 1, 0, 0, 0, 222, 1036, 1, 0, 0, 0, 224, 1042, 1, 0, 0, 0, 226, 1050, 1, 0, 0, 0, 228, 1054, 1, 0, 0, 0, 230, 1058, 1, 0, 0, 0, 232, 1069, 1, 0, 0, 0, 234, 1073, 1, 0, 0, 0, 236, 1075, 1, 0, 0, 0, 238, 1088, 1, 0, 0, 0, 240, 1090, 1, 0, 0, 0, 242, 244, 3, 28, 14, 0, 243, 242, 1, 0, 0, 0, 244, 247, 1, 0, 0, 0, 245, 243, 1, 0, 0, 0, 245, 246, 1, 0, 0, 0, 246, 248, 1, 0, 0, 0, 247, 245, 1, 0, 0, 0, 248, 249, 5, 0, 0, 1, 249, 1, 1, 0, 0, 0, 250, 251, 3, 84, 42, 0, 251, 252, 5, 23, 0, 0, 252, 253, 5, 74, 0, 0, 253, 257, 5, 78, 0, 0, 254, 256, 3, 4, 2, 0, 255, 254, 1, 0, 0, 0, 256, 259, 1, 0, 0, 0, 257, 255, 1, 0, 0, 0, 257, 258, 1, 0, 0, 0, 258, 260, 1, 0, 0, 0, 259, 257, 1, 0, 0, 0, 260, 261, 5, 79, 0, 0, 261, 3, 1, 0, 0, 0, 262, 263, 3, 92, 46, 0, 263, 5, 1, 0, 0, 0, 264, 265, 5, 62, 0, 0, 265, 267, 3, 22, 11, 0, 266, 268, 3, 8, 4, 0, 267, 266, 1, 0, 0, 0, 267, 268, 1, 0, 0, 0, 268, 269, 1, 0, 0, 0, 269, 270, 5, 88, 0, 0, 270, 7, 1, 0, 0, 0, 271, 272, 5, 86, 0, 0, 272, 274, 5, 67, 0, 0, 273, 275, 3, 10, 5, 0, 274, 273, 1, 0, 0, 0, 274, 275, 1, 0, 0, 0, 275, 278, 1, 0, 0, 0, 276, 278, 3, 10, 5, 0, 277, 271, 1, 0, 0, 0, 277, 276, 1, 0, 0, 0, 278, 9, 1, 0, 0, 0, 279, 280, 5, 8, 0, 0, 280, 281, 5, 67, 0, 0, 281, 11, 1, 0, 0, 0, 282, 284, 3, 80, 40, 0, 283, 282, 1, 0, 0, 0, 283, 284, 1, 0, 0, 0, 284, 285, 1, 0, 0, 0, 285, 286, 5, 52, 0, 0, 286, 287, 3, 14, 7, 0, 287, 288, 5, 8, 0, 0, 288, 289, 5, 67, 0, 0, 289, 290, 5, 88, 0, 0, 290, 13, 1, 0, 0, 0, 291, 301, 3, 140, 70, 0, 292, 293, 5, 78, 0, 0, 293, 294, 3, 16, 8, 0, 294, 295, 5, 79, 0, 0, 295, 301, 1, 0, 0, 0, 296, 297, 5, 78, 0, 0, 297, 298, 3, 18, 9, 0, 298, 299, 5, 79, 0, 0, 299, 301, 1, 0, 0, 0, 300, 291, 1, 0, 0, 0, 300, 292, 1, 0, 0, 0, 300, 296, 1, 0, 0, 0, 301, 15, 1, 0, 0, 0, 302, 307, 3, 140, 70, 0, 303, 304, 5, 85, 0, 0, 304, 306, 3, 140, 70, 0, 305, 303, 1, 0, 0, 0, 306, 309, 1, 0, 0, 0, 307, 305, 1, 0, 0, 0, 307, 308, 1, 0, 0, 0, 308, 17, 1, 0, 0, 0, 309, 307, 1, 0, 0, 0, 310, 311, 6, 9, -1, 0, 311, 312, 5, 82, 0, 0, 312, 313, 3, 18, 9, 0, 313, 314, 5, 83, 0, 0, 314, 319, 1, 0, 0, 0, 315, 316, 5, 98, 0, 0, 316, 319, 3, 18, 9, 4, 317, 319, 3, 140, 70, 0, 318, 310, 1, 0, 0, 0, 318, 315, 1, 0, 0, 0, 318, 317, 1, 0, 0, 0, 319, 328, 1, 0, 0, 0, 320, 321, 10, 3, 0, 0, 321, 322, 5, 95, 0, 0, 322, 327, 3, 18, 9, 4, 323, 324, 10, 2, 0, 0, 324, 325, 5, 96, 0, 0, 325, 327, 3, 18, 9, 3, 326, 320, 1, 0, 0, 0, 326, 323, 1, 0, 0, 0, 327, 330, 1, 0, 0, 0, 328, 326, 1, 0, 0, 0, 328, 329, 1, 0, 0, 0, 329, 19, 1, 0, 0, 0, 330, 328, 1, 0, 0, 0, 331, 332, 5, 39, 0, 0, 332, 342, 3, 22, 11, 0, 333, 337, 5, 78, 0, 0, 334, 336, 3, 28, 14, 0, 335, 334, 1, 0, 0, 0, 336, 339, 1, 0, 0, 0, 337, 335, 1, 0, 0, 0, 337, 338, 1, 0, 0, 0, 338, 340, 1, 0, 0, 0, 339, 337, 1, 0, 0, 0, 340, 343, 5, 79, 0, 0, 341, 343, 5, 88, 0, 0, 342, 333, 1, 0, 0, 0, 342, 341, 1, 0, 0, 0, 343, 21, 1, 0, 0, 0, 344, 349, 5, 67, 0, 0, 345, 346, 5, 86, 0, 0, 346, 348, 5, 67, 0, 0, 347, 345, 1, 0, 0, 0, 348, 351, 1, 0, 0, 0, 349, 347, 1, 0, 0, 0, 349, 350, 1, 0, 0, 0, 350, 23, 1, 0, 0, 0, 351, 349, 1, 0, 0, 0, 352, 353, 5, 22, 0, 0, 353, 354, 5, 67, 0, 0, 354, 355, 3, 26, 13, 0, 355, 25, 1, 0, 0, 0, 356, 357, 5, 78, 0, 0, 357, 362, 5, 67, 0, 0, 358, 359, 5, 85, 0, 0, 359, 361, 5, 67, 0, 0, 360, 358, 1, 0, 0, 0, 361, 364, 1, 0, 0, 0, 362, 360, 1, 0, 0, 0, 362, 363, 1, 0, 0, 0, 363, 365, 1, 0, 0, 0, 364, 362, 1, 0, 0, 0, 365, 366, 5, 79, 0, 0, 366, 27, 1, 0, 0, 0, 367, 379, 3, 6, 3, 0, 368, 379, 3, 12, 6, 0, 369, 379, 3, 24, 12, 0, 370, 379, 3, 76, 38, 0, 371, 379, 3, 92, 46, 0, 372, 379, 3, 108, 54, 0, 373, 379, 3, 114, 57, 0, 374, 379, 3, 122, 61, 0, 375, 379, 3, 130, 65, 0, 376, 379, 3, 20, 10, 0, 377, 379, 3, 2, 1, 0, 378, 367, 1, 0, 0, 0, 378, 368, 1, 0, 0, 0, 378, 369, 1, 0, 0, 0, 378, 370, 1, 0, 0, 0, 378, 371, 1, 0, 0, 0, 378, 372, 1, 0, 0, 0, 378, 373, 1, 0, 0, 0, 378, 374, 1, 0, 0, 0, 378, 375, 1, 0, 0, 0, 378, 376, 1, 0, 0, 0, 378, 377, 1, 0, 0, 0, 379, 29, 1, 0, 0, 0, 380, 392, 3, 6, 3, 0, 381, 392, 3, 12, 6, 0, 382, 392, 3, 76, 38, 0, 383, 392, 3, 78, 39, 0, 384, 392, 3, 36, 18, 0, 385, 392, 3, 44, 22, 0, 386, 392, 3, 48, 24, 0, 387, 392, 3, 56, 28, 0, 388, 392, 3, 58, 29, 0, 389, 392, 3, 62, 31, 0, 390, 392, 3, 32, 16, 0, 391, 380, 1, 0, 0, 0, 391, 381, 1, 0, 0, 0, 391, 382, 1, 0, 0, 0, 391, 383, 1, 0, 0, 0, 391, 384, 1, 0, 0, 0, 391, 385, 1, 0, 0, 0, 391, 386, 1, 0, 0, 0, 391, 387, 1, 0, 0, 0, 391, 388, 1, 0, 0, 0, 391, 389, 1, 0, 0, 0, 391, 390, 1, 0, 0, 0, 392, 31, 1, 0, 0, 0, 393, 394, 3, 174, 87, 0, 394, 395, 5, 88, 0, 0, 395, 33, 1, 0, 0, 0, 396, 397, 5, 78, 0, 0, 397, 399, 3, 38, 19, 0, 398, 400, 3, 40, 20, 0, 399, 398, 1, 0, 0, 0, 399, 400, 1, 0, 0, 0, 400, 401, 1, 0, 0, 0, 401, 402, 5, 79, 0, 0, 402, 35, 1, 0, 0, 0, 403, 404, 5, 78, 0, 0, 404, 405, 3, 38, 19, 0, 405, 406, 5, 79, 0, 0, 406, 37, 1, 0, 0, 0, 407, 409, 3, 30, 15, 0, 408, 407, 1, 0, 0, 0, 409, 412, 1, 0, 0, 0, 410, 408, 1, 0, 0, 0, 410, 411, 1, 0, 0, 0, 411, 39, 1, 0, 0, 0, 412, 410, 1, 0, 0, 0, 413, 414, 3, 174, 87, 0, 414, 41, 1, 0, 0, 0, 415, 416, 5, 29, 0, 0, 416, 417, 3, 170, 85, 0, 417, 418, 3, 34, 17, 0, 418, 419, 5, 21, 0, 0, 419, 420, 3, 34, 17, 0, 420, 43, 1, 0, 0, 0, 421, 422, 5, 29, 0, 0, 422, 423, 3, 170, 85, 0, 423, 426, 3, 30, 15, 0, 424, 425, 5, 21, 0, 0, 425, 427, 3, 30, 15, 0, 426, 424, 1, 0, 0, 0, 426, 427, 1, 0, 0, 0, 427, 45, 1, 0, 0, 0, 428, 429, 5, 41, 0, 0, 429, 430, 3, 170, 85, 0, 430, 431, 3, 64, 32, 0, 431, 47, 1, 0, 0, 0, 432, 435, 5, 27, 0, 0, 433, 436, 3, 50, 25, 0, 434, 436, 3, 170, 85, 0, 435, 433, 1, 0, 0, 0, 435, 434, 1, 0, 0, 0, 436, 437, 1, 0, 0, 0, 437, 438, 3, 30, 15, 0, 438, 49, 1, 0, 0, 0, 439, 441, 5, 82, 0, 0, 440, 442, 3, 52, 26, 0, 441, 440, 1, 0, 0, 0, 441, 442, 1, 0, 0, 0, 442, 444, 1, 0, 0, 0, 443, 445, 3, 174, 87, 0, 444, 443, 1, 0, 0, 0, 444, 445, 1, 0, 0, 0, 445, 446, 1, 0, 0, 0, 446, 448, 5, 88, 0, 0, 447, 449, 3, 54, 27, 0, 448, 447, 1, 0, 0, 0, 448, 449, 1, 0, 0, 0, 449, 450, 1, 0, 0, 0, 450, 451, 5, 83, 0, 0, 451, 51, 1, 0, 0, 0, 452, 455, 3, 78, 39, 0, 453, 455, 3, 220, 110, 0, 454, 452, 1, 0, 0, 0, 454, 453, 1, 0, 0, 0, 455, 53, 1, 0, 0, 0, 456, 457, 3, 220, 110, 0, 457, 55, 1, 0, 0, 0, 458, 459, 5, 65, 0, 0, 459, 460, 3, 170, 85, 0, 460, 461, 3, 30, 15, 0, 461, 57, 1, 0, 0, 0, 462, 463, 5, 28, 0, 0, 463, 464, 3, 60, 30, 0, 464, 465, 3, 36, 18, 0, 465, 59, 1, 0, 0, 0, 466, 469, 5, 82, 0, 0, 467, 470, 5, 63, 0, 0, 468, 470, 3, 140, 70, 0, 469, 467, 1, 0, 0, 0, 469, 468, 1, 0, 0, 0, 470, 471, 1, 0, 0, 0, 471, 472, 5, 67, 0, 0, 472, 473, 5, 30, 0, 0, 473, 474, 3, 174, 87, 0, 474, 475, 5, 83, 0, 0, 475, 61, 1, 0, 0, 0, 476, 478, 5, 47, 0, 0, 477, 479, 3, 174, 87, 0, 478, 477, 1, 0, 0, 0, 478, 479, 1, 0, 0, 0, 479, 480, 1, 0, 0, 0, 480, 481, 5, 88, 0, 0, 481, 63, 1, 0, 0, 0, 482, 483, 5, 78, 0, 0, 483, 488, 3, 66, 33, 0, 484, 485, 5, 85, 0, 0, 485, 487, 3, 66, 33, 0, 486, 484, 1, 0, 0, 0, 487, 490, 1, 0, 0, 0, 488, 486, 1, 0, 0, 0, 488, 489, 1, 0, 0, 0, 489, 492, 1, 0, 0, 0, 490, 488, 1, 0, 0, 0, 491, 493, 5, 85, 0, 0, 492, 491, 1, 0, 0, 0, 492, 493, 1, 0, 0, 0, 493, 494, 1, 0, 0, 0, 494, 495, 5, 79, 0, 0, 495, 65, 1, 0, 0, 0, 496, 497, 3, 68, 34, 0, 497, 498, 5, 124, 0, 0, 498, 499, 3, 174, 87, 0, 499, 67, 1, 0, 0, 0, 500, 501, 3, 70, 35, 0, 501, 69, 1, 0, 0, 0, 502, 507, 3, 72, 36, 0, 503, 504, 5, 96, 0, 0, 504, 506, 3, 72, 36, 0, 505, 503, 1, 0, 0, 0, 506, 509, 1, 0, 0, 0, 507, 505, 1, 0, 0, 0, 507, 508, 1, 0, 0, 0, 508, 71, 1, 0, 0, 0, 509, 507, 1, 0, 0, 0, 510, 515, 3, 232, 116, 0, 511, 515, 5, 66, 0, 0, 512, 515, 5, 67, 0, 0, 513, 515, 3, 74, 37, 0, 514, 510, 1, 0, 0, 0, 514, 511, 1, 0, 0, 0, 514, 512, 1, 0, 0, 0, 514, 513, 1, 0, 0, 0, 515, 73, 1, 0, 0, 0, 516, 517, 5, 82, 0, 0, 517, 518, 3, 68, 34, 0, 518, 519, 5, 83, 0, 0, 519, 75, 1, 0, 0, 0, 520, 521, 5, 16, 0, 0, 521, 522, 3, 78, 39, 0, 522, 77, 1, 0, 0, 0, 523, 525, 3, 84, 42, 0, 524, 526, 5, 16, 0, 0, 525, 524, 1, 0, 0, 0, 525, 526, 1, 0, 0, 0, 526, 529, 1, 0, 0, 0, 527, 530, 5, 63, 0, 0, 528, 530, 3, 140, 70, 0, 529, 527, 1, 0, 0, 0, 529, 528, 1, 0, 0, 0, 530, 531, 1, 0, 0, 0, 531, 532, 3, 88, 44, 0, 532, 533, 5, 88, 0, 0, 533, 79, 1, 0, 0, 0, 534, 535, 7, 0, 0, 0, 535, 81, 1, 0, 0, 0, 536, 537, 7, 1, 0, 0, 537, 83, 1, 0, 0, 0, 538, 542, 3, 80, 40, 0, 539, 542, 5, 48, 0, 0, 540, 542, 5, 43, 0, 0, 541, 538, 1, 0, 0, 0, 541, 539, 1, 0, 0, 0, 541, 540, 1, 0, 0, 0, 542, 545, 1, 0, 0, 0, 543, 541, 1, 0, 0, 0, 543, 544, 1, 0, 0, 0, 544, 85, 1, 0, 0, 0, 545, 543, 1, 0, 0, 0, 546, 547, 3, 78, 39, 0, 547, 87, 1, 0, 0, 0, 548, 553, 3, 90, 45, 0, 549, 550, 5, 85, 0, 0, 550, 552, 3, 90, 45, 0, 551, 549, 1, 0, 0, 0, 552, 555, 1, 0, 0, 0, 553, 551, 1, 0, 0, 0, 553, 554, 1, 0, 0, 0, 554, 89, 1, 0, 0, 0, 555, 553, 1, 0, 0, 0, 556, 559, 5, 67, 0, 0, 557, 558, 5, 100, 0, 0, 558, 560, 3, 172, 86, 0, 559, 557, 1, 0, 0, 0, 559, 560, 1, 0, 0, 0, 560, 91, 1, 0, 0, 0, 561, 562, 3, 84, 42, 0, 562, 563, 3, 138, 69, 0, 563, 565, 5, 67, 0, 0, 564, 566, 3, 162, 81, 0, 565, 564, 1, 0, 0, 0, 565, 566, 1, 0, 0, 0, 566, 567, 1, 0, 0, 0, 567, 568, 3, 96, 48, 0, 568, 569, 3, 102, 51, 0, 569, 93, 1, 0, 0, 0, 570, 572, 3, 80, 40, 0, 571, 570, 1, 0, 0, 0, 571, 572, 1, 0, 0, 0, 572, 573, 1, 0, 0, 0, 573, 574, 5, 67, 0, 0, 574, 575, 3, 96, 48, 0, 575, 576, 3, 36, 18, 0, 576, 95, 1, 0, 0, 0, 577, 579, 5, 82, 0, 0, 578, 580, 3, 98, 49, 0, 579, 578, 1, 0, 0, 0, 579, 580, 1, 0, 0, 0, 580, 581, 1, 0, 0, 0, 581, 582, 5, 83, 0, 0, 582, 97, 1, 0, 0, 0, 583, 588, 3, 100, 50, 0, 584, 585, 5, 85, 0, 0, 585, 587, 3, 100, 50, 0, 586, 584, 1, 0, 0, 0, 587, 590, 1, 0, 0, 0, 588, 586, 1, 0, 0, 0, 588, 589, 1, 0, 0, 0, 589, 99, 1, 0, 0, 0, 590, 588, 1, 0, 0, 0, 591, 593, 3, 82, 41, 0, 592, 591, 1, 0, 0, 0, 592, 593, 1, 0, 0, 0, 593, 594, 1, 0, 0, 0, 594, 595, 3, 140, 70, 0, 595, 598, 5, 67, 0, 0, 596, 597, 5, 100, 0, 0, 597, 599, 3, 174, 87, 0, 598, 596, 1, 0, 0, 0, 598, 599, 1, 0, 0, 0, 599, 101, 1, 0, 0, 0, 600, 605, 3, 34, 17, 0, 601, 602, 5, 124, 0, 0, 602, 605, 3, 174, 87, 0, 603, 605, 5, 88, 0, 0, 604, 600, 1, 0, 0, 0, 604, 601, 1, 0, 0, 0, 604, 603, 1, 0, 0, 0, 605, 103, 1, 0, 0, 0, 606, 607, 5, 42, 0, 0, 607, 608, 3, 106, 53, 0, 608, 609, 3, 96, 48, 0, 609, 610, 3, 102, 51, 0, 610, 105, 1, 0, 0, 0, 611, 626, 5, 89, 0, 0, 612, 626, 5, 90, 0, 0, 613, 626, 5, 91, 0, 0, 614, 626, 5, 93, 0, 0, 615, 626, 5, 94, 0, 0, 616, 626, 5, 97, 0, 0, 617, 626, 5, 95, 0, 0, 618, 626, 5, 96, 0, 0, 619, 620, 5, 101, 0, 0, 620, 626, 5, 101, 0, 0, 621, 622, 5, 102, 0, 0, 622, 626, 5, 102, 0, 0, 623, 626, 5, 109, 0, 0, 624, 626, 5, 110, 0, 0, 625, 611, 1, 0, 0, 0, 625, 612, 1, 0, 0, 0, 625, 613, 1, 0, 0, 0, 625, 614, 1, 0, 0, 0, 625, 615, 1, 0, 0, 0, 625, 616, 1, 0, 0, 0, 625, 617, 1, 0, 0, 0, 625, 618, 1, 0, 0, 0, 625, 619, 1, 0, 0, 0, 625, 621, 1, 0, 0, 0, 625, 623, 1, 0, 0, 0, 625, 624, 1, 0, 0, 0, 626, 107, 1, 0, 0, 0, 627, 628, 5, 15, 0, 0, 628, 630, 5, 67, 0, 0, 629, 631, 3, 162, 81, 0, 630, 629, 1, 0, 0, 0, 630, 631, 1, 0, 0, 0, 631, 633, 1, 0, 0, 0, 632, 634, 3, 120, 60, 0, 633, 632, 1, 0, 0, 0, 633, 634, 1, 0, 0, 0, 634, 635, 1, 0, 0, 0, 635, 636, 3, 110, 55, 0, 636, 109, 1, 0, 0, 0, 637, 641, 5, 78, 0, 0, 638, 640, 3, 112, 56, 0, 639, 638, 1, 0, 0, 0, 640, 643, 1, 0, 0, 0, 641, 639, 1, 0, 0, 0, 641, 642, 1, 0, 0, 0, 642, 644, 1, 0, 0, 0, 643, 641, 1, 0, 0, 0, 644, 645, 5, 79, 0, 0, 645, 111, 1, 0, 0, 0, 646, 651, 3, 86, 43, 0, 647, 651, 3, 92, 46, 0, 648, 651, 3, 104, 52, 0, 649, 651, 3, 94, 47, 0, 650, 646, 1, 0, 0, 0, 650, 647, 1, 0, 0, 0, 650, 648, 1, 0, 0, 0, 650, 649, 1, 0, 0, 0, 651, 113, 1, 0, 0, 0, 652, 653, 5, 50, 0, 0, 653, 655, 5, 67, 0, 0, 654, 656, 3, 162, 81, 0, 655, 654, 1, 0, 0, 0, 655, 656, 1, 0, 0, 0, 656, 658, 1, 0, 0, 0, 657, 659, 3, 120, 60, 0, 658, 657, 1, 0, 0, 0, 658, 659, 1, 0, 0, 0, 659, 660, 1, 0, 0, 0, 660, 661, 3, 116, 58, 0, 661, 115, 1, 0, 0, 0, 662, 666, 5, 78, 0, 0, 663, 665, 3, 118, 59, 0, 664, 663, 1, 0, 0, 0, 665, 668, 1, 0, 0, 0, 666, 664, 1, 0, 0, 0, 666, 667, 1, 0, 0, 0, 667, 669, 1, 0, 0, 0, 668, 666, 1, 0, 0, 0, 669, 670, 5, 79, 0, 0, 670, 117, 1, 0, 0, 0, 671, 676, 3, 86, 43, 0, 672, 676, 3, 92, 46, 0, 673, 676, 3, 104, 52, 0, 674, 676, 3, 94, 47, 0, 675, 671, 1, 0, 0, 0, 675, 672, 1, 0, 0, 0, 675, 673, 1, 0, 0, 0, 675, 674, 1, 0, 0, 0, 676, 119, 1, 0, 0, 0, 677, 678, 5, 87, 0, 0, 678, 683, 3, 140, 70, 0, 679, 680, 5, 85, 0, 0, 680, 682, 3, 140, 70, 0, 681, 679, 1, 0, 0, 0, 682, 685, 1, 0, 0, 0, 683, 681, 1, 0, 0, 0, 683, 684, 1, 0, 0, 0, 684, 121, 1, 0, 0, 0, 685, 683, 1, 0, 0, 0, 686, 687, 5, 55, 0, 0, 687, 688, 5, 67, 0, 0, 688, 689, 3, 124, 62, 0, 689, 123, 1, 0, 0, 0, 690, 693, 3, 126, 63, 0, 691, 693, 3, 92, 46, 0, 692, 690, 1, 0, 0, 0, 692, 691, 1, 0, 0, 0, 693, 125, 1, 0, 0, 0, 694, 698, 5, 78, 0, 0, 695, 697, 3, 128, 64, 0, 696, 695, 1, 0, 0, 0, 697, 700, 1, 0, 0, 0, 698, 696, 1, 0, 0, 0, 698, 699, 1, 0, 0, 0, 699, 701, 1, 0, 0, 0, 700, 698, 1, 0, 0, 0, 701, 702, 5, 79, 0, 0, 702, 127, 1, 0, 0, 0, 703, 704, 3, 92, 46, 0, 704, 129, 1, 0, 0, 0, 705, 707, 5, 53, 0, 0, 706, 705, 1, 0, 0, 0, 706, 707, 1, 0, 0, 0, 707, 708, 1, 0, 0, 0, 708, 709, 5, 61, 0, 0, 709, 711, 5, 67, 0, 0, 710, 712, 3, 162, 81, 0, 711, 710, 1, 0, 0, 0, 711, 712, 1, 0, 0, 0, 712, 713, 1, 0, 0, 0, 713, 714, 3, 132, 66, 0, 714, 131, 1, 0, 0, 0, 715, 716, 5, 78, 0, 0, 716, 721, 3, 136, 68, 0, 717, 718, 5, 85, 0, 0, 718, 720, 3, 136, 68, 0, 719, 717, 1, 0, 0, 0, 720, 723, 1, 0, 0, 0, 721, 719, 1, 0, 0, 0, 721, 722, 1, 0, 0, 0, 722, 725, 1, 0, 0, 0, 723, 721, 1, 0, 0, 0, 724, 726, 5, 85, 0, 0, 725, 724, 1, 0, 0, 0, 725, 726, 1, 0, 0, 0, 726, 727, 1, 0, 0, 0, 727, 728, 5, 79, 0, 0, 728, 133, 1, 0, 0, 0, 729, 730, 5, 82, 0, 0, 730, 731, 3, 100, 50, 0, 731, 732, 5, 83, 0, 0, 732, 135, 1, 0, 0, 0, 733, 735, 5, 67, 0, 0, 734, 736, 3, 134, 67, 0, 735, 734, 1, 0, 0, 0, 735, 736, 1, 0, 0, 0, 736, 137, 1, 0, 0, 0, 737, 740, 5, 64, 0, 0, 738, 740, 3, 140, 70, 0, 739, 737, 1, 0, 0, 0, 739, 738, 1, 0, 0, 0, 740, 139, 1, 0, 0, 0, 741, 742, 5, 67, 0, 0, 742, 744, 5, 87, 0, 0, 743, 741, 1, 0, 0, 0, 743, 744, 1, 0, 0, 0, 744, 766, 1, 0, 0, 0, 745, 749, 3, 146, 73, 0, 746, 748, 3, 156, 78, 0, 747, 746, 1, 0, 0, 0, 748, 751, 1, 0, 0, 0, 749, 747, 1, 0, 0, 0, 749, 750, 1, 0, 0, 0, 750, 767, 1, 0, 0, 0, 751, 749, 1, 0, 0, 0, 752, 756, 3, 148, 74, 0, 753, 755, 3, 156, 78, 0, 754, 753, 1, 0, 0, 0, 755, 758, 1, 0, 0, 0, 756, 754, 1, 0, 0, 0, 756, 757, 1, 0, 0, 0, 757, 767, 1, 0, 0, 0, 758, 756, 1, 0, 0, 0, 759, 763, 3, 142, 71, 0, 760, 762, 3, 156, 78, 0, 761, 760, 1, 0, 0, 0, 762, 765, 1, 0, 0, 0, 763, 761, 1, 0, 0, 0, 763, 764, 1, 0, 0, 0, 764, 767, 1, 0, 0, 0, 765, 763, 1, 0, 0, 0, 766, 745, 1, 0, 0, 0, 766, 752, 1, 0, 0, 0, 766, 759, 1, 0, 0, 0, 767, 141, 1, 0, 0, 0, 768, 769, 5, 82, 0, 0, 769, 774, 3, 144, 72, 0, 770, 771, 5, 85, 0, 0, 771, 773, 3, 144, 72, 0, 772, 770, 1, 0, 0, 0, 773, 776, 1, 0, 0, 0, 774, 772, 1, 0, 0, 0, 774, 775, 1, 0, 0, 0, 775, 777, 1, 0, 0, 0, 776, 774, 1, 0, 0, 0, 777, 778, 5, 83, 0, 0, 778, 143, 1, 0, 0, 0, 779, 781, 3, 140, 70, 0, 780, 782, 5, 67, 0, 0, 781, 780, 1, 0, 0, 0, 781, 782, 1, 0, 0, 0, 782, 145, 1, 0, 0, 0, 783, 785, 3, 22, 11, 0, 784, 786, 3, 164, 82, 0, 785, 784, 1, 0, 0, 0, 785, 786, 1, 0, 0, 0, 786, 147, 1, 0, 0, 0, 787, 792, 5, 11, 0, 0, 788, 792, 5, 14, 0, 0, 789, 792, 5, 49, 0, 0, 790, 792, 3, 150, 75, 0, 791, 787, 1, 0, 0, 0, 791, 788, 1, 0, 0, 0, 791, 789, 1, 0, 0, 0, 791, 790, 1, 0, 0, 0, 792, 149, 1, 0, 0, 0, 793, 796, 3, 152, 76, 0, 794, 796, 3, 154, 77, 0, 795, 793, 1, 0, 0, 0, 795, 794, 1, 0, 0, 0, 796, 151, 1, 0, 0, 0, 797, 798, 7, 2, 0, 0, 798, 153, 1, 0, 0, 0, 799, 800, 7, 3, 0, 0, 800, 155, 1, 0, 0, 0, 801, 803, 5, 80, 0, 0, 802, 804, 3, 174, 87, 0, 803, 802, 1, 0, 0, 0, 803, 804, 1, 0, 0, 0, 804, 808, 1, 0, 0, 0, 805, 807, 5, 85, 0, 0, 806, 805, 1, 0, 0, 0, 807, 810, 1, 0, 0, 0, 808, 806, 1, 0, 0, 0, 808, 809, 1, 0, 0, 0, 809, 811, 1, 0, 0, 0, 810, 808, 1, 0, 0, 0, 811, 812, 5, 81, 0, 0, 812, 157, 1, 0, 0, 0, 813, 816, 5, 67, 0, 0, 814, 815, 5, 87, 0, 0, 815, 817, 3, 160, 80, 0, 816, 814, 1, 0, 0, 0, 816, 817, 1, 0, 0, 0, 817, 159, 1, 0, 0, 0, 818, 819, 5, 67, 0, 0, 819, 161, 1, 0, 0, 0, 820, 821, 5, 101, 0, 0, 821, 826, 3, 158, 79, 0, 822, 823, 5, 85, 0, 0, 823, 825, 3, 158, 79, 0, 824, 822, 1, 0, 0, 0, 825, 828, 1, 0, 0, 0, 826, 824, 1, 0, 0, 0, 826, 827, 1, 0, 0, 0, 827, 829, 1, 0, 0, 0, 828, 826, 1, 0, 0, 0, 829, 830, 5, 102, 0, 0, 830, 163, 1, 0, 0, 0, 831, 832, 5, 101, 0, 0, 832, 837, 3, 140, 70, 0, 833, 834, 5, 85, 0, 0, 834, 836, 3, 140, 70, 0, 835, 833, 1, 0, 0, 0, 836, 839, 1, 0, 0, 0, 837, 835, 1, 0, 0, 0, 837, 838, 1, 0, 0, 0, 838, 840, 1, 0, 0, 0, 839, 837, 1, 0, 0, 0, 840, 841, 3, 166, 83, 0, 841, 165, 1, 0, 0, 0, 842, 846, 5, 102, 0, 0, 843, 844, 5, 102, 0, 0, 844, 846, 3, 166, 83, 0, 845, 842, 1, 0, 0, 0, 845, 843, 1, 0, 0, 0, 846, 167, 1, 0, 0, 0, 847, 848, 5, 82, 0, 0, 848, 851, 3, 230, 115, 0, 849, 850, 5, 85, 0, 0, 850, 852, 3, 230, 115, 0, 851, 849, 1, 0, 0, 0, 852, 853, 1, 0, 0, 0, 853, 851, 1, 0, 0, 0, 853, 854, 1, 0, 0, 0, 854, 855, 1, 0, 0, 0, 855, 856, 5, 83, 0, 0, 856, 169, 1, 0, 0, 0, 857, 858, 5, 82, 0, 0, 858, 859, 3, 174, 87, 0, 859, 860, 5, 83, 0, 0, 860, 171, 1, 0, 0, 0, 861, 862, 3, 182, 91, 0, 862, 173, 1, 0, 0, 0, 863, 864, 3, 176, 88, 0, 864, 175, 1, 0, 0, 0, 865, 869, 3, 182, 91, 0, 866, 867, 3, 180, 90, 0, 867, 868, 3, 176, 88, 0, 868, 870, 1, 0, 0, 0, 869, 866, 1, 0, 0, 0, 869, 870, 1, 0, 0, 0, 870, 177, 1, 0, 0, 0, 871, 872, 5, 40, 0, 0, 872, 873, 3, 140, 70, 0, 873, 874, 3, 222, 111, 0, 874, 179, 1, 0, 0, 0, 875, 876, 7, 4, 0, 0, 876, 181, 1, 0, 0, 0, 877, 882, 3, 184, 92, 0, 878, 879, 5, 108, 0, 0, 879, 881, 3, 184, 92, 0, 880, 878, 1, 0, 0, 0, 881, 884, 1, 0, 0, 0, 882, 880, 1, 0, 0, 0, 882, 883, 1, 0, 0, 0, 883, 183, 1, 0, 0, 0, 884, 882, 1, 0, 0, 0, 885, 890, 3, 186, 93, 0, 886, 887, 5, 107, 0, 0, 887, 889, 3, 186, 93, 0, 888, 886, 1, 0, 0, 0, 889, 892, 1, 0, 0, 0, 890, 888, 1, 0, 0, 0, 890, 891, 1, 0, 0, 0, 891, 185, 1, 0, 0, 0, 892, 890, 1, 0, 0, 0, 893, 898, 3, 188, 94, 0, 894, 895, 5, 96, 0, 0, 895, 897, 3, 188, 94, 0, 896, 894, 1, 0, 0, 0, 897, 900, 1, 0, 0, 0, 898, 896, 1, 0, 0, 0, 898, 899, 1, 0, 0, 0, 899, 187, 1, 0, 0, 0, 900, 898, 1, 0, 0, 0, 901, 906, 3, 190, 95, 0, 902, 903, 5, 97, 0, 0, 903, 905, 3, 190, 95, 0, 904, 902, 1, 0, 0, 0, 905, 908, 1, 0, 0, 0, 906, 904, 1, 0, 0, 0, 906, 907, 1, 0, 0, 0, 907, 189, 1, 0, 0, 0, 908, 906, 1, 0, 0, 0, 909, 914, 3, 192, 96, 0, 910, 911, 5, 95, 0, 0, 911, 913, 3, 192, 96, 0, 912, 910, 1, 0, 0, 0, 913, 916, 1, 0, 0, 0, 914, 912, 1, 0, 0, 0, 914, 915, 1, 0, 0, 0, 915, 191, 1, 0, 0, 0, 916, 914, 1, 0, 0, 0, 917, 922, 3, 194, 97, 0, 918, 919, 7, 5, 0, 0, 919, 921, 3, 194, 97, 0, 920, 918, 1, 0, 0, 0, 921, 924, 1, 0, 0, 0, 922, 920, 1, 0, 0, 0, 922, 923, 1, 0, 0, 0, 923, 193, 1, 0, 0, 0, 924, 922, 1, 0, 0, 0, 925, 933, 3, 196, 98, 0, 926, 927, 7, 6, 0, 0, 927, 934, 3, 196, 98, 0, 928, 929, 5, 37, 0, 0, 929, 931, 3, 140, 70, 0, 930, 932, 5, 67, 0, 0, 931, 930, 1, 0, 0, 0, 931, 932, 1, 0, 0, 0, 932, 934, 1, 0, 0, 0, 933, 926, 1, 0, 0, 0, 933, 928, 1, 0, 0, 0, 933, 934, 1, 0, 0, 0, 934, 195, 1, 0, 0, 0, 935, 944, 3, 202, 101, 0, 936, 939, 3, 198, 99, 0, 937, 939, 3, 200, 100, 0, 938, 936, 1, 0, 0, 0, 938, 937, 1, 0, 0, 0, 939, 940, 1, 0, 0, 0, 940, 941, 3, 202, 101, 0, 941, 943, 1, 0, 0, 0, 942, 938, 1, 0, 0, 0, 943, 946, 1, 0, 0, 0, 944, 942, 1, 0, 0, 0, 944, 945, 1, 0, 0, 0, 945, 197, 1, 0, 0, 0, 946, 944, 1, 0, 0, 0, 947, 948, 5, 101, 0, 0, 948, 949, 5, 101, 0, 0, 949, 199, 1, 0, 0, 0, 950, 951, 5, 102, 0, 0, 951, 952, 5, 102, 0, 0, 952, 201, 1, 0, 0, 0, 953, 958, 3, 204, 102, 0, 954, 955, 7, 7, 0, 0, 955, 957, 3, 204, 102, 0, 956, 954, 1, 0, 0, 0, 957, 960, 1, 0, 0, 0, 958, 956, 1, 0, 0, 0, 958, 959, 1, 0, 0, 0, 959, 203, 1, 0, 0, 0, 960, 958, 1, 0, 0, 0, 961, 966, 3, 206, 103, 0, 962, 963, 7, 8, 0, 0, 963, 965, 3, 206, 103, 0, 964, 962, 1, 0, 0, 0, 965, 968, 1, 0, 0, 0, 966, 964, 1, 0, 0, 0, 966, 967, 1, 0, 0, 0, 967, 205, 1, 0, 0, 0, 968, 966, 1, 0, 0, 0, 969, 972, 3, 208, 104, 0, 970, 971, 5, 92, 0, 0, 971, 973, 3, 206, 103, 0, 972, 970, 1, 0, 0, 0, 972, 973, 1, 0, 0, 0, 973, 207, 1, 0, 0, 0, 974, 979, 3, 210, 105, 0, 975, 976, 7, 9, 0, 0, 976, 979, 3, 208, 104, 0, 977, 979, 3, 212, 106, 0, 978, 974, 1, 0, 0, 0, 978, 975, 1, 0, 0, 0, 978, 977, 1, 0, 0, 0, 979, 209, 1, 0, 0, 0, 980, 981, 5, 82, 0, 0, 981, 982, 3, 140, 70, 0, 982, 983, 5, 83, 0, 0, 983, 984, 3, 208, 104, 0, 984, 211, 1, 0, 0, 0, 985, 989, 3, 214, 107, 0, 986, 988, 3, 216, 108, 0, 987, 986, 1, 0, 0, 0, 988, 991, 1, 0, 0, 0, 989, 987, 1, 0, 0, 0, 989, 990, 1, 0, 0, 0, 990, 213, 1, 0, 0, 0, 991, 989, 1, 0, 0, 0, 992, 1004, 3, 232, 116, 0, 993, 1004, 3, 170, 85, 0, 994, 1004, 3, 168, 84, 0, 995, 1004, 3, 42, 21, 0, 996, 1004, 3, 46, 23, 0, 997, 1004, 3, 34, 17, 0, 998, 1004, 5, 54, 0, 0, 999, 1004, 3, 218, 109, 0, 1000, 1004, 3, 178, 89, 0, 1001, 1004, 5, 67, 0, 0, 1002, 1004, 3, 22, 11, 0, 1003, 992, 1, 0, 0, 0, 1003, 993, 1, 0, 0, 0, 1003, 994, 1, 0, 0, 0, 1003, 995, 1, 0, 0, 0, 1003, 996, 1, 0, 0, 0, 1003, 997, 1, 0, 0, 0, 1003, 998, 1, 0, 0, 0, 1003, 999, 1, 0, 0, 0, 1003, 1000, 1, 0, 0, 0, 1003, 1001, 1, 0, 0, 0, 1003, 1002, 1, 0, 0, 0, 1004, 215, 1, 0, 0, 0, 1005, 1006, 5, 84, 0, 0, 1006, 1021, 5, 67, 0, 0, 1007, 1008, 5, 84, 0, 0, 1008, 1021, 5, 69, 0, 0, 1009, 1011, 5, 82, 0, 0, 1010, 1012, 3, 224, 112, 0, 1011, 1010, 1, 0, 0, 0, 1011, 1012, 1, 0, 0, 0, 1012, 1013, 1, 0, 0, 0, 1013, 1021, 5, 83, 0, 0, 1014, 1015, 5, 80, 0, 0, 1015, 1016, 3, 220, 110, 0, 1016, 1017, 5, 81, 0, 0, 1017, 1021, 1, 0, 0, 0, 1018, 1021, 5, 105, 0, 0, 1019, 1021, 5, 106, 0, 0, 1020, 1005, 1, 0, 0, 0, 1020, 1007, 1, 0, 0, 0, 1020, 1009, 1, 0, 0, 0, 1020, 1014, 1, 0, 0, 0, 1020, 1018, 1, 0, 0, 0, 1020, 1019, 1, 0, 0, 0, 1021, 217, 1, 0, 0, 0, 1022, 1024, 5, 80, 0, 0, 1023, 1025, 3, 220, 110, 0, 1024, 1023, 1, 0, 0, 0, 1024, 1025, 1, 0, 0, 0, 1025, 1026, 1, 0, 0, 0, 1026, 1027, 5, 81, 0, 0, 1027, 219, 1, 0, 0, 0, 1028, 1033, 3, 174, 87, 0, 1029, 1030, 5, 85, 0, 0, 1030, 1032, 3, 174, 87, 0, 1031, 1029, 1, 0, 0, 0, 1032, 1035, 1, 0, 0, 0, 1033, 1031, 1, 0, 0, 0, 1033, 1034, 1, 0, 0, 0, 1034, 221, 1, 0, 0, 0, 1035, 1033, 1, 0, 0, 0, 1036, 1038, 5, 82, 0, 0, 1037, 1039, 3, 224, 112, 0, 1038, 1037, 1, 0, 0, 0, 1038, 1039, 1, 0, 0, 0, 1039, 1040, 1, 0, 0, 0, 1040, 1041, 5, 83, 0, 0, 1041, 223, 1, 0, 0, 0, 1042, 1047, 3, 230, 115, 0, 1043, 1044, 5, 85, 0, 0, 1044, 1046, 3, 230, 115, 0, 1045, 1043, 1, 0, 0, 0, 1046, 1049, 1, 0, 0, 0, 1047, 1045, 1, 0, 0, 0, 1047, 1048, 1, 0, 0, 0, 1048, 225, 1, 0, 0, 0, 1049, 1047, 1, 0, 0, 0, 1050, 1051, 5, 67, 0, 0, 1051, 1052, 5, 87, 0, 0, 1052, 1053, 3, 174, 87, 0, 1053, 227, 1, 0, 0, 0, 1054, 1055, 3, 172, 86, 0, 1055, 229, 1, 0, 0, 0, 1056, 1059, 3, 226, 113, 0, 1057, 1059, 3, 228, 114, 0, 1058, 1056, 1, 0, 0, 0, 1058, 1057, 1, 0, 0, 0, 1059, 231, 1, 0, 0, 0, 1060, 1070, 5, 56, 0, 0, 1061, 1070, 5, 24, 0, 0, 1062, 1070, 5, 69, 0, 0, 1063, 1070, 5, 70, 0, 0, 1064, 1070, 5, 71, 0, 0, 1065, 1070, 5, 72, 0, 0, 1066, 1070, 5, 73, 0, 0, 1067, 1070, 3, 234, 117, 0, 1068, 1070, 5, 68, 0, 0, 1069, 1060, 1, 0, 0, 0, 1069, 1061, 1, 0, 0, 0, 1069, 1062, 1, 0, 0, 0, 1069, 1063, 1, 0, 0, 0, 1069, 1064, 1, 0, 0, 0, 1069, 1065, 1, 0, 0, 0, 1069, 1066, 1, 0, 0, 0, 1069, 1067, 1, 0, 0, 0, 1069, 1068, 1, 0, 0, 0, 1070, 233, 1, 0, 0, 0, 1071, 1074, 5, 74, 0, 0, 1072, 1074, 3, 236, 118, 0, 1073, 1071, 1, 0, 0, 0, 1073, 1072, 1, 0, 0, 0, 1074, 235, 1, 0, 0, 0, 1075, 1079, 5, 76, 0, 0, 1076, 1078, 3, 238, 119, 0, 1077, 1076, 1, 0, 0, 0, 1078, 1081, 1, 0, 0, 0, 1079, 1077, 1, 0, 0, 0, 1079, 1080, 1, 0, 0, 0, 1080, 1082, 1, 0, 0, 0, 1081, 1079, 1, 0, 0, 0, 1082, 1083, 5, 131, 0, 0, 1083, 237, 1, 0, 0, 0, 1084, 1089, 3, 240, 120, 0, 1085, 1089, 5, 125, 0, 0, 1086, 1089, 5, 127, 0, 0, 1087, 1089, 5, 128, 0, 0, 1088, 1084, 1, 0, 0, 0, 1088, 1085, 1, 0, 0, 0, 1088, 1086, 1, 0, 0, 0, 1088, 1087, 1, 0, 0, 0, 1089, 239, 1, 0, 0, 0, 1090, 1095, 3, 174, 87, 0, 1091, 1092, 5, 85, 0, 0, 1092, 1094, 3, 174, 87, 0, 1093, 1091, 1, 0, 0, 0, 1094, 1097, 1, 0, 0, 0, 1095, 1093, 1, 0, 0, 0, 1095, 1096, 1, 0, 0, 0, 1096, 1104, 1, 0, 0, 0, 1097, 1095, 1, 0, 0, 0, 1098, 1100, 5, 87, 0, 0, 1099, 1101, 5, 133, 0, 0, 1100, 1099, 1, 0, 0, 0, 1101, 1102, 1, 0, 0, 0, 1102, 1100, 1, 0, 0, 0, 1102, 1103, 1, 0, 0, 0, 1103, 1105, 1, 0, 0, 0, 1104, 1098, 1, 0, 0, 0, 1104, 1105, 1, 0, 0, 0, 1105, 241, 1, 0, 0, 0, 110, 245, 257, 267, 274, 277, 283, 300, 307, 318, 326, 328, 337, 342, 349, 362, 378, 391, 399, 410, 426, 435, 441, 444, 448, 454, 469, 478, 488, 492, 507, 514, 525, 529, 541, 543, 553, 559, 565, 571, 579, 588, 592, 598, 604, 625, 630, 633, 641, 650, 655, 658, 666, 675, 683, 692, 698, 706, 711, 721, 725, 735, 739, 743, 749, 756, 763, 766, 774, 781, 785, 791, 795, 803, 808, 816, 826, 837, 845, 853, 869, 882, 890, 898, 906, 914, 922, 931, 933, 938, 944, 958, 966, 972, 978, 989, 1003, 1011, 1020, 1024, 1033, 1038, 1047, 1058, 1069, 1073, 1079, 1088, 1095, 1102, 1104]
+\ No newline at end of file
+diff --git a/nebc/src/main/resources/runtime.c b/nebc/src/main/resources/runtime.c
+index c6aa611..ce3a59c 100644
+--- a/nebc/src/main/resources/runtime.c
++++ b/nebc/src/main/resources/runtime.c
+@@ -32,3 +32,24 @@ void __nebula_rt_write(uint8_t* buf, int32_t len) {
+     );
+ }
+ #endif
++
++// Utility function to get length of null-terminated string
++static int32_t __nebula_strlen(const uint8_t* str) {
++    int32_t len = 0;
++    while (str[len] != '\0') {
++        len++;
++    }
++    return len;
++}
++
++// Wrapper for direct string printing in Nebula
++void __nebula_rt_print(const uint8_t* buf) {
++    int32_t len = __nebula_strlen(buf);
++    __nebula_rt_write((uint8_t*)buf, len);
++}
++
++// Wrapper for printing string with a newline
++void __nebula_rt_println(const uint8_t* buf) {
++    __nebula_rt_print(buf);
++    __nebula_rt_write((uint8_t*)"\n", 1);
++}
+diff --git a/runtime/core/syscalls.c b/runtime/core/syscalls.c
+index 6e369af..b2c43a5 100644
+--- a/runtime/core/syscalls.c
++++ b/runtime/core/syscalls.c
+@@ -10,3 +10,24 @@ long sys_write(int fd, const void* buf, long count);
+ void __nebula_rt_write(const void* buf, int32_t len) {
+     sys_write(1, buf, (long)len); // 1 is stdout
+ }
++
++// Utility function to get length of null-terminated string
++static int32_t __nebula_strlen(const uint8_t* str) {
++    int32_t len = 0;
++    while (str[len] != '\0') {
++        len++;
++    }
++    return len;
++}
++
++// Wrapper for direct string printing in Nebula
++void __nebula_rt_print(const uint8_t* buf) {
++    int32_t len = __nebula_strlen(buf);
++    __nebula_rt_write(buf, len);
++}
++
++// Wrapper for printing string with a newline
++void __nebula_rt_println(const uint8_t* buf) {
++    __nebula_rt_print(buf);
++    __nebula_rt_write((const void*)"\n", 1);
++}

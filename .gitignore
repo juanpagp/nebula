@@ -41,3 +41,8 @@ catlr.txt
 src/main/java/org/nebula/nebc/frontend/parser/generated
 src/main/antlr4/NebulaLexer.tokens
 gen/
+spec/
+nebc/tests/
+nebc/src/test/
+.idea/
+nebc/.idea/

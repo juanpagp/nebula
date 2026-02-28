@@ -45,6 +45,7 @@ public final class NativeCompiler {
 	 *                          linking fails.
 	 */
 	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean isStatic,
+			boolean isLibrary,
 			List<Path> additionalObjects) {
 		// 1. Initialise LLVM targets
 		LLVMInitializeNativeTarget();
@@ -111,13 +112,14 @@ public final class NativeCompiler {
 		LLVMDisposeMessage(defaultTriple);
 
 		// 8. Link with clang
-		link(objectFile, outputPath, isStatic, additionalObjects);
+		link(objectFile, outputPath, isStatic, isLibrary, additionalObjects);
 	}
 
 	/**
 	 * Invokes {@code clang} to link the object file into a native executable.
 	 */
-	private static void link(Path objectFile, String outputPath, boolean isStatic, List<Path> additionalObjects) {
+	private static void link(Path objectFile, String outputPath, boolean isStatic, boolean isLibrary,
+			List<Path> additionalObjects) {
 		try {
 			List<String> command = new ArrayList<>(List.of(
 					"clang",
@@ -131,11 +133,22 @@ public final class NativeCompiler {
 				}
 			}
 
-			if (isStatic) {
-				command.add("-nostdlib");
-				command.add("-static");
+			// Always enforce freestanding environment
+			command.add("-nostdlib");
+			command.add("-nostartfiles");
+
+			if (isLibrary) {
+				command.add("-shared");
+				command.add("-fPIC");
 			} else {
-				command.add("-no-pie");
+				if (isStatic) {
+					command.add("-static");
+				} else {
+					command.add("-no-pie");
+				}
+				command.add("-Wl,-rpath,.");
+				command.add("-L.");
+				command.add("-lneb");
 			}
 
 			ProcessBuilder pb = new ProcessBuilder(command);

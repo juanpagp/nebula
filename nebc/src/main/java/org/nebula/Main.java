@@ -7,7 +7,7 @@ public class Main
 {
 	public static void main(String[] args)
 	{
-        // Delegate entirely to the CLI orchestrator
+		// Delegate entirely to the CLI orchestrator
 		NebcCli cli = new NebcCli();
 
 		// Receive the type-safe Enum result

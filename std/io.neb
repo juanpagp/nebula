@@ -3,10 +3,21 @@ extern "C" {
     void __nebula_rt_println(keeps Ref<u8> buf);
 }
 
-void print(str s) {
+// Generic print that works for anything displayable
+void print<T: Displayable>(T item) {
+    __nebula_rt_print(item.toStr().ptr);
+}
+
+// Generic println that works for anything displayable
+void println<T: Displayable>(T item) {
+    __nebula_rt_println(item.toStr().ptr);
+}
+
+// Low-level str versions
+void print_str(str s) {
     __nebula_rt_print(s.ptr);
 }
 
-void println(str s) {
+void println_str(str s) {
     __nebula_rt_println(s.ptr);
 }

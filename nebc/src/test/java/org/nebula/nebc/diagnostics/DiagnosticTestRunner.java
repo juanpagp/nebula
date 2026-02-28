@@ -21,38 +21,44 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.fail;
 
-public class DiagnosticTestRunner {
+public class DiagnosticTestRunner
+{
 
 	// Regex to find: // ERROR: <message>
 	private static final Pattern ERROR_PATTERN = Pattern.compile("//\\s*ERROR\\s*:\\s*(.*)", Pattern.CASE_INSENSITIVE);
 	private static final String DIAGNOSTICS_DIR = "src/test/resources/diagnostics";
 
 	@TestFactory
-	Stream<DynamicTest> diagnosticTests() throws IOException {
+	Stream<DynamicTest> diagnosticTests() throws IOException
+	{
 		Path startPath = Paths.get(DIAGNOSTICS_DIR);
-		if (!Files.exists(startPath)) {
+		if (!Files.exists(startPath))
+		{
 			System.out.println("Warning: Diagnostics directory not found: " + startPath.toAbsolutePath());
 			return Stream.empty();
 		}
 
-		return Files.walk(startPath)
-				.filter(p -> p.toString().endsWith(".neb"))
-				.map(this::createTestForFile);
+		return Files.walk(startPath).filter(p -> p.toString().endsWith(".neb")).map(this::createTestForFile);
 	}
 
-	private DynamicTest createTestForFile(Path testFile) {
-		return DynamicTest.dynamicTest("Diagnostic Test: " + testFile.getFileName(), () -> {
+	private DynamicTest createTestForFile(Path testFile)
+	{
+		return DynamicTest.dynamicTest("Diagnostic Test: " + testFile.getFileName(), () ->
+		{
 			runTest(testFile.toFile());
 		});
 	}
 
-	private void runTest(File file) throws IOException {
+	private void runTest(File file) throws IOException
+	{
 		List<String> lines = Files.readAllLines(file.toPath());
 		List<ExpectedError> expectedErrors = new ArrayList<>();
 
-		for (int i = 0; i < lines.size(); i++) {
+		for (int i = 0; i < lines.size(); i++)
+		{
 			Matcher m = ERROR_PATTERN.matcher(lines.get(i));
-			if (m.find()) {
+			if (m.find())
+			{
 				expectedErrors.add(new ExpectedError(i + 1, m.group(1).trim()));
 			}
 		}
@@ -66,7 +72,8 @@ public class DiagnosticTestRunner {
 		Parser parser = new Parser(config);
 		List<Diagnostic> actualErrors = new ArrayList<>();
 		int parserErrors = parser.parse();
-		if (parserErrors != 0) {
+		if (parserErrors != 0)
+		{
 			fail("Parser failed for " + file.getName() + " with " + parserErrors + " errors.");
 		}
 
@@ -76,14 +83,15 @@ public class DiagnosticTestRunner {
 		var compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
 
 		SemanticAnalyzer analyzer = new SemanticAnalyzer(config);
-		for (var cu : compilationUnits) {
+		for (var cu : compilationUnits)
+		{
 			actualErrors.addAll(analyzer.analyze(cu));
 		}
 
 		// Emulate the entry point check from Compiler.run()
-		if (!config.compileAsLibrary() && analyzer.getMainMethod() == null) {
-			actualErrors.add(Diagnostic.of(org.nebula.nebc.frontend.diagnostic.DiagnosticCode.MISSING_MAIN_METHOD,
-					org.nebula.nebc.frontend.diagnostic.SourceSpan.unknown()));
+		if (!config.compileAsLibrary() && analyzer.getMainMethod() == null)
+		{
+			actualErrors.add(Diagnostic.of(org.nebula.nebc.frontend.diagnostic.DiagnosticCode.MISSING_MAIN_METHOD, org.nebula.nebc.frontend.diagnostic.SourceSpan.unknown()));
 		}
 
 		List<ExpectedError> unmatchedExpectedErrors = new ArrayList<>(expectedErrors);
@@ -91,12 +99,14 @@ public class DiagnosticTestRunner {
 
 		// --- Matching Logic ---
 		// Iterate through expected errors and try to match them with actual errors
-		for (int i = unmatchedExpectedErrors.size() - 1; i >= 0; i--) {
+		for (int i = unmatchedExpectedErrors.size() - 1; i >= 0; i--)
+		{
 			ExpectedError expected = unmatchedExpectedErrors.get(i);
-			for (int j = unmatchedActualErrors.size() - 1; j >= 0; j--) {
+			for (int j = unmatchedActualErrors.size() - 1; j >= 0; j--)
+			{
 				Diagnostic actual = unmatchedActualErrors.get(j);
-				if (actual.span().startLine() == expected.line() &&
-						actual.message().toLowerCase().contains(expected.messageSubstring().toLowerCase())) {
+				if (actual.span().startLine() == expected.line() && actual.message().toLowerCase().contains(expected.messageSubstring().toLowerCase()))
+				{
 					unmatchedActualErrors.remove(j);
 					unmatchedExpectedErrors.remove(i);
 					break;
@@ -107,8 +117,7 @@ public class DiagnosticTestRunner {
 		// --- Console Output Formatting ---
 		String GREEN = "\033[92m";
 		String RED = "\033[91m";
-		@SuppressWarnings("unused")
-		String BOLD = "\033[1m";
+		@SuppressWarnings("unused") String BOLD = "\033[1m";
 		String RESET = "\033[0m";
 
 		System.out.println("\n======================================================================");
@@ -118,27 +127,33 @@ public class DiagnosticTestRunner {
 		boolean allPassed = true;
 
 		// 1. Process all expected errors first (Matched or Unmatched)
-		for (ExpectedError expected : expectedErrors) {
+		for (ExpectedError expected : expectedErrors)
+		{
 			// Check if it was matched (not in unmatched list)
 			boolean wasMatched = !unmatchedExpectedErrors.contains(expected);
 
-			if (wasMatched) {
+			if (wasMatched)
+			{
 				System.out.println(
 						"  [" + GREEN + "✓" + RESET + "] Line " + expected.line() + ": " + expected.messageSubstring());
-			} else {
+			}
+			else
+			{
 				allPassed = false;
-				System.out.println("  [" + RED + "✗" + RESET + "] Line " + expected.line() + ": (expected) "
-						+ expected.messageSubstring());
+				System.out.println("  [" + RED + "✗" + RESET + "] Line " + expected.line() + ": (expected) " + expected.messageSubstring());
 
 				// See if there's an actual unexpected error on that same line
 				boolean foundAltError = false;
-				for (Diagnostic unexpected : unmatchedActualErrors) {
-					if (unexpected.span().startLine() == expected.line()) {
+				for (Diagnostic unexpected : unmatchedActualErrors)
+				{
+					if (unexpected.span().startLine() == expected.line())
+					{
 						System.out.println("                (actual)   " + unexpected.message());
 						foundAltError = true;
 					}
 				}
-				if (!foundAltError) {
+				if (!foundAltError)
+				{
 					System.out.println("                (actual)   <No error found>");
 				}
 			}
@@ -146,26 +161,28 @@ public class DiagnosticTestRunner {
 		}
 
 		// 2. Process unexpected errors that weren't on an expected line
-		for (Diagnostic unexpected : unmatchedActualErrors) {
+		for (Diagnostic unexpected : unmatchedActualErrors)
+		{
 			// Don't report it again if we just reported it as an "actual" mismatch above
-			boolean alreadyReported = expectedErrors.stream()
-					.anyMatch(e -> e.line() == unexpected.span().startLine());
+			boolean alreadyReported = expectedErrors.stream().anyMatch(e -> e.line() == unexpected.span().startLine());
 
-			if (!alreadyReported) {
+			if (!alreadyReported)
+			{
 				allPassed = false;
-				System.out.println("  [" + RED + "✗" + RESET + "] Line " + unexpected.span().startLine()
-						+ ": (unexpected) " + unexpected.message());
+				System.out.println("  [" + RED + "✗" + RESET + "] Line " + unexpected.span().startLine() + ": (unexpected) " + unexpected.message());
 				System.out.println();
 			}
 		}
 
 		System.out.println("======================================================================\n");
 
-		if (!allPassed) {
+		if (!allPassed)
+		{
 			fail("Diagnostic test failed for " + file.getName() + " (see console output above)");
 		}
 	}
 
-	private record ExpectedError(int line, String messageSubstring) {
+	private record ExpectedError(int line, String messageSubstring)
+	{
 	}
 }

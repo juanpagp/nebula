@@ -3,6 +3,7 @@ package org.nebula.nebc.semantic.symbol;
 import org.nebula.nebc.ast.ASTNode;
 import org.nebula.nebc.ast.Modifier;
 import org.nebula.nebc.semantic.types.FunctionType;
+import org.nebula.nebc.semantic.types.TypeParameterType;
 
 import java.util.List;
 
@@ -12,15 +13,16 @@ import java.util.List;
  */
 public final class MethodSymbol extends Symbol
 {
-
 	private final List<Modifier> modifiers;
 	private final boolean isExtern;
+	private final List<TypeParameterType> typeParameters;
 
-	public MethodSymbol(String name, FunctionType type, List<Modifier> modifiers, boolean isExtern, ASTNode declarationNode)
+	public MethodSymbol(String name, FunctionType type, List<Modifier> modifiers, boolean isExtern, ASTNode declarationNode, List<TypeParameterType> typeParameters)
 	{
 		super(name, type, declarationNode);
 		this.modifiers = List.copyOf(modifiers);
 		this.isExtern = isExtern;
+		this.typeParameters = List.copyOf(typeParameters);
 	}
 
 	@Override
@@ -37,6 +39,11 @@ public final class MethodSymbol extends Symbol
 	public boolean isExtern()
 	{
 		return isExtern;
+	}
+
+	public List<TypeParameterType> getTypeParameters()
+	{
+		return typeParameters;
 	}
 
 	public boolean hasModifier(Modifier modifier)

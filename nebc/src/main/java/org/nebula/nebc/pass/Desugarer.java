@@ -101,7 +101,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 	public ASTNode visitMethodDeclaration(MethodDeclaration node)
 	{
 		ASTNode body = node.body != null ? node.body.accept(this) : null;
-		return new MethodDeclaration(node.getSpan(), node.isExtern, node.modifiers, node.returnType, node.name, node.parameters, body);
+		return new MethodDeclaration(node.getSpan(), node.isExtern, node.modifiers, node.returnType, node.name, node.typeParams, node.parameters, body);
 	}
 
 	@Override
@@ -112,7 +112,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 		{
 			members.add((Declaration) node.members.get(i).accept(this));
 		}
-		return new ClassDeclaration(node.getSpan(), node.name, node.inheritance, members);
+		return new ClassDeclaration(node.getSpan(), node.name, node.typeParams, node.inheritance, members);
 	}
 
 	@Override
@@ -123,7 +123,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 		{
 			members.add((Declaration) node.members.get(i).accept(this));
 		}
-		return new StructDeclaration(node.getSpan(), node.name, node.inheritance, members);
+		return new StructDeclaration(node.getSpan(), node.name, node.typeParams, node.inheritance, members);
 	}
 
 	@Override
@@ -134,7 +134,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 		{
 			members.add((MethodDeclaration) node.members.get(i).accept(this));
 		}
-		return new TraitDeclaration(node.getSpan(), node.name, members);
+		return new TraitDeclaration(node.getSpan(), node.name, node.typeParams, members);
 	}
 
 	@Override
@@ -213,8 +213,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 
 		// 2. Check if this is a syntactic-sugar loop: NO initializer, NO iterators, BUT
 		// has a condition.
-		if (node.initializer == null && (node.iterators == null || node.iterators.isEmpty())
-				&& node.condition != null)
+		if (node.initializer == null && (node.iterators == null || node.iterators.isEmpty()) && node.condition != null)
 		{
 			BinaryExpression binExpr = null;
 			String iteratorName = null;
@@ -248,27 +247,19 @@ public class Desugarer implements ASTVisitor<ASTNode>
 				{
 					if (isDescending && !(node.condition instanceof AssignmentExpression))
 					{
-						error(DiagnosticCode.INTERNAL_ERROR, node,
-								"Descending loops require an explicit iterator initial value.");
+						error(DiagnosticCode.INTERNAL_ERROR, node, "Descending loops require an explicit iterator initial value.");
 					}
 					else
 					{
 						VariableDeclarator decl = new VariableDeclarator(iteratorName, initialValue);
-						VariableDeclaration initDecl = new VariableDeclaration(node.getSpan(),
-								new org.nebula.nebc.ast.types.NamedType(node.getSpan(), "i32",
-										Collections.emptyList()),
-								List.of(decl), false);
+						VariableDeclaration initDecl = new VariableDeclaration(node.getSpan(), new org.nebula.nebc.ast.types.NamedType(node.getSpan(), "i32", Collections.emptyList()), List.of(decl), false);
 
-						Expression cleanCondition = new BinaryExpression(node.getSpan(),
-								new IdentifierExpression(node.getSpan(), iteratorName), binExpr.operator,
-								binExpr.right);
+						Expression cleanCondition = new BinaryExpression(node.getSpan(), new IdentifierExpression(node.getSpan(), iteratorName), binExpr.operator, binExpr.right);
 
 						UnaryOperator unaryOp = isAscending ? UnaryOperator.INCREMENT : UnaryOperator.DECREMENT;
-						Expression iteratorUpdate = new UnaryExpression(node.getSpan(), unaryOp,
-								new IdentifierExpression(node.getSpan(), iteratorName), true);
+						Expression iteratorUpdate = new UnaryExpression(node.getSpan(), unaryOp, new IdentifierExpression(node.getSpan(), iteratorName), true);
 
-						return new ForStatement(node.getSpan(), initDecl, cleanCondition, List.of(iteratorUpdate),
-								desugaredBody);
+						return new ForStatement(node.getSpan(), initDecl, cleanCondition, List.of(iteratorUpdate), desugaredBody);
 					}
 				}
 			}
@@ -388,9 +379,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 	{
 		Expression condition = (Expression) node.condition.accept(this);
 		ExpressionBlock thenB = (ExpressionBlock) node.thenExpressionBlock.accept(this);
-		ExpressionBlock elseB = node.elseExpressionBlock != null
-				? (ExpressionBlock) node.elseExpressionBlock.accept(this)
-				: null;
+		ExpressionBlock elseB = node.elseExpressionBlock != null ? (ExpressionBlock) node.elseExpressionBlock.accept(this) : null;
 		return new IfExpression(node.getSpan(), condition, thenB, elseB);
 	}
 
@@ -538,8 +527,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 	{
 		ASTNode left = node.left.accept(this);
 		ASTNode right = node.right != null ? node.right.accept(this) : null;
-		return new TagOperation(node.getSpan(), node.operator, (org.nebula.nebc.ast.tags.TagExpression) left,
-				(org.nebula.nebc.ast.tags.TagExpression) right);
+		return new TagOperation(node.getSpan(), node.operator, (org.nebula.nebc.ast.tags.TagExpression) left, (org.nebula.nebc.ast.tags.TagExpression) right);
 	}
 
 	// ---------------

@@ -93,14 +93,12 @@ public class DiagnosticTestRunner {
 		// Iterate through expected errors and try to match them with actual errors
 		for (int i = unmatchedExpectedErrors.size() - 1; i >= 0; i--) {
 			ExpectedError expected = unmatchedExpectedErrors.get(i);
-			boolean matched = false;
 			for (int j = unmatchedActualErrors.size() - 1; j >= 0; j--) {
 				Diagnostic actual = unmatchedActualErrors.get(j);
 				if (actual.span().startLine() == expected.line() &&
 						actual.message().toLowerCase().contains(expected.messageSubstring().toLowerCase())) {
 					unmatchedActualErrors.remove(j);
 					unmatchedExpectedErrors.remove(i);
-					matched = true;
 					break;
 				}
 			}
@@ -109,6 +107,7 @@ public class DiagnosticTestRunner {
 		// --- Console Output Formatting ---
 		String GREEN = "\033[92m";
 		String RED = "\033[91m";
+		@SuppressWarnings("unused")
 		String BOLD = "\033[1m";
 		String RESET = "\033[0m";
 

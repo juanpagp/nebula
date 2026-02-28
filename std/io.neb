@@ -1,14 +1,12 @@
-namespace std::io;
-
 extern "C" {
-    void __nebula_rt_print(keeps string buf);
-    void __nebula_rt_println(keeps string buf);
+    void __nebula_rt_print(keeps Ref<u8> buf);
+    void __nebula_rt_println(keeps Ref<u8> buf);
 }
 
-void print(string s) {
-    __nebula_rt_print(s);
+void print(str s) {
+    __nebula_rt_print(s.ptr);
 }
 
-void println(string s) {
-    __nebula_rt_println(s);
+void println(str s) {
+    __nebula_rt_println(s.ptr);
 }

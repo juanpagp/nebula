@@ -7,8 +7,7 @@ import org.nebula.nebc.semantic.symbol.TypeSymbol;
  * Represents a built-in primitive type (i32, f64, bool, etc.).
  * Instances are singletons defined as static fields.
  */
-public class PrimitiveType extends Type
-{
+public class PrimitiveType extends Type {
 
 	public static final PrimitiveType I8 = new PrimitiveType("i8");
 	public static final PrimitiveType U8 = new PrimitiveType("u8");
@@ -23,23 +22,20 @@ public class PrimitiveType extends Type
 	public static final PrimitiveType BOOL = new PrimitiveType("bool");
 	public static final PrimitiveType VOID = new PrimitiveType("void");
 	public static final PrimitiveType CHAR = new PrimitiveType("char");
-	public static final PrimitiveType STRING = new PrimitiveType("string");
+	public static final PrimitiveType STR = new PrimitiveType("str");
 
 	// Special FFI/CVT primitive: Ref<T> — a raw view into a Region, used in extern
 	// "C"
-	public static final PrimitiveType REF = new PrimitiveType("Ref")
-	{
+	public static final PrimitiveType REF = new PrimitiveType("Ref") {
 		@Override
-		public boolean isAssignableTo(Type target)
-		{
+		public boolean isAssignableTo(Type target) {
 			return true; // Ref is an opaque FFI type; allow passing to any parameter
 		}
 	};
 
 	private final String name;
 
-	public PrimitiveType(String name)
-	{
+	public PrimitiveType(String name) {
 		this.name = name;
 	}
 
@@ -47,8 +43,7 @@ public class PrimitiveType extends Type
 	 * Registers all built-in primitive types as {@link TypeSymbol}s in the given
 	 * scope.
 	 */
-	public static void defineAll(SymbolTable scope)
-	{
+	public static void defineAll(SymbolTable scope) {
 		scope.define(TypeSymbol.builtIn("i8", I8));
 		scope.define(TypeSymbol.builtIn("i16", I16));
 		scope.define(TypeSymbol.builtIn("i32", I32));
@@ -64,55 +59,47 @@ public class PrimitiveType extends Type
 		scope.define(TypeSymbol.builtIn("bool", BOOL));
 		scope.define(TypeSymbol.builtIn("void", VOID));
 		scope.define(TypeSymbol.builtIn("char", CHAR));
-		scope.define(TypeSymbol.builtIn("string", STRING));
+		scope.define(TypeSymbol.builtIn("str", STR));
 
 		// FFI/CVT primitives
 		scope.define(TypeSymbol.builtIn("Ref", REF));
 		scope.define(TypeSymbol.builtIn("Region", REF)); // Reuse REF logic for Region for now as a catch-all
 	}
 
-	public boolean isValidMainMethodReturnType()
-	{
+	public boolean isValidMainMethodReturnType() {
 		return this == I32 || this == VOID;
 	}
 
 	@Override
-	public boolean isAssignableTo(Type target)
-	{
+	public boolean isAssignableTo(Type target) {
 		if (this == Type.ANY || target == Type.ANY)
 			return true;
 		if (this.equals(target))
 			return true;
 
-		if (target instanceof PrimitiveType pTarget)
-		{
-			if (this.isInteger() && pTarget.isInteger())
-			{
+		// string is now STR (a struct-like value type)
+		if (this == STR && target instanceof PrimitiveType pt && pt == REF) {
+			return true; // str is implicitly compatible with Ref for FFI compatibility
+		}
+
+		if (target instanceof PrimitiveType pTarget) {
+			if (this.isInteger() && pTarget.isInteger()) {
 				// Signed to unsigned: only if they are the same type (already handled by
 				// equals)
 				// or if it's a widening conversion between SAME signedness.
 				boolean thisSigned = this.name.startsWith("i");
 				boolean targetSigned = pTarget.name.startsWith("i");
 
-				if (thisSigned != targetSigned)
-				{
+				if (thisSigned != targetSigned) {
 					// Relaxed for bootstrap: allow same-width cross-sign conversion
 					return this.getBitWidth() == pTarget.getBitWidth();
 				}
 
 				return this.getBitWidth() <= pTarget.getBitWidth();
-			}
-			else if (this.isFloat() && pTarget.isFloat())
-			{
+			} else if (this.isFloat() && pTarget.isFloat()) {
 				return this.getBitWidth() <= pTarget.getBitWidth();
-			}
-			else if (this.isInteger() && pTarget.isFloat())
-			{
+			} else if (this.isInteger() && pTarget.isFloat()) {
 				return true; // Widening integer to float
-			}
-			if (this == STRING && pTarget == REF)
-			{
-				return true; // string is implicitly Ref<u8> for FFI
 			}
 			return false; // Disallow narrowing and float-to-int implicit casts
 		}
@@ -120,37 +107,32 @@ public class PrimitiveType extends Type
 		return super.isAssignableTo(target);
 	}
 
-	public boolean isInteger()
-	{
+	public boolean isInteger() {
 		return this == I8 || this == U8 || this == I16 || this == U16 ||
 				this == I32 || this == U32 || this == I64 || this == U64;
 	}
 
-	public boolean isFloat()
-	{
+	public boolean isFloat() {
 		return this == F32 || this == F64;
 	}
 
-	public int getBitWidth()
-	{
-		return switch (this.name)
-		{
+	public int getBitWidth() {
+		return switch (this.name) {
 			case "i8", "u8" ->
-					8;
+				8;
 			case "i16", "u16" ->
-					16;
+				16;
 			case "i32", "u32", "f32" ->
-					32;
-			case "i64", "u64", "f64" ->
-					64;
+				32;
+			case "i64", "u64", "f64", "str" ->
+				64;
 			default ->
-					0;
+				0;
 		};
 	}
 
 	@Override
-	public String name()
-	{
+	public String name() {
 		return name;
 	}
 }

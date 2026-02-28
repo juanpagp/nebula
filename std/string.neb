@@ -1,25 +1,22 @@
-namespace std;
+// str is now a built-in value type (immutable slice)
+// struct str { Ref<u8> ptr; u64 len; }
 
-/// A slice over a continuous sequence of characters in memory.
-/// `str` is a structural value and is not tracked by the CVT system.
-/// It represents an immutable view, typically into static memory.
-struct str {
-    Ref<u8> ptr;
-    u64 len;
-}
-
-/// A heap-allocated, resizable sequence of characters.
-/// As a class, `String`'s memory lifecycle is tracked by the CVT system.
 class String {
     Ref<u8> ptr;
     u64 len;
     u64 cap;
 
     String() {
-        // TODO: Implement assignment of `ptr` from `intrinsic::alloc` or similar when available.
-        // For now we leave ptr uninitialized (this might cause compiler warnings/errors later,
-        // but it is semantically correct for a language without nulls).
+        // TODO: Implement allocation via runtime calls when available.
         this.len = 0;
         this.cap = 0;
     }
+
+/*
+    // Returns an immutable slice of the string
+    str as_str() {
+        // In the future, this will be handled by the compiler or a special intrinsic
+        // For now, we manually construct it if possible, but str is a primitive.
+    }
+*/
 }

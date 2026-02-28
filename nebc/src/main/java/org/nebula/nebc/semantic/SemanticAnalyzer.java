@@ -741,6 +741,20 @@ public class SemanticAnalyzer implements ASTVisitor<Type> {
 		if (objectType == Type.ERROR)
 			return Type.ERROR;
 
+		if (objectType == PrimitiveType.STR) {
+			if (node.memberName.equals("ptr")) {
+				Type result = PrimitiveType.REF;
+				recordType(node, result);
+				return result;
+			} else if (node.memberName.equals("len")) {
+				Type result = PrimitiveType.U64;
+				recordType(node, result);
+				return result;
+			}
+			error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, "str");
+			return Type.ERROR;
+		}
+
 		SymbolTable memberScope = null;
 		if (objectType instanceof CompositeType ct) {
 			memberScope = ct.getMemberScope();
@@ -864,7 +878,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type> {
 			case CHAR ->
 				PrimitiveType.CHAR;
 			case STRING ->
-				PrimitiveType.STRING;
+				PrimitiveType.STR;
 		};
 		recordType(node, result);
 		return result;
@@ -1052,7 +1066,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type> {
 
 	@Override
 	public Type visitStringInterpolationExpression(StringInterpolationExpression node) {
-		return PrimitiveType.STRING;
+		return PrimitiveType.STR;
 	}
 
 	@Override

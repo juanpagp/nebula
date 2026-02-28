@@ -647,13 +647,17 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef> {
 
 				yield LLVMConstInt(llvmType, codePoint, 0);
 			}
-			case STRING ->
+			case STRING -> {
+				// str → { i8*, i64 }
+				String text = node.value.toString();
+				LLVMValueRef globalPtr = LLVMBuildGlobalStringPtr(builder, text, ".str");
+				LLVMValueRef length = LLVMConstInt(LLVMInt64TypeInContext(context), text.length(), 0);
 
-			{
-				// String → global constant + pointer
-				String str = node.value.toString();
+				LLVMValueRef structVal = LLVMGetUndef(llvmType);
+				structVal = LLVMBuildInsertValue(builder, structVal, globalPtr, 0, "str_ptr");
+				structVal = LLVMBuildInsertValue(builder, structVal, length, 1, "str_len");
 
-				yield LLVMBuildGlobalStringPtr(builder, str, ".str");
+				yield structVal;
 			}
 
 		};
@@ -823,7 +827,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef> {
 			LLVMValueRef index = indexExpr.indices.get(0).accept(this);
 			Type baseType = analyzer.getType(indexExpr.target);
 
-			if (baseType == PrimitiveType.REF || baseType == PrimitiveType.STRING) {
+			if (baseType == PrimitiveType.REF || baseType == PrimitiveType.STR) {
 				LLVMValueRef[] indices = { index };
 				LLVMTypeRef elemType = LLVMInt8TypeInContext(context);
 				LLVMValueRef gep = LLVMBuildGEP2(builder, elemType, base, new PointerPointer<>(indices), 1, "ptr_idx");
@@ -951,7 +955,18 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef> {
 
 	@Override
 	public LLVMValueRef visitMemberAccessExpression(MemberAccessExpression node) {
-		// TODO: Emit GEP (GetElementPtr) for member access
+		LLVMValueRef base = node.target.accept(this);
+		Type baseType = analyzer.getType(node.target);
+
+		if (baseType == PrimitiveType.STR) {
+			if (node.memberName.equals("ptr")) {
+				return LLVMBuildExtractValue(builder, base, 0, "str_ptr_extract");
+			} else if (node.memberName.equals("len")) {
+				return LLVMBuildExtractValue(builder, base, 1, "str_len_extract");
+			}
+		}
+
+		// TODO: Implement GEP (GetElementPtr) for general struct member access
 		return null;
 	}
 
@@ -967,7 +982,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef> {
 		LLVMValueRef index = node.indices.get(0).accept(this);
 		Type baseType = analyzer.getType(node.target);
 
-		if (baseType == PrimitiveType.REF || baseType == PrimitiveType.STRING) {
+		if (baseType == PrimitiveType.REF || baseType == PrimitiveType.STR) {
 			// Pointer indexing: GEP + Load
 			LLVMValueRef[] indices = { index };
 			LLVMTypeRef elemType = LLVMInt8TypeInContext(context);

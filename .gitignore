@@ -38,6 +38,7 @@ build/
 .DS_Store
 
 catlr.txt
+diff.txt
 src/main/java/org/nebula/nebc/frontend/parser/generated
 src/main/antlr4/NebulaLexer.tokens
 gen/
@@ -46,3 +47,5 @@ nebc/tests/
 nebc/src/test/
 .idea/
 nebc/.idea/
+test/
+*.so

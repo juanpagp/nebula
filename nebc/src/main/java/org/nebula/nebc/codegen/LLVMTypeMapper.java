@@ -17,11 +17,9 @@ import static org.bytedeco.llvm.global.LLVM.*;
  * explicit {@link LLVMContextRef} so type refs are always bound to the correct
  * LLVM context.
  */
-public final class LLVMTypeMapper
-{
+public final class LLVMTypeMapper {
 
-	private LLVMTypeMapper()
-	{
+	private LLVMTypeMapper() {
 		// Utility class
 	}
 
@@ -33,22 +31,17 @@ public final class LLVMTypeMapper
 	 * @return The corresponding LLVM type ref.
 	 * @throws CodegenException if the type cannot be mapped.
 	 */
-	public static LLVMTypeRef map(LLVMContextRef ctx, Type type)
-	{
-		if (type == null)
-		{
+	public static LLVMTypeRef map(LLVMContextRef ctx, Type type) {
+		if (type == null) {
 			throw new CodegenException("Internal error: Attempted to map a null type to LLVM.");
 		}
-		if (type instanceof PrimitiveType pt)
-		{
+		if (type instanceof PrimitiveType pt) {
 			return mapPrimitive(ctx, pt);
 		}
-		if (type instanceof FunctionType ft)
-		{
+		if (type instanceof FunctionType ft) {
 			return mapFunction(ctx, ft);
 		}
-		if (type instanceof CompositeType)
-		{
+		if (type instanceof CompositeType) {
 			// Classes and structs are pointer-to-opaque-struct for now
 			return LLVMPointerTypeInContext(ctx, /* AddressSpace */ 0);
 		}
@@ -57,8 +50,7 @@ public final class LLVMTypeMapper
 
 	// ── Primitives ──────────────────────────────────────────────
 
-	private static LLVMTypeRef mapPrimitive(LLVMContextRef ctx, PrimitiveType pt)
-	{
+	private static LLVMTypeRef mapPrimitive(LLVMContextRef ctx, PrimitiveType pt) {
 		// Identity comparison — PrimitiveType uses singleton instances
 		if (pt == PrimitiveType.VOID)
 			return LLVMVoidTypeInContext(ctx);
@@ -83,8 +75,18 @@ public final class LLVMTypeMapper
 		if (pt == PrimitiveType.CHAR)
 			return LLVMInt32TypeInContext(ctx);
 
-		// string, Ref, ANY → i8* (pointer)
-		if (pt == PrimitiveType.STRING || pt == PrimitiveType.REF || pt == (PrimitiveType) Type.ANY)
+		// str → { i8*, i64 }
+		if (pt == PrimitiveType.STR) {
+			LLVMTypeRef[] fields = {
+					LLVMPointerTypeInContext(ctx, 0), // ptr
+					LLVMInt64TypeInContext(ctx) // len
+			};
+			PointerPointer<LLVMTypeRef> fieldTypes = new PointerPointer<>(fields);
+			return LLVMStructTypeInContext(ctx, fieldTypes, 2, /* isPacked */ 0);
+		}
+
+		// Ref, ANY → i8* (pointer)
+		if (pt == PrimitiveType.REF || pt == (PrimitiveType) Type.ANY)
 			return LLVMPointerTypeInContext(ctx, 0);
 
 		throw new CodegenException("Unmappable primitive type: " + pt.name());
@@ -92,18 +94,15 @@ public final class LLVMTypeMapper
 
 	// ── Functions ───────────────────────────────────────────────
 
-	private static LLVMTypeRef mapFunction(LLVMContextRef ctx, FunctionType ft)
-	{
+	private static LLVMTypeRef mapFunction(LLVMContextRef ctx, FunctionType ft) {
 		LLVMTypeRef returnType = map(ctx, ft.returnType);
 		int paramCount = ft.parameterTypes.size();
-		if (paramCount == 0)
-		{
+		if (paramCount == 0) {
 			return LLVMFunctionType(returnType, new LLVMTypeRef(), 0, /* isVarArg */ 0);
 		}
 		// Build PointerPointer array of param type refs
 		PointerPointer<LLVMTypeRef> paramTypes = new PointerPointer<>(paramCount);
-		for (int i = 0; i < paramCount; i++)
-		{
+		for (int i = 0; i < paramCount; i++) {
 			paramTypes.put(i, map(ctx, ft.parameterTypes.get(i)));
 		}
 		return LLVMFunctionType(returnType, paramTypes, paramCount, /* isVarArg */ 0);

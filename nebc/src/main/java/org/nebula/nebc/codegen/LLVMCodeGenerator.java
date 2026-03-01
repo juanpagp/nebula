@@ -82,7 +82,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 	private LLVMValueRef emitCast(LLVMValueRef value, Type srcSemType, Type targetSemType)
 	{
-		if (value == null || srcSemType.equals(targetSemType))
+		if (value == null || srcSemType == null || targetSemType == null || srcSemType.equals(targetSemType))
 			return value;
 
 		LLVMTypeRef targetType = toLLVMType(targetSemType);
@@ -1274,9 +1274,13 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		}
 
 		Type targetType = analyzer.getType(node.target);
+		if (targetType == null)
+		{
+			throw new CodegenException("Target of invocation has no type recorded: " + node.target);
+		}
 		if (!(targetType instanceof FunctionType ft))
 		{
-			throw new CodegenException("Target of invocation is not a function: " + targetType.name());
+			throw new CodegenException("Target of invocation is not a function: " + targetType.name() + " (at " + node.target + ")");
 		}
 
 		// Apply substitution to the function type used for calling
@@ -1319,11 +1323,10 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		LLVMValueRef[] argsArr = new LLVMValueRef[llvmArgCount];
 		int llvmArgIdx = 0;
 
-		// Debugging
-		System.out.println("[DEBUG] Calling " + ((LLVMIsAFunction(function) != null && !LLVMIsAFunction(function).isNull()) ? LLVMGetValueName(function).getString() : "function"));
-		System.out.println("[DEBUG]   Target Nebula Type: " + ft.name());
-		System.out.println("[DEBUG]   LLVM Call Type: " + LLVMPrintTypeToString(llvmFuncType).getString());
-		System.out.println("[DEBUG]   Arg Count: " + llvmArgCount);
+		// System.out.println("[DEBUG] Calling " + ((LLVMIsAFunction(function) != null && !LLVMIsAFunction(function).isNull()) ? LLVMGetValueName(function).getString() : "function"));
+		// System.out.println("[DEBUG]   Target Nebula Type: " + ft.name());
+		// System.out.println("[DEBUG]   LLVM Call Type: " + LLVMPrintTypeToString(llvmFuncType).getString());
+		// System.out.println("[DEBUG]   Arg Count: " + llvmArgCount);
 
 		// If this is a member call, prepend the receiver as 'this'
 		if (node.target instanceof MemberAccessExpression mae && llvmArgCount > nebulaArgCount)
@@ -1332,7 +1335,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			Type receiverSemType = analyzer.getType(mae.target);
 			Type thisParamType = ft.parameterTypes.get(0);
 
-			System.out.println("[DEBUG]   Receiver: " + receiverSemType.name() + " -> " + thisParamType.name());
+			// System.out.println("[DEBUG]   Receiver: " + receiverSemType.name() + " -> " + thisParamType.name());
 			argsArr[llvmArgIdx++] = emitCast(receiver, receiverSemType, thisParamType);
 		}
 
@@ -1344,7 +1347,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			Type paramType = ft.parameterTypes.get(llvmArgIdx);
 			Type argSemType = analyzer.getType(argNode);
 
-			System.out.println("[DEBUG]   Arg " + i + ": " + argSemType.name() + " -> " + paramType.name());
+			// System.out.println("[DEBUG]   Arg " + i + ": " + argSemType.name() + " -> " + paramType.name());
 			argsArr[llvmArgIdx++] = emitCast(argValue, argSemType, paramType);
 		}
 
@@ -1381,8 +1384,13 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitMemberAccessExpression(MemberAccessExpression node)
 	{
-		LLVMValueRef base = node.target.accept(this);
 		Type baseType = analyzer.getType(node.target);
+		LLVMValueRef base = null;
+		if (!(baseType instanceof NamespaceType))
+		{
+			base = node.target.accept(this);
+		}
+
 		if (currentSubstitution != null)
 		{
 			baseType = currentSubstitution.substitute(baseType);
@@ -1413,6 +1421,10 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			{
 				memberSym = tbl.resolve(node.memberName);
 			}
+		}
+		else if (baseType instanceof NamespaceType nt)
+		{
+			memberSym = nt.getMemberScope().resolve(node.memberName);
 		}
 
 		if (memberSym instanceof MethodSymbol ms)

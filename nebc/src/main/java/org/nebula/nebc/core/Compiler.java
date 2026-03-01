@@ -1,17 +1,19 @@
 package org.nebula.nebc.core;
 
-import org.nebula.nebc.ast.*;
-import org.nebula.nebc.ast.declarations.*;
-import org.nebula.nebc.ast.statements.*;
+import org.nebula.nebc.ast.ASTBuilder;
+import org.nebula.nebc.ast.ASTNode;
+import org.nebula.nebc.ast.CompilationUnit;
+import org.nebula.nebc.ast.statements.UseStatement;
 import org.nebula.nebc.codegen.CodegenException;
 import org.nebula.nebc.codegen.LLVMCodeGenerator;
 import org.nebula.nebc.codegen.NativeCompiler;
 import org.nebula.nebc.frontend.diagnostic.Diagnostic;
-import org.nebula.nebc.frontend.diagnostic.DiagnosticCode;
 import org.nebula.nebc.frontend.parser.Parser;
 import org.nebula.nebc.frontend.parser.ParsingResult;
 import org.nebula.nebc.io.SourceFile;
 import org.nebula.nebc.semantic.SemanticAnalyzer;
+import org.nebula.nebc.semantic.SymbolExporter;
+import org.nebula.nebc.semantic.SymbolImporter;
 import org.nebula.nebc.util.Log;
 import org.nebula.util.ExitCode;
 
@@ -43,8 +45,16 @@ public class Compiler
 		// 2. Build the AST for user sources
 		this.compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
 
-		// 3. Resolve Standard Library Dependencies recursively
-		resolveDependencies();
+		// 3. Semantic Analysis (Type checking, symbol resolution)
+		SemanticAnalyzer analyzer = new SemanticAnalyzer(config);
+
+		// 3.1 Load external symbols
+		loadExternalSymbols(analyzer);
+
+		// 3.2 Resolve Standard Library Dependencies recursively (on-demand loading of .neb files)
+		// This is for source dependencies, mostly for when compiling the std itself or
+		// when user explicitly wants to compile from source.
+		resolveDependencies(analyzer);
 		for (var cu : compilationUnits)
 		{
 			Log.debug(cu.toString());
@@ -64,7 +74,7 @@ public class Compiler
 		}
 
 		// 4. Semantic Analysis (Type checking, symbol resolution)
-		SemanticAnalyzer analyzer = new SemanticAnalyzer(config);
+		// Forward-declare all top-level types across all units
 
 		// Phase 1: Forward-declare all top-level types across all units
 		for (var cu : compilationUnits)
@@ -100,6 +110,10 @@ public class Compiler
 		// Skip codegen if --check-only was specified
 		if (config.checkOnly())
 		{
+			if (config.compileAsLibrary())
+			{
+				exportSymbols(analyzer);
+			}
 			Log.info("Check-only mode: skipping code generation.");
 			return ExitCode.SUCCESS;
 		}
@@ -157,7 +171,7 @@ public class Compiler
 				extraObjects.addAll(runtimeObjs);
 			}
 
-			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.isStatic(), config.compileAsLibrary(), extraObjects);
+			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.isStatic(), config.compileAsLibrary(), extraObjects, config.librarySearchPaths(), config.nebLibraries());
 
 			// Cleanup extra objects
 			for (Path p : extraObjects)
@@ -169,6 +183,11 @@ public class Compiler
 				catch (IOException ignored)
 				{
 				}
+			}
+
+			if (config.compileAsLibrary())
+			{
+				exportSymbols(analyzer);
 			}
 
 			Log.info("Compiled successfully: " + outputPath);
@@ -233,7 +252,75 @@ public class Compiler
 		return objects;
 	}
 
-	private void resolveDependencies()
+	private void loadExternalSymbols(SemanticAnalyzer analyzer)
+	{
+		SymbolImporter importer = new SymbolImporter();
+
+		// Load default std if not disabled
+		if (config.useStdLib())
+		{
+			try
+			{
+				Path stdSyms = Path.of("std.nebsym");
+				if (!Files.exists(stdSyms))
+				{
+					stdSyms = Path.of("..", "std.nebsym"); // Try parent for dev environment
+				}
+
+				if (Files.exists(stdSyms))
+				{
+					Log.info("Loading standard library symbols: " + stdSyms);
+					importer.importSymbols(stdSyms.toString(), analyzer.getGlobalScope());
+				}
+				else
+				{
+					Log.warn("Standard library symbols (std.nebsym) not found. On-demand source loading will be used.");
+				}
+			}
+			catch (IOException e)
+			{
+				Log.err("Failed to load standard library symbols: " + e.getMessage());
+			}
+		}
+
+		// Load user-specified symbol files
+		for (SourceFile sf : config.symbolFiles())
+		{
+			try
+			{
+				Log.info("Loading symbols: " + sf.path());
+				importer.importSymbols(sf.path(), analyzer.getGlobalScope());
+			}
+			catch (IOException e)
+			{
+				Log.err("Failed to load symbols from " + sf.path() + ": " + e.getMessage());
+			}
+		}
+	}
+
+	private void exportSymbols(SemanticAnalyzer analyzer)
+	{
+		String outputPath = config.outputFile() != null ? config.outputFile() : "out";
+		// Remove extension if present
+		if (outputPath.contains("."))
+		{
+			outputPath = outputPath.substring(0, outputPath.lastIndexOf('.'));
+		}
+		String symPath = outputPath + ".nebsym";
+
+		SymbolExporter exporter = new SymbolExporter();
+		try
+		{
+			Log.info("Exporting symbols to: " + symPath);
+			exporter.export(analyzer.getGlobalScope(), outputPath, symPath);
+		}
+		catch (IOException e)
+		{
+			Log.err("Failed to export symbols: " + e.getMessage());
+		}
+	}
+
+	private void resolveDependencies(SemanticAnalyzer analyzer)
 	{
 		if (config.compileAsLibrary())
 			return;
@@ -250,7 +337,11 @@ public class Compiler
 			{
 				if (directive instanceof UseStatement use && use.qualifiedName.startsWith("std::"))
 				{
-					toLoad.add(use.qualifiedName);
+					// Only load from source if it wasn't already loaded as an external symbol (library)
+					if (analyzer.getGlobalScope().resolve(use.qualifiedName) == null)
+					{
+						toLoad.add(use.qualifiedName);
+					}
 				}
 			}
 		}
@@ -283,7 +374,10 @@ public class Compiler
 						{
 							if (directive instanceof UseStatement use && use.qualifiedName.startsWith("std::"))
 							{
-								toLoad.add(use.qualifiedName);
+								if (analyzer.getGlobalScope().resolve(use.qualifiedName) == null)
+								{
+									toLoad.add(use.qualifiedName);
+								}
 							}
 						}
 					}
@@ -299,23 +393,17 @@ public class Compiler
 	private Path resolveStdPath(String qualifiedName)
 	{
 		// std::io -> std/io.neb
-		// std::traits -> std/displayable.neb
 		String relative = qualifiedName.replace("::", "/");
-
-		if (qualifiedName.equals("std::traits"))
-		{
-			relative = "std/displayable";
-		}
 
 		Path p = Path.of(relative + ".neb");
 		if (Files.exists(p))
 			return p;
 
-		// Try checking parent directory (for when running from nebc/ folder)
+		// Try checking project root
 		Path parentP = Path.of("..").resolve(relative + ".neb");
 		if (Files.exists(parentP))
 			return parentP;
 
-		return p;
+		return null;
 	}
 }

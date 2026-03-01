@@ -42,6 +42,16 @@ public class FunctionType extends Type
 		this.parameterInfo = parameterInfo;
 	}
 
+	public List<Type> getParameterTypes()
+	{
+		return parameterTypes;
+	}
+
+	public List<ParameterInfo> getParameterInfos()
+	{
+		return parameterInfo;
+	}
+
 	@Override
 	public String name()
 	{

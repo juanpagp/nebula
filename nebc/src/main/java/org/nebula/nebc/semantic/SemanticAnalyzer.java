@@ -54,73 +54,114 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 	public void declareTypes(CompilationUnit unit)
 	{
+		currentScope = globalScope;
 		// Initialize built-in primitive types as TypeSymbols
 		PrimitiveType.defineAll(globalScope);
 
-		// Phase 1: Forward-declare all top-level type names.
-		for (ASTNode decl : unit.declarations)
+		declareTypesRecursive(unit.declarations);
+	}
+
+	private void declareTypesRecursive(List<ASTNode> declarations)
+	{
+		if (declarations == null)
+			return;
+		for (ASTNode decl : declarations)
 		{
-			if (decl instanceof ClassDeclaration cd)
+			if (decl instanceof NamespaceDeclaration nd)
 			{
-				ClassType classType = new ClassType(cd.name, globalScope);
+				if (nd.isBlockDeclaration)
+				{
+					SymbolTable original = currentScope;
+					currentScope = enterNamespace(nd, currentScope);
+					declareTypesRecursive(nd.members);
+					currentScope = original;
+				}
+				else
+				{
+					currentScope = enterNamespace(nd, globalScope);
+				}
+			}
+			else if (decl instanceof ClassDeclaration cd)
+			{
+				ClassType classType = new ClassType(cd.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(cd.name, classType, cd);
 				classType.getMemberScope().setOwner(sym);
-				if (!globalScope.define(sym))
+				if (!currentScope.define(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, cd, cd.name);
 				}
 			}
 			else if (decl instanceof StructDeclaration sd)
 			{
-				StructType structType = new StructType(sd.name, globalScope);
+				StructType structType = new StructType(sd.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(sd.name, structType, sd);
 				structType.getMemberScope().setOwner(sym);
-				if (!globalScope.define(sym))
+				if (!currentScope.define(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, sd, sd.name);
 				}
 			}
 			else if (decl instanceof EnumDeclaration ed)
 			{
-				EnumType enumType = new EnumType(ed.name, globalScope);
+				EnumType enumType = new EnumType(ed.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(ed.name, enumType, ed);
-				if (!globalScope.define(sym))
+				if (!currentScope.define(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, ed, ed.name);
 				}
 			}
 			else if (decl instanceof UnionDeclaration ud)
 			{
-				UnionType unionType = new UnionType(ud.name, globalScope);
+				UnionType unionType = new UnionType(ud.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(ud.name, unionType, ud);
-				if (!globalScope.define(sym))
+				if (!currentScope.define(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, ud, ud.name);
 				}
 			}
 			else if (decl instanceof TraitDeclaration td)
 			{
-				TraitType traitType = new TraitType(td.name, globalScope);
+				TraitType traitType = new TraitType(td.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(td.name, traitType, td);
-				if (!globalScope.define(sym))
+				if (!currentScope.define(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, td, td.name);
 				}
 			}
-			// ImplDeclaration does not define a new type — processed later.
 		}
 	}
 
 	/**
 	 * Phase 1.75: Populate trait member scopes by visiting trait declarations.
-	 * Must run after declareTypes (so TraitTypes exist) and before analyze()
-	 * (so that member access on type-parameter bounds can resolve methods).
 	 */
 	public void declareTraitBodies(CompilationUnit unit)
 	{
-		for (ASTNode decl : unit.declarations)
+		currentScope = globalScope;
+		processDirectives(unit);
+		declareTraitBodiesRecursive(unit.declarations);
+	}
+
+	private void declareTraitBodiesRecursive(List<ASTNode> declarations)
+	{
+		if (declarations == null)
+			return;
+		for (ASTNode decl : declarations)
 		{
-			if (decl instanceof TraitDeclaration td)
+			if (decl instanceof NamespaceDeclaration nd)
+			{
+				if (nd.isBlockDeclaration)
+				{
+					SymbolTable original = currentScope;
+					currentScope = enterNamespace(nd, currentScope);
+					declareTraitBodiesRecursive(nd.members);
+					currentScope = original;
+				}
+				else
+				{
+					currentScope = enterNamespace(nd, globalScope);
+				}
+			}
+			else if (decl instanceof TraitDeclaration td)
 			{
 				visitTraitDeclaration(td);
 			}
@@ -129,10 +170,32 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 	public void declareMethods(CompilationUnit unit)
 	{
-		// Phase 1.5: Pre-declare global methods
-		for (ASTNode decl : unit.declarations)
+		currentScope = globalScope;
+		processDirectives(unit);
+		declareMethodsRecursive(unit.declarations);
+	}
+
+	private void declareMethodsRecursive(List<ASTNode> declarations)
+	{
+		if (declarations == null)
+			return;
+		for (ASTNode decl : declarations)
 		{
-			if (decl instanceof MethodDeclaration md)
+			if (decl instanceof NamespaceDeclaration nd)
+			{
+				if (nd.isBlockDeclaration)
+				{
+					SymbolTable original = currentScope;
+					currentScope = enterNamespace(nd, currentScope);
+					declareMethodsRecursive(nd.members);
+					currentScope = original;
+				}
+				else
+				{
+					currentScope = enterNamespace(nd, globalScope);
+				}
+			}
+			else if (decl instanceof MethodDeclaration md)
 			{
 				defineMethodSignature(md);
 			}
@@ -143,8 +206,42 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 	}
 
+	private void processDirectives(CompilationUnit unit)
+	{
+		for (ASTNode directive : unit.directives)
+		{
+			directive.accept(this);
+		}
+	}
+
+	private SymbolTable enterNamespace(NamespaceDeclaration node, SymbolTable baseScope)
+	{
+		String[] parts = node.name.split("::");
+		SymbolTable table = baseScope;
+
+		for (String part : parts)
+		{
+			Symbol existing = table.resolveLocal(part);
+			NamespaceSymbol nsSym;
+			if (existing instanceof NamespaceSymbol ns)
+			{
+				nsSym = ns;
+			}
+			else
+			{
+				NamespaceType nsType = new NamespaceType(part, table);
+				nsSym = new NamespaceSymbol(part, nsType, node);
+				table.define(nsSym);
+			}
+			table = nsSym.getMemberTable();
+		}
+		return table;
+	}
+
 	public List<Diagnostic> analyze(CompilationUnit unit)
 	{
+		currentScope = globalScope;
+		processDirectives(unit);
 		// Phase 2: Full visitation — resolve bodies, check types.
 		for (ASTNode decl : unit.declarations)
 		{
@@ -212,6 +309,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		return primitiveImplScopes;
 	}
 
+	public SymbolTable getGlobalScope()
+	{
+		return globalScope;
+	}
+
 	// --- Utilities ---
 
 	private void error(DiagnosticCode code, ASTNode node, Object... args)
@@ -263,8 +365,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitCompilationUnit(CompilationUnit node)
 	{
-		// Phase 1 & 1.5 are now handled by declareTypes() and declareMethods()
+		currentScope = globalScope;
 		// Phase 2: Full visitation
+		for (ASTNode directive : node.directives)
+		{
+			directive.accept(this);
+		}
 		for (ASTNode decl : node.declarations)
 		{
 			if (!(decl instanceof ExternDeclaration))
@@ -278,23 +384,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitNamespaceDeclaration(NamespaceDeclaration node)
 	{
-		// Resolve or create namespace
-		NamespaceSymbol nsSym;
-		Symbol existing = currentScope.resolve(node.name);
+		SymbolTable baseScope = node.isBlockDeclaration ? currentScope : globalScope;
+		SymbolTable originalScope = currentScope;
 
-		if (existing instanceof NamespaceSymbol ns)
-		{
-			nsSym = ns;
-		}
-		else
-		{
-			NamespaceType nsType = new NamespaceType(node.name, currentScope);
-			nsSym = new NamespaceSymbol(node.name, nsType, node);
-			currentScope.define(nsSym);
-		}
-
-		SymbolTable previousScope = currentScope;
-		currentScope = nsSym.getMemberTable();
+		currentScope = enterNamespace(node, baseScope);
 
 		// Pre-pass methods
 		for (ASTNode member : node.members)
@@ -318,7 +411,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		// File-scoped namespaces (namespace foo;) stay active for the file.
 		if (node.isBlockDeclaration)
 		{
-			currentScope = previousScope;
+			currentScope = originalScope;
 		}
 
 		return null;
@@ -1168,6 +1261,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 
 		Type result = memberSym.getType();
+		recordSymbol(node, memberSym);
 		recordType(node, result);
 		return result;
 	}
@@ -1667,7 +1761,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			// Primitives get a synthetic impl scope, owned by the primitive type symbol
 			targetScope = primitiveImplScopes.computeIfAbsent(targetType, t ->
 			{
-				SymbolTable st = new SymbolTable(globalScope);
+				SymbolTable st = new SymbolTable(currentScope);
 				// Set the owner so MethodSymbol.getMangledName() prefixes methods with 'i32_', etc.
 				st.setOwner(new TypeSymbol(pt.name(), pt, null));
 				return st;

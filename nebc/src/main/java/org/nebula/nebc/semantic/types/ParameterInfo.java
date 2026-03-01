@@ -22,12 +22,27 @@ public class ParameterInfo
 		this.name = name;
 	}
 
+	public String name()
+	{
+		return name;
+	}
+
+	public Type type()
+	{
+		return type;
+	}
+
+	public String cvtHint()
+	{
+		return cvtModifier != null ? cvtModifier.keyword() : null;
+	}
+
 	/**
 	 * Check if this parameter has a CVT modifier (keeps or drops)
 	 */
 	public boolean hasCVTModifier()
 	{
-		return cvtModifier.isFFIModifier();
+		return cvtModifier != null && cvtModifier.isFFIModifier();
 	}
 
 	/**

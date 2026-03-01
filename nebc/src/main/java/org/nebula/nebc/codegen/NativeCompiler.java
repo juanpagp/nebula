@@ -46,7 +46,7 @@ public final class NativeCompiler
 	 * @throws CodegenException if target initialisation, object emission, or
 	 *                          linking fails.
 	 */
-	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean isStatic, boolean isLibrary, List<Path> additionalObjects)
+	public static void compile(LLVMModuleRef module, String outputPath, String triple, boolean isStatic, boolean isLibrary, List<Path> additionalObjects, List<java.io.File> libraryPaths, List<org.nebula.nebc.io.SourceFile> linkLibraries)
 	{
 		// 1. Initialise LLVM targets
 		LLVMInitializeNativeTarget();
@@ -115,19 +115,34 @@ public final class NativeCompiler
 		LLVMDisposeMessage(defaultTriple);
 
 		// 8. Link with clang
-		link(objectFile, outputPath, isStatic, isLibrary, additionalObjects);
+		link(objectFile, outputPath, isStatic, isLibrary, additionalObjects, libraryPaths, linkLibraries);
 	}
 
 	/**
 	 * Invokes {@code clang} to link the object file into a native executable.
 	 */
-	private static void link(Path objectFile, String outputPath, boolean isStatic, boolean isLibrary, List<Path> additionalObjects)
+	private static void link(Path objectFile, String outputPath, boolean isStatic, boolean isLibrary, List<Path> additionalObjects, List<java.io.File> libraryPaths, List<org.nebula.nebc.io.SourceFile> linkLibraries)
 	{
 		try
 		{
+			String finalOutputPath = outputPath;
+			if (isLibrary)
+			{
+				Path path = Path.of(outputPath);
+				String fileName = path.getFileName().toString();
+				if (!fileName.startsWith("lib"))
+				{
+					fileName = "lib" + fileName;
+				}
+				if (!fileName.endsWith(".so"))
+				{
+					fileName = fileName + ".so";
+				}
+				finalOutputPath = path.getParent() != null ? path.getParent().resolve(fileName).toString() : fileName;
+			}
 			List<String> command = new ArrayList<>(List.of(
 					"clang", "-O3", // add optimization
-					objectFile.toString(), "-o", outputPath));
+					objectFile.toString(), "-o", finalOutputPath));
 
 			if (additionalObjects != null)
 			{
@@ -160,7 +175,28 @@ public final class NativeCompiler
 				command.add("-Wl,-rpath,..");
 				command.add("-L.");
 				command.add("-L..");
-				command.add("-lneb");
+
+				if (libraryPaths != null)
+				{
+					for (java.io.File dir : libraryPaths)
+					{
+						command.add("-L" + dir.getAbsolutePath());
+						command.add("-Wl,-rpath," + dir.getAbsolutePath());
+					}
+				}
+
+				if (linkLibraries != null)
+				{
+					for (org.nebula.nebc.io.SourceFile lib : linkLibraries)
+					{
+						String name = lib.path();
+						if (name.startsWith("lib") && name.endsWith(".so"))
+						{
+							name = name.substring(3, name.length() - 3);
+						}
+						command.add("-l" + name);
+					}
+				}
 			}
 
 			ProcessBuilder pb = new ProcessBuilder(command);

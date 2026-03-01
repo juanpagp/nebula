@@ -361,9 +361,9 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		{
 			function = LLVMAddFunction(module, funcName, llvmFuncType);
 		}
-		else
+		else if (LLVMCountBasicBlocks(function) > 0)
 		{
-			// If already emitted (could happen if specialization called twice in same unit)
+			// If already emitted with a body (could happen if specialization called twice in same unit)
 			return function;
 		}
 
@@ -593,7 +593,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		{
 			function = LLVMAddFunction(module, funcName, llvmFuncType);
 		}
-		else
+		else if (LLVMCountBasicBlocks(function) > 0)
 		{
 			return function;
 		}

@@ -178,9 +178,6 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		return nodeTypes.get(node);
 	}
 
-	/**
-	 * Helper for the CodeGen to retrieve resolved metadata.
-	 */
 	public <T extends Symbol> T getSymbol(ASTNode node, Class<T> type)
 	{
 		Symbol sym = nodeSymbols.get(node);
@@ -392,6 +389,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			if (member instanceof MethodDeclaration md)
 			{
 				defineMethodSignature(md);
+			}
+			else if (member instanceof ConstructorDeclaration cd)
+			{
+				defineConstructorSignature(cd);
 			}
 			else if (member instanceof ExternDeclaration ed)
 			{
@@ -1610,6 +1611,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				paramTypes.add(t == Type.ERROR ? Type.ANY : t);
 			}
 			FunctionType fnType = new FunctionType(returnType, paramTypes, null);
+			// Prepend 'this' for trait methods too, so call sites calculate args correctly
+			fnType.parameterTypes.add(0, traitType);
+
 			MethodSymbol methodSym = new MethodSymbol(method.name, fnType, method.modifiers, false, method, java.util.Collections.emptyList());
 			recordSymbol(method, methodSym);
 
@@ -1725,7 +1729,69 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitConstructorDeclaration(ConstructorDeclaration node)
 	{
+		Symbol sym = getSymbol(node, Symbol.class);
+		if (sym == null)
+			return null;
+
+		SymbolTable prevScope = currentScope;
+		Type prevMethodReturn = currentMethodReturnType;
+
+		// Methods get their own scope for parameters and locals
+		currentScope = new SymbolTable(prevScope);
+		currentMethodReturnType = PrimitiveType.VOID;
+
+		try
+		{
+			MethodSymbol methodSym = (MethodSymbol) sym;
+			FunctionType fnType = methodSym.getType();
+
+			// Define parameters inside the new scope
+			int fnParamIdx = 1; // skip 'this'
+			for (int i = 0; i < node.parameters.size(); i++)
+			{
+				Parameter p = node.parameters.get(i);
+				Type paramType = fnType.parameterTypes.get(fnParamIdx++);
+				VariableSymbol paramSym = new VariableSymbol(p.name(), paramType, false, null);
+				currentScope.define(paramSym);
+			}
+
+			if (node.body != null)
+			{
+				node.body.accept(this);
+			}
+		}
+		finally
+		{
+			currentScope = prevScope;
+			currentMethodReturnType = prevMethodReturn;
+		}
+
 		return null;
+	}
+
+	private void defineConstructorSignature(ConstructorDeclaration node)
+	{
+		List<Type> paramTypes = new ArrayList<>();
+		paramTypes.add(PrimitiveType.REF); // 'this' parameter
+
+		for (Parameter p : node.parameters)
+		{
+			Type t = resolveType(p.type());
+			paramTypes.add(t == Type.ERROR ? Type.ANY : t);
+		}
+
+		FunctionType fnType = new FunctionType(PrimitiveType.VOID, paramTypes, null);
+		// Constructors are technically methods attached to the class name
+		MethodSymbol ms = new MethodSymbol(node.name, fnType, java.util.Collections.emptyList(), false, node, java.util.Collections.emptyList());
+
+		if (currentScope.resolveLocal(node.name) != null)
+		{
+			error(DiagnosticCode.DUPLICATE_SYMBOL, node, node.name);
+			return;
+		}
+
+		currentScope.define(ms);
+		recordSymbol(node, ms);
 	}
 
 	@Override
@@ -1737,6 +1803,18 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitUseStatement(UseStatement node)
 	{
+		// Resolve the namespace
+		Symbol sym = globalScope.resolve(node.qualifiedName);
+		if (sym instanceof NamespaceSymbol ns)
+		{
+			currentScope.addImport(ns);
+		}
+		else
+		{
+			// If it's a direct import of a type, we might want to support that too, 
+			// but for now we follow the 'use' is for namespaces/traits rule.
+			error(DiagnosticCode.UNDEFINED_SYMBOL, node, node.qualifiedName);
+		}
 		return null;
 	}
 

@@ -13,13 +13,14 @@ import static org.bytedeco.llvm.global.LLVM.*;
 /**
  * Maps Nebula semantic {@link Type} objects to LLVM {@link LLVMTypeRef} values.
  * <p>
- * This is a pure utility class with no mutable state. Every method requires an
- * explicit {@link LLVMContextRef} so type refs are always bound to the correct
+ * This class caches named struct types to ensure type consistency within an
  * LLVM context.
  */
-public final class LLVMTypeMapper {
+public final class LLVMTypeMapper
+{
 
-	private LLVMTypeMapper() {
+	private LLVMTypeMapper()
+	{
 		// Utility class
 	}
 
@@ -31,26 +32,31 @@ public final class LLVMTypeMapper {
 	 * @return The corresponding LLVM type ref.
 	 * @throws CodegenException if the type cannot be mapped.
 	 */
-	public static LLVMTypeRef map(LLVMContextRef ctx, Type type) {
-		if (type == null) {
+	public static LLVMTypeRef map(LLVMContextRef ctx, Type type)
+	{
+		if (type == null)
+		{
 			throw new CodegenException("Internal error: Attempted to map a null type to LLVM.");
 		}
-		if (type instanceof PrimitiveType pt) {
+		if (type instanceof PrimitiveType pt)
+		{
 			return mapPrimitive(ctx, pt);
 		}
-		if (type instanceof FunctionType ft) {
+		if (type instanceof FunctionType ft)
+		{
 			return mapFunction(ctx, ft);
 		}
-		if (type instanceof CompositeType) {
-			// Classes and structs are pointer-to-opaque-struct for now
-			return LLVMPointerTypeInContext(ctx, /* AddressSpace */ 0);
+		if (type instanceof CompositeType ct)
+		{
+			return mapComposite(ctx, ct);
 		}
 		throw new CodegenException("Unmappable type: " + type.name());
 	}
 
 	// ── Primitives ──────────────────────────────────────────────
 
-	private static LLVMTypeRef mapPrimitive(LLVMContextRef ctx, PrimitiveType pt) {
+	private static LLVMTypeRef mapPrimitive(LLVMContextRef ctx, PrimitiveType pt)
+	{
 		// Identity comparison — PrimitiveType uses singleton instances
 		if (pt == PrimitiveType.VOID)
 			return LLVMVoidTypeInContext(ctx);
@@ -76,13 +82,9 @@ public final class LLVMTypeMapper {
 			return LLVMInt32TypeInContext(ctx);
 
 		// str → { i8*, i64 }
-		if (pt == PrimitiveType.STR) {
-			LLVMTypeRef[] fields = {
-					LLVMPointerTypeInContext(ctx, 0), // ptr
-					LLVMInt64TypeInContext(ctx) // len
-			};
-			PointerPointer<LLVMTypeRef> fieldTypes = new PointerPointer<>(fields);
-			return LLVMStructTypeInContext(ctx, fieldTypes, 2, /* isPacked */ 0);
+		if (pt == PrimitiveType.STR)
+		{
+			return getOrCreateStructType(ctx, pt);
 		}
 
 		// Ref, ANY → i8* (pointer)
@@ -94,15 +96,77 @@ public final class LLVMTypeMapper {
 
 	// ── Functions ───────────────────────────────────────────────
 
-	private static LLVMTypeRef mapFunction(LLVMContextRef ctx, FunctionType ft) {
+	private static LLVMTypeRef mapComposite(LLVMContextRef ctx, CompositeType ct)
+	{
+		// For now, we always use pointers to structs for composite types in Nebula
+		LLVMTypeRef structType = getOrCreateStructType(ctx, ct);
+		return LLVMPointerTypeInContext(ctx, 0);
+	}
+
+	private static final java.util.Map<String, LLVMTypeRef> structTypes = new java.util.HashMap<>();
+
+	public static LLVMTypeRef getOrCreateStructType(LLVMContextRef ctx, Type type)
+	{
+		if (type == PrimitiveType.STR)
+		{
+			if (structTypes.containsKey("str"))
+			{
+				return structTypes.get("str");
+			}
+
+			LLVMTypeRef[] fields = {LLVMPointerTypeInContext(ctx, 0), LLVMInt64TypeInContext(ctx)};
+			LLVMTypeRef structType = LLVMStructCreateNamed(ctx, "str");
+			LLVMStructSetBody(structType, new PointerPointer<>(fields), 2, 0);
+			structTypes.put("str", structType);
+			return structType;
+		}
+
+		if (!(type instanceof CompositeType ct))
+		{
+			throw new CodegenException("Cannot get struct type for non-composite type: " + type.name());
+		}
+
+		if (structTypes.containsKey(ct.name()))
+		{
+			return structTypes.get(ct.name());
+		}
+
+		LLVMTypeRef structType = LLVMStructCreateNamed(ctx, ct.name());
+		structTypes.put(ct.name(), structType);
+
+		// Populate fields
+		java.util.Collection<org.nebula.nebc.semantic.symbol.Symbol> symbols = ct.getMemberScope().getSymbols().values();
+		java.util.List<org.nebula.nebc.semantic.symbol.VariableSymbol> fields = symbols.stream().filter(s -> s instanceof org.nebula.nebc.semantic.symbol.VariableSymbol vs && !vs.getName().equals("this")).map(s -> (org.nebula.nebc.semantic.symbol.VariableSymbol) s).toList();
+
+		LLVMTypeRef[] fieldTypesArr = new LLVMTypeRef[fields.size()];
+		for (int i = 0; i < fields.size(); i++)
+		{
+			fieldTypesArr[i] = map(ctx, fields.get(i).getType());
+		}
+
+		PointerPointer<LLVMTypeRef> fieldTypes = new PointerPointer<>(fieldTypesArr);
+		LLVMStructSetBody(structType, fieldTypes, fields.size(), /* isPacked */ 0);
+
+		return structType;
+	}
+
+	public static void clearCache()
+	{
+		structTypes.clear();
+	}
+
+	private static LLVMTypeRef mapFunction(LLVMContextRef ctx, FunctionType ft)
+	{
 		LLVMTypeRef returnType = map(ctx, ft.returnType);
 		int paramCount = ft.parameterTypes.size();
-		if (paramCount == 0) {
+		if (paramCount == 0)
+		{
 			return LLVMFunctionType(returnType, new LLVMTypeRef(), 0, /* isVarArg */ 0);
 		}
 		// Build PointerPointer array of param type refs
 		PointerPointer<LLVMTypeRef> paramTypes = new PointerPointer<>(paramCount);
-		for (int i = 0; i < paramCount; i++) {
+		for (int i = 0; i < paramCount; i++)
+		{
 			paramTypes.put(i, map(ctx, ft.parameterTypes.get(i)));
 		}
 		return LLVMFunctionType(returnType, paramTypes, paramCount, /* isVarArg */ 0);

@@ -1,3 +1,6 @@
+namespace std::primitives;
+use std::traits;
+
 extern "C" {
     str __nebula_rt_i64_to_str(i64 v);
     str __nebula_rt_u64_to_str(u64 v);

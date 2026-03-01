@@ -51,10 +51,12 @@ public final class TypeParameterType extends Type
     {
         if (this.equals(target))
             return true;
-        // TypeParameterType is compatible with its concrete substitution — the
-        // actual check is done at the callsite (constraint validation). Here we
-        // return true conservatively so that within-generic-body type-checking
-        // can proceed.
-        return target == Type.ANY;
+        if (target == Type.ANY)
+            return true;
+        if (bound != null && target instanceof TraitType tt)
+        {
+            return bound.equals(tt);
+        }
+        return false;
     }
 }

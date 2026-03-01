@@ -157,7 +157,9 @@ public final class NativeCompiler
 					command.add("-no-pie");
 				}
 				command.add("-Wl,-rpath,.");
+				command.add("-Wl,-rpath,..");
 				command.add("-L.");
+				command.add("-L..");
 				command.add("-lneb");
 			}
 

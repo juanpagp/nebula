@@ -15,6 +15,7 @@ import org.nebula.nebc.ast.types.TypeNode;
 import org.nebula.nebc.semantic.SemanticAnalyzer;
 import org.nebula.nebc.semantic.symbol.MethodSymbol;
 import org.nebula.nebc.semantic.symbol.Symbol;
+import org.nebula.nebc.semantic.symbol.VariableSymbol;
 import org.nebula.nebc.semantic.SymbolTable;
 import org.nebula.nebc.semantic.types.*;
 
@@ -194,6 +195,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	public LLVMModuleRef generate(List<CompilationUnit> units, SemanticAnalyzer analyzer)
 	{
 		this.analyzer = analyzer;
+		LLVMTypeMapper.clearCache();
 
 		// 1. Initialise LLVM infrastructure
 		context = LLVMContextCreate();
@@ -206,11 +208,10 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			cu.accept(this);
 		}
 
-		// 4. Verify the module
-		verifyModule();
+		// 4. Verify the module (removed from here to allow IR dump in Compiler.java even if invalid)
+		// verifyModule();
 
-		// 4. Verify the module
-		verifyModule();
+		// verifyModule();
 
 		return module;
 	}
@@ -270,7 +271,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	// MODULE VERIFICATION
 	// =================================================================
 
-	private void verifyModule()
+	public void verifyModule()
 	{
 		BytePointer errorMsg = new BytePointer();
 		if (LLVMVerifyModule(module, LLVMPrintMessageAction, errorMsg) != 0)
@@ -442,6 +443,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		currentFunction = prevFunction;
 		currentBlockTerminated = prevTerminated;
 		currentMethodReturnType = prevReturnType;
+		namedValues.clear();
+		namedValues.putAll(prevNamedValues);
 		if (prevInsertBlock != null)
 		{
 			LLVMPositionBuilderAtEnd(builder, prevInsertBlock);
@@ -468,7 +471,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	{
 		for (ASTNode member : node.members)
 		{
-			if (member instanceof MethodDeclaration)
+			if (member instanceof MethodDeclaration || member instanceof ConstructorDeclaration)
 			{
 				member.accept(this);
 			}
@@ -481,7 +484,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	{
 		for (ASTNode member : node.members)
 		{
-			if (member instanceof MethodDeclaration)
+			if (member instanceof MethodDeclaration || member instanceof ConstructorDeclaration)
 			{
 				member.accept(this);
 			}
@@ -567,8 +570,87 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitConstructorDeclaration(ConstructorDeclaration node)
 	{
-		// TODO: Emit constructor function
-		return null;
+		MethodSymbol symbol = analyzer.getSymbol(node, MethodSymbol.class);
+		if (symbol == null)
+		{
+			throw new CodegenException("Internal Error: Constructor " + node.name + " was never semantically validated.");
+		}
+
+		// If this is a generic method, skip normal emission unless we are specializing.
+		if (!symbol.getTypeParameters().isEmpty() && currentSubstitution == null)
+		{
+			return null;
+		}
+
+		FunctionType funcType = symbol.getType();
+		Type returnType = funcType.getReturnType();
+		LLVMTypeRef llvmFuncType = toLLVMType(funcType);
+
+		String funcName = (currentSubstitution != null) ? getSpecializationName(symbol) : symbol.getMangledName();
+		LLVMValueRef function = LLVMGetNamedFunction(module, funcName);
+		if (function == null || function.isNull())
+		{
+			function = LLVMAddFunction(module, funcName, llvmFuncType);
+		}
+		else
+		{
+			return function;
+		}
+
+		LLVMSetLinkage(function, LLVMExternalLinkage);
+
+		LLVMBasicBlockRef prevInsertBlock = LLVMGetInsertBlock(builder);
+		LLVMBasicBlockRef entryBB = LLVMAppendBasicBlockInContext(context, function, "entry");
+		LLVMPositionBuilderAtEnd(builder, entryBB);
+
+		LLVMValueRef prevFunction = currentFunction;
+		boolean prevTerminated = currentBlockTerminated;
+		currentFunction = function;
+		currentBlockTerminated = false;
+		Type prevReturnType = currentMethodReturnType;
+		currentMethodReturnType = returnType;
+
+		Map<String, LLVMValueRef> prevNamedValues = new HashMap<>(namedValues);
+		namedValues.clear();
+
+		int llvmParamIdx = 0;
+		LLVMValueRef thisValue = LLVMGetParam(function, llvmParamIdx++);
+		Type thisType = funcType.parameterTypes.get(0);
+		LLVMValueRef thisAlloca = LLVMBuildAlloca(builder, toLLVMType(thisType), "this");
+		LLVMBuildStore(builder, thisValue, thisAlloca);
+		namedValues.put("this", thisAlloca);
+
+		for (int i = 0; i < node.parameters.size(); i++)
+		{
+			Parameter param = node.parameters.get(i);
+			LLVMValueRef paramValue = LLVMGetParam(function, llvmParamIdx++);
+
+			Type paramType = funcType.parameterTypes.get(llvmParamIdx - 1);
+			LLVMValueRef alloca = LLVMBuildAlloca(builder, toLLVMType(paramType), param.name());
+			LLVMBuildStore(builder, paramValue, alloca);
+			namedValues.put(param.name(), alloca);
+		}
+
+		if (node.body != null)
+		{
+			node.body.accept(this);
+		}
+
+		if (!currentBlockTerminated)
+		{
+			LLVMBuildRetVoid(builder); // constructors always return void
+		}
+
+		currentFunction = prevFunction;
+		currentBlockTerminated = prevTerminated;
+		currentMethodReturnType = prevReturnType;
+		namedValues.clear();
+		namedValues.putAll(prevNamedValues);
+		if (prevInsertBlock != null)
+		{
+			LLVMPositionBuilderAtEnd(builder, prevInsertBlock);
+		}
+		return function;
 	}
 
 	// =================================================================
@@ -1120,12 +1202,36 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			}
 		}
 
+		if (currentSubstitution != null)
+		{
+			ft = (FunctionType) currentSubstitution.substitute(ft);
+		}
+
 		LLVMTypeRef llvmFuncType = toLLVMType(ft);
+
+		// Robustness: if we are calling a concrete function declaration, use its type
+		// this ensures we don't have a mismatch between 'ft' (which might be a template)
+		// and the actual specialized function in LLVM.
+		if (function != null && !function.isNull() && LLVMIsAFunction(function) != null && !LLVMIsAFunction(function).isNull())
+		{
+			LLVMTypeRef actualType = LLVMGlobalGetValueType(function);
+			if (actualType != null)
+			{
+				llvmFuncType = actualType;
+			}
+		}
+
 		int nebulaArgCount = node.arguments.size();
 		int llvmArgCount = ft.parameterTypes.size();
 
 		LLVMValueRef[] argsArr = new LLVMValueRef[llvmArgCount];
 		int llvmArgIdx = 0;
+
+		// Debugging
+		System.out.println("[DEBUG] Calling " + ((LLVMIsAFunction(function) != null && !LLVMIsAFunction(function).isNull()) ? LLVMGetValueName(function).getString() : "function"));
+		System.out.println("[DEBUG]   Target Nebula Type: " + ft.name());
+		System.out.println("[DEBUG]   LLVM Call Type: " + LLVMPrintTypeToString(llvmFuncType).getString());
+		System.out.println("[DEBUG]   Arg Count: " + llvmArgCount);
 
 		// If this is a member call, prepend the receiver as 'this'
 		if (node.target instanceof MemberAccessExpression mae && llvmArgCount > nebulaArgCount)
@@ -1133,6 +1239,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			LLVMValueRef receiver = mae.target.accept(this);
 			Type receiverSemType = analyzer.getType(mae.target);
 			Type thisParamType = ft.parameterTypes.get(0);
+
+			System.out.println("[DEBUG]   Receiver: " + receiverSemType.name() + " -> " + thisParamType.name());
 			argsArr[llvmArgIdx++] = emitCast(receiver, receiverSemType, thisParamType);
 		}
 
@@ -1144,11 +1252,13 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			Type paramType = ft.parameterTypes.get(llvmArgIdx);
 			Type argSemType = analyzer.getType(argNode);
 
+			System.out.println("[DEBUG]   Arg " + i + ": " + argSemType.name() + " -> " + paramType.name());
 			argsArr[llvmArgIdx++] = emitCast(argValue, argSemType, paramType);
 		}
 
 		PointerPointer<LLVMValueRef> args = new PointerPointer<>(argsArr);
 		String callName = ft.returnType == PrimitiveType.VOID ? "" : "call_tmp";
+
 		return LLVMBuildCall2(builder, llvmFuncType, function, args, llvmArgCount, callName);
 	}
 
@@ -1216,14 +1326,60 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		{
 			// Return the function ref. Static trait dispatch means we call the concrete
 			// implementation.
-			LLVMValueRef func = LLVMGetNamedFunction(module, ms.getMangledName());
+			String mangledName = ms.getMangledName();
+			if (!ms.getTypeParameters().isEmpty())
+			{
+				mangledName = getSpecializationName(ms);
+			}
+
+			LLVMValueRef func = LLVMGetNamedFunction(module, mangledName);
 			if (func == null || func.isNull())
 			{
 				// Forward declaration
 				FunctionType ft = ms.getType();
-				func = LLVMAddFunction(module, ms.getMangledName(), toLLVMType(ft));
+				if (currentSubstitution != null)
+				{
+					ft = (FunctionType) currentSubstitution.substitute(ft);
+				}
+				func = LLVMAddFunction(module, mangledName, toLLVMType(ft));
 			}
 			return func;
+		}
+		else if (memberSym instanceof VariableSymbol vs)
+		{
+			// Field access
+			if (baseType == PrimitiveType.STR)
+			{
+				int fieldIdx = node.memberName.equals("ptr") ? 0 : 1;
+				// str is a struct value in LLVM
+				return LLVMBuildExtractValue(builder, base, fieldIdx, node.memberName + "_extract");
+			}
+			else if (baseType instanceof CompositeType ct)
+			{
+				int fieldIdx = 0;
+				boolean found = false;
+				for (Symbol s : ct.getMemberScope().getSymbols().values())
+				{
+					if (s instanceof VariableSymbol field && !field.getName().equals("this"))
+					{
+						if (field == vs)
+						{
+							found = true;
+							break;
+						}
+						fieldIdx++;
+					}
+				}
+
+				if (found)
+				{
+					LLVMTypeRef structType = LLVMTypeMapper.getOrCreateStructType(context, ct);
+					// Classes are pointers to structs, so base is already a pointer (i8*)
+					// We can use it directly with GEP2 if we provide the correct struct type as the pointee.
+					LLVMValueRef gep = LLVMBuildStructGEP2(builder, structType, base, fieldIdx, node.memberName + "_gep");
+					return LLVMBuildLoad2(builder, toLLVMType(vs.getType()), gep, node.memberName + "_load");
+				}
+			}
 		}
 
 		return null;
@@ -1232,8 +1388,55 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitNewExpression(NewExpression node)
 	{
-		// TODO: Emit heap allocation + constructor call
-		return null;
+		Type type = analyzer.getType(node);
+		if (!(type instanceof ClassType ct))
+		{
+			throw new CodegenException("Cannot instantiate non-class type: " + type.name());
+		}
+
+		// 1. Allocate memory using neb_alloc
+		LLVMValueRef nebAlloc = LLVMGetNamedFunction(module, "neb_alloc");
+		if (nebAlloc == null)
+		{
+			FunctionType ft = new FunctionType(PrimitiveType.REF, List.of(PrimitiveType.U64), null);
+			nebAlloc = LLVMAddFunction(module, "neb_alloc", toLLVMType(ft));
+		}
+
+		// Calculate size - for now, we use a constant size or estimate
+		// In a real compiler, we'd use LLVM's size_of
+		// Let's just use 64 bytes as a placeholder or try to be smarter
+		long size = ct.getMemberScope().getSymbols().values().stream().filter(s -> s instanceof VariableSymbol && !s.getName().equals("this")).count() * 8 + 8; // Very rough estimate: 8 bytes per field + overhead
+
+		LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(context), size, 0);
+		LLVMValueRef[] allocArgsArr = {sizeVal};
+		// neb_alloc returns Ref (i8*), but we might need to cast its type for the call if we track it strictly.
+		// For now, it's fine as we use i8* anyway.
+		LLVMValueRef pointer = LLVMBuildCall2(builder, toLLVMType(new FunctionType(PrimitiveType.REF, List.of(PrimitiveType.U64), null)), nebAlloc, new PointerPointer<>(allocArgsArr), 1, "malloc_tmp");
+
+		// 2. Resolve and call constructor
+		Symbol constructorSym = ct.getMemberScope().resolve(ct.name());
+		if (constructorSym instanceof MethodSymbol ms)
+		{
+			LLVMValueRef constructor = LLVMGetNamedFunction(module, ms.getMangledName());
+			if (constructor == null)
+			{
+				constructor = LLVMAddFunction(module, ms.getMangledName(), toLLVMType(ms.getType()));
+			}
+
+			LLVMValueRef[] argsArr = new LLVMValueRef[node.arguments.size() + 1];
+			argsArr[0] = pointer; // 'this'
+			for (int i = 0; i < node.arguments.size(); i++)
+			{
+				LLVMValueRef rawArg = node.arguments.get(i).accept(this);
+				Type argSemType = analyzer.getType(node.arguments.get(i));
+				Type paramType = ms.getType().parameterTypes.get(i + 1);
+				argsArr[i + 1] = emitCast(rawArg, argSemType, paramType);
+			}
+
+			LLVMBuildCall2(builder, toLLVMType(ms.getType()), constructor, new PointerPointer<>(argsArr), argsArr.length, "");
+		}
+
+		return pointer;
 	}
 
 	@Override

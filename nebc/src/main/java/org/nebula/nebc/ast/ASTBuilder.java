@@ -127,9 +127,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 
 		if (!isStdFile)
 		{
-			SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-			directives.add(new UseStatement(span, "std::io", null));
-			directives.add(new UseStatement(span, "std::traits", null));
+			// Prelude is now handled by the dependency resolver in Compiler.java
 		}
 
 		return new CompilationUnit(SourceUtil.createSpan(ctx, currentFileName), directives, declarations);

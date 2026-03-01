@@ -1,12 +1,15 @@
 package org.nebula.nebc.core;
 
-import org.nebula.nebc.ast.ASTBuilder;
-import org.nebula.nebc.ast.CompilationUnit;
+import org.nebula.nebc.ast.*;
+import org.nebula.nebc.ast.declarations.*;
+import org.nebula.nebc.ast.statements.*;
 import org.nebula.nebc.codegen.CodegenException;
 import org.nebula.nebc.codegen.LLVMCodeGenerator;
 import org.nebula.nebc.codegen.NativeCompiler;
 import org.nebula.nebc.frontend.diagnostic.Diagnostic;
+import org.nebula.nebc.frontend.diagnostic.DiagnosticCode;
 import org.nebula.nebc.frontend.parser.Parser;
+import org.nebula.nebc.frontend.parser.ParsingResult;
 import org.nebula.nebc.io.SourceFile;
 import org.nebula.nebc.semantic.SemanticAnalyzer;
 import org.nebula.nebc.util.Log;
@@ -31,14 +34,17 @@ public class Compiler
 	public ExitCode run()
 	{
 		// 1. Frontend: Lexing & Parsing
-		List<SourceFile> stdLib = config.compileAsLibrary() ? new ArrayList<>() : discoverStdLib();
-		Parser parser = new Parser(config, stdLib);
+		// We start by parsing user sources. Std lib will be loaded on demand.
+		Parser parser = new Parser(config, new ArrayList<>());
 		int frontendExitCode = parser.parse();
 		if (frontendExitCode != 0)
 			return ExitCode.SYNTAX_ERROR;
 
-		// 2. Build the AST for each parse tree
+		// 2. Build the AST for user sources
 		this.compilationUnits = ASTBuilder.buildAST(parser.getParsingResultList());
+
+		// 3. Resolve Standard Library Dependencies recursively
+		resolveDependencies();
 		for (var cu : compilationUnits)
 		{
 			Log.debug(cu.toString());
@@ -125,6 +131,19 @@ public class Compiler
 				Log.info("=== END IR ===");
 			}
 
+			// Save IR to file for debugging
+			try (java.io.PrintWriter out = new java.io.PrintWriter("generated.ll"))
+			{
+				out.println(codegen.dumpIR());
+			}
+			catch (java.io.IOException e)
+			{
+				Log.err("Could not write IR to file: " + e.getMessage());
+			}
+
+			// 6. Verify the module only after dumping it
+			codegen.verifyModule();
+
 			// 6. Emit native binary
 			String outputPath = config.outputFile() != null ? config.outputFile() : "a.out";
 			List<Path> extraObjects = new ArrayList<>();
@@ -172,8 +191,12 @@ public class Compiler
 		Path runtimeDir = Path.of("runtime");
 		if (!Files.exists(runtimeDir))
 		{
-			Log.warn("Runtime directory not found.");
-			return null;
+			runtimeDir = Path.of("../runtime");
+			if (!Files.exists(runtimeDir))
+			{
+				Log.warn("Runtime directory not found.");
+				return null;
+			}
 		}
 
 		try (java.util.stream.Stream<Path> stream = Files.walk(runtimeDir))
@@ -183,8 +206,6 @@ public class Compiler
 			{
 				boolean isStartFile = cFile.getFileName().toString().equals("start.c");
 				if (isLibrary && isStartFile)
-					continue;
-				if (!isLibrary && !isStartFile)
 					continue;
 
 				Path objFile = Files.createTempFile("neb_rt_" + cFile.getFileName().toString(), ".o");
@@ -212,21 +233,89 @@ public class Compiler
 		return objects;
 	}
 
-	private List<SourceFile> discoverStdLib()
+	private void resolveDependencies()
 	{
-		List<SourceFile> stdFiles = new ArrayList<>();
-		Path stdPath = Path.of("std");
-		if (Files.exists(stdPath) && Files.isDirectory(stdPath))
+		if (config.compileAsLibrary())
+			return;
+
+		java.util.Set<String> loadedFiles = new java.util.HashSet<>();
+		java.util.List<String> toLoad = new ArrayList<>();
+
+		// Standard library modules will be loaded on-demand based on 'use' statements.
+
+		// Also check user code for explicit 'use std::...'
+		for (CompilationUnit cu : compilationUnits)
 		{
-			try (java.util.stream.Stream<Path> stream = Files.walk(stdPath))
+			for (ASTNode directive : cu.directives)
 			{
-				stream.filter(p -> p.toString().endsWith(".neb")).forEach(p -> stdFiles.add(new SourceFile(p.toString())));
-			}
-			catch (IOException e)
-			{
-				Log.warn("Failed to walk std directory: " + e.getMessage());
+				if (directive instanceof UseStatement use && use.qualifiedName.startsWith("std::"))
+				{
+					toLoad.add(use.qualifiedName);
+				}
 			}
 		}
-		return stdFiles;
+
+		while (!toLoad.isEmpty())
+		{
+			String dep = toLoad.remove(0);
+			if (loadedFiles.contains(dep))
+				continue;
+			loadedFiles.add(dep);
+
+			// Map std::foo::bar to std/foo/bar.neb or std/foo.neb
+			Path path = resolveStdPath(dep);
+			if (path != null && Files.exists(path))
+			{
+				Log.info("Loading dependency: " + dep + " (" + path + ")");
+				SourceFile sf = new SourceFile(path.toString());
+				Parser p = new Parser(config, List.of(sf));
+				if (p.parse() == 0)
+				{
+					// Filter p.getParsingResultList() to only include sf
+					List<ParsingResult> results = p.getParsingResultList().stream().filter(r -> Path.of(r.file().path()).toAbsolutePath().toString().equals(Path.of(sf.path()).toAbsolutePath().toString())).toList();
+
+					List<CompilationUnit> cus = ASTBuilder.buildAST(results);
+					for (CompilationUnit cu : cus)
+					{
+						this.compilationUnits.add(0, cu); // Prepend std units
+						// Check this new unit for more dependencies
+						for (ASTNode directive : cu.directives)
+						{
+							if (directive instanceof UseStatement use && use.qualifiedName.startsWith("std::"))
+							{
+								toLoad.add(use.qualifiedName);
+							}
+						}
+					}
+				}
+			}
+			else
+			{
+				Log.warn("Could not resolve standard library dependency: " + dep);
+			}
+		}
+	}
+
+	private Path resolveStdPath(String qualifiedName)
+	{
+		// std::io -> std/io.neb
+		// std::traits -> std/displayable.neb
+		String relative = qualifiedName.replace("::", "/");
+
+		if (qualifiedName.equals("std::traits"))
+		{
+			relative = "std/displayable";
+		}
+
+		Path p = Path.of(relative + ".neb");
+		if (Files.exists(p))
+			return p;
+
+		// Try checking parent directory (for when running from nebc/ folder)
+		Path parentP = Path.of("..").resolve(relative + ".neb");
+		if (Files.exists(parentP))
+			return parentP;
+
+		return p;
 	}
 }

@@ -1,3 +1,7 @@
+namespace std::io;
+use std::traits;
+use std::primitives;
+
 extern "C" {
     void __nebula_rt_print(keeps Ref<u8> buf);
     void __nebula_rt_println(keeps Ref<u8> buf);

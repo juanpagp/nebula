@@ -747,7 +747,61 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	@Override
 	public LLVMValueRef visitForStatement(ForStatement node)
 	{
-		// TODO: Emit loop control flow (header, body, latch, exit blocks)
+		// 1. Initializer
+		if (node.initializer != null)
+		{
+			node.initializer.accept(this);
+		}
+
+		// 2. Basic Blocks
+		LLVMBasicBlockRef headerBB = LLVMAppendBasicBlockInContext(context, currentFunction, "for_header");
+		LLVMBasicBlockRef bodyBB = LLVMAppendBasicBlockInContext(context, currentFunction, "for_body");
+		LLVMBasicBlockRef latchBB = LLVMAppendBasicBlockInContext(context, currentFunction, "for_latch");
+		LLVMBasicBlockRef exitBB = LLVMAppendBasicBlockInContext(context, currentFunction, "for_exit");
+
+		LLVMBuildBr(builder, headerBB);
+
+		// 3. Header: Condition
+		LLVMPositionBuilderAtEnd(builder, headerBB);
+		currentBlockTerminated = false;
+		if (node.condition != null)
+		{
+			LLVMValueRef cond = node.condition.accept(this);
+			LLVMBuildCondBr(builder, cond, bodyBB, exitBB);
+		}
+		else
+		{
+			LLVMBuildBr(builder, bodyBB);
+		}
+
+		// 4. Body
+		LLVMPositionBuilderAtEnd(builder, bodyBB);
+		currentBlockTerminated = false;
+		if (node.body != null)
+		{
+			node.body.accept(this);
+		}
+		if (!currentBlockTerminated)
+		{
+			LLVMBuildBr(builder, latchBB);
+		}
+
+		// 5. Latch: Iterators
+		LLVMPositionBuilderAtEnd(builder, latchBB);
+		currentBlockTerminated = false;
+		if (node.iterators != null)
+		{
+			for (Expression iter : node.iterators)
+			{
+				iter.accept(this);
+			}
+		}
+		LLVMBuildBr(builder, headerBB);
+
+		// 6. Exit
+		LLVMPositionBuilderAtEnd(builder, exitBB);
+		currentBlockTerminated = false;
+
 		return null;
 	}
 
@@ -1013,7 +1067,20 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			case MINUS -> isFloat ? LLVMBuildFNeg(builder, operand, "fneg") : LLVMBuildNeg(builder, operand, "neg");
 			case PLUS -> operand;
 			case NOT, BIT_NOT -> LLVMBuildNot(builder, operand, node.operator == UnaryOperator.NOT ? "not" : "bitnot");
-			// TODO: INCREMENT/DECREMENT require loading/storing
+			case INCREMENT, DECREMENT -> {
+				LLVMValueRef ptr = emitPointer(node.operand);
+				if (ptr == null)
+					throw new CodegenException("Cannot increment/decrement non-lvalue");
+
+				LLVMTypeRef type = toLLVMType(semType);
+				LLVMValueRef oldVal = LLVMBuildLoad2(builder, type, ptr, "incdec_load");
+
+				LLVMValueRef one = isFloat ? LLVMConstReal(type, 1.0) : LLVMConstInt(type, 1, 0);
+				LLVMValueRef newVal = (node.operator == UnaryOperator.INCREMENT) ? (isFloat ? LLVMBuildFAdd(builder, oldVal, one, "finc") : LLVMBuildAdd(builder, oldVal, one, "inc")) : (isFloat ? LLVMBuildFSub(builder, oldVal, one, "fdec") : LLVMBuildSub(builder, oldVal, one, "dec"));
+
+				LLVMBuildStore(builder, newVal, ptr);
+				yield node.isPostfix ? oldVal : newVal;
+			}
 			default -> operand;
 		};
 	}
@@ -1485,6 +1552,32 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		}
 
 		return emitMemberPointer(base, ct, node.memberName);
+	}
+
+	private LLVMValueRef emitPointer(Expression expr)
+	{
+		if (expr instanceof IdentifierExpression id)
+		{
+			return namedValues.get(id.name);
+		}
+		else if (expr instanceof MemberAccessExpression mae)
+		{
+			return emitMemberPointer(mae);
+		}
+		else if (expr instanceof IndexExpression indexExpr)
+		{
+			LLVMValueRef base = indexExpr.target.accept(this);
+			LLVMValueRef index = indexExpr.indices.get(0).accept(this);
+			Type baseType = analyzer.getType(indexExpr.target);
+
+			if (baseType == PrimitiveType.REF || baseType == PrimitiveType.STR)
+			{
+				LLVMValueRef[] indices = {index};
+				LLVMTypeRef elemType = LLVMInt8TypeInContext(context);
+				return LLVMBuildGEP2(builder, elemType, base, new PointerPointer<>(indices), 1, "ptr_idx");
+			}
+		}
+		return null;
 	}
 
 	private LLVMValueRef emitMemberPointer(LLVMValueRef base, CompositeType ct, String memberName)

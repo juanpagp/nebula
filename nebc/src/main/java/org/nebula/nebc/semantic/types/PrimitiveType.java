@@ -102,8 +102,10 @@ public class PrimitiveType extends Type
 
 				if (thisSigned != targetSigned)
 				{
-					// Relaxed for bootstrap: allow same-width cross-sign conversion
-					return this.getBitWidth() == pTarget.getBitWidth();
+					// Allow widening even if signedness differs.
+					// LLVMCodeGenerator.emitCast handles this using SExt if source is signed,
+					// or ZExt if source is unsigned.
+					return this.getBitWidth() <= pTarget.getBitWidth();
 				}
 
 				return this.getBitWidth() <= pTarget.getBitWidth();

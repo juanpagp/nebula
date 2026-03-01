@@ -15,6 +15,7 @@ import org.nebula.nebc.ast.types.TypeNode;
 import org.nebula.nebc.semantic.SemanticAnalyzer;
 import org.nebula.nebc.semantic.symbol.MethodSymbol;
 import org.nebula.nebc.semantic.symbol.Symbol;
+import org.nebula.nebc.semantic.symbol.TypeSymbol;
 import org.nebula.nebc.semantic.symbol.VariableSymbol;
 import org.nebula.nebc.semantic.SymbolTable;
 import org.nebula.nebc.semantic.types.*;
@@ -633,6 +634,17 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 		if (node.body != null)
 		{
+			// Before body, initialize fields that have default values
+			Symbol owner = symbol.getDefinedIn().getOwner();
+			if (owner instanceof TypeSymbol ts && ts.getDeclarationNode() instanceof ClassDeclaration cd)
+			{
+				initializeFields(thisValue, (ClassType) ts.getType(), cd.members);
+			}
+			else if (owner instanceof TypeSymbol ts && ts.getDeclarationNode() instanceof StructDeclaration sd)
+			{
+				initializeFields(thisValue, (StructType) ts.getType(), sd.members);
+			}
+
 			node.body.accept(this);
 		}
 
@@ -1021,7 +1033,20 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				throw new CodegenException("Cannot assign to undeclared variable: " + idExpr.name);
 			}
 
-			Type targetSemType = getVariableType(node.target);
+			Type targetSemType = analyzer.getType(node.target);
+			LLVMValueRef castedVal = emitCast(value, analyzer.getType(node.value), targetSemType);
+			LLVMBuildStore(builder, castedVal, pointer);
+			return castedVal;
+		}
+		else if (node.target instanceof MemberAccessExpression mae)
+		{
+			LLVMValueRef pointer = emitMemberPointer(mae);
+			if (pointer == null)
+			{
+				throw new CodegenException("Cannot get pointer for member: " + mae.memberName);
+			}
+
+			Type targetSemType = analyzer.getType(mae);
 			LLVMValueRef castedVal = emitCast(value, analyzer.getType(node.value), targetSemType);
 			LLVMBuildStore(builder, castedVal, pointer);
 			return castedVal;
@@ -1285,6 +1310,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		return sb.toString();
 	}
 
+
 	@Override
 	public LLVMValueRef visitMemberAccessExpression(MemberAccessExpression node)
 	{
@@ -1356,27 +1382,9 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			}
 			else if (baseType instanceof CompositeType ct)
 			{
-				int fieldIdx = 0;
-				boolean found = false;
-				for (Symbol s : ct.getMemberScope().getSymbols().values())
+				LLVMValueRef gep = emitMemberPointer(node);
+				if (gep != null)
 				{
-					if (s instanceof VariableSymbol field && !field.getName().equals("this"))
-					{
-						if (field == vs)
-						{
-							found = true;
-							break;
-						}
-						fieldIdx++;
-					}
-				}
-
-				if (found)
-				{
-					LLVMTypeRef structType = LLVMTypeMapper.getOrCreateStructType(context, ct);
-					// Classes are pointers to structs, so base is already a pointer (i8*)
-					// We can use it directly with GEP2 if we provide the correct struct type as the pointee.
-					LLVMValueRef gep = LLVMBuildStructGEP2(builder, structType, base, fieldIdx, node.memberName + "_gep");
 					return LLVMBuildLoad2(builder, toLLVMType(vs.getType()), gep, node.memberName + "_load");
 				}
 			}
@@ -1402,15 +1410,11 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			nebAlloc = LLVMAddFunction(module, "neb_alloc", toLLVMType(ft));
 		}
 
-		// Calculate size - for now, we use a constant size or estimate
-		// In a real compiler, we'd use LLVM's size_of
-		// Let's just use 64 bytes as a placeholder or try to be smarter
-		long size = ct.getMemberScope().getSymbols().values().stream().filter(s -> s instanceof VariableSymbol && !s.getName().equals("this")).count() * 8 + 8; // Very rough estimate: 8 bytes per field + overhead
+		// Calculate size using LLVMSizeOf
+		LLVMTypeRef structType = LLVMTypeMapper.getOrCreateStructType(context, ct);
+		LLVMValueRef sizeVal = LLVMSizeOf(structType);
 
-		LLVMValueRef sizeVal = LLVMConstInt(LLVMInt64TypeInContext(context), size, 0);
 		LLVMValueRef[] allocArgsArr = {sizeVal};
-		// neb_alloc returns Ref (i8*), but we might need to cast its type for the call if we track it strictly.
-		// For now, it's fine as we use i8* anyway.
 		LLVMValueRef pointer = LLVMBuildCall2(builder, toLLVMType(new FunctionType(PrimitiveType.REF, List.of(PrimitiveType.U64), null)), nebAlloc, new PointerPointer<>(allocArgsArr), 1, "malloc_tmp");
 
 		// 2. Resolve and call constructor
@@ -1437,6 +1441,84 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		}
 
 		return pointer;
+	}
+
+	private void initializeFields(LLVMValueRef thisPtr, CompositeType ct, List<Declaration> members)
+	{
+		for (Declaration member : members)
+		{
+			if (member instanceof VariableDeclaration vd)
+			{
+				for (VariableDeclarator decl : vd.declarators)
+				{
+					if (decl.hasInitializer())
+					{
+						LLVMValueRef initVal = decl.initializer().accept(this);
+						if (initVal != null)
+						{
+							LLVMValueRef gep = emitMemberPointer(thisPtr, ct, decl.name());
+							if (gep != null)
+							{
+								Type fieldType = ((VariableSymbol) ct.getMemberScope().resolve(decl.name())).getType();
+								LLVMValueRef castedVal = emitCast(initVal, analyzer.getType(decl.initializer()), fieldType);
+								LLVMBuildStore(builder, castedVal, gep);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	private LLVMValueRef emitMemberPointer(MemberAccessExpression node)
+	{
+		LLVMValueRef base = node.target.accept(this);
+		Type baseType = analyzer.getType(node.target);
+		if (currentSubstitution != null)
+		{
+			baseType = currentSubstitution.substitute(baseType);
+		}
+
+		if (!(baseType instanceof CompositeType ct))
+		{
+			return null;
+		}
+
+		return emitMemberPointer(base, ct, node.memberName);
+	}
+
+	private LLVMValueRef emitMemberPointer(LLVMValueRef base, CompositeType ct, String memberName)
+	{
+		Symbol memberSym = ct.getMemberScope().resolve(memberName);
+		if (!(memberSym instanceof VariableSymbol vs))
+		{
+			return null;
+		}
+
+		int fieldIdx = 0;
+		boolean found = false;
+		for (Symbol s : ct.getMemberScope().getSymbols().values())
+		{
+			if (s instanceof VariableSymbol field && !field.getName().equals("this"))
+			{
+				if (field == vs)
+				{
+					found = true;
+					break;
+				}
+				fieldIdx++;
+			}
+		}
+
+		if (found)
+		{
+			LLVMTypeRef structType = LLVMTypeMapper.getOrCreateStructType(context, ct);
+			// Classes are pointers to structs, so base is already a pointer (i8*)
+			// We can use it directly with GEP2 if we provide the correct struct type as the pointee.
+			return LLVMBuildStructGEP2(builder, structType, base, fieldIdx, memberName + "_gep");
+		}
+
+		return null;
 	}
 
 	@Override

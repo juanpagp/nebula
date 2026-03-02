@@ -72,7 +72,34 @@ public class SymbolImporter
     {
         String name = obj.get("name").getAsString();
         boolean isExtern = obj.get("is_extern").getAsBoolean();
-        Type returnType = resolveType(obj.get("return_type").getAsString(), table);
+
+        List<TypeParameterType> typeParams = new ArrayList<>();
+        SymbolTable resolveTable = table;
+
+        if (obj.has("type_parameters"))
+        {
+            resolveTable = new SymbolTable(table);
+            JsonArray tps = obj.getAsJsonArray("type_parameters");
+            for (JsonElement tpEl : tps)
+            {
+                JsonObject tpObj = tpEl.getAsJsonObject();
+                String tpName = tpObj.get("name").getAsString();
+                TraitType bound = null;
+                if (tpObj.has("bound"))
+                {
+                    TypeSymbol boundSym = table.resolveType(tpObj.get("bound").getAsString());
+                    if (boundSym != null && boundSym.getType() instanceof TraitType tt)
+                    {
+                        bound = tt;
+                    }
+                }
+                TypeParameterType tpt = new TypeParameterType(tpName, bound);
+                typeParams.add(tpt);
+                resolveTable.define(new TypeSymbol(tpName, tpt, null));
+            }
+        }
+
+        Type returnType = resolveType(obj.get("return_type").getAsString(), resolveTable);
 
         List<Type> paramTypes = new ArrayList<>();
         List<ParameterInfo> paramInfos = new ArrayList<>();
@@ -80,7 +107,7 @@ public class SymbolImporter
         for (JsonElement pEl : params)
         {
             JsonObject pObj = pEl.getAsJsonObject();
-            Type pType = resolveType(pObj.get("type").getAsString(), table);
+            Type pType = resolveType(pObj.get("type").getAsString(), resolveTable);
             paramTypes.add(pType);
 
             String pName = pObj.get("name").getAsString();
@@ -93,7 +120,7 @@ public class SymbolImporter
         }
 
         FunctionType type = new FunctionType(returnType, paramTypes, paramInfos);
-        return new MethodSymbol(name, type, Collections.emptyList(), isExtern, null, Collections.emptyList());
+        return new MethodSymbol(name, type, Collections.emptyList(), isExtern, null, typeParams);
     }
 
     private TypeSymbol importCompositeType(JsonObject obj, SymbolTable table, String kind)

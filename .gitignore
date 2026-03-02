@@ -49,3 +49,5 @@ nebc/src/test/
 nebc/.idea/
 test/
 *.so
+*.nebsym
+TODO.md

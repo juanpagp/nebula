@@ -109,6 +109,22 @@ public class SymbolExporter
             obj.add("modifiers", mods);
         }
 
+        if (!ms.getTypeParameters().isEmpty())
+        {
+            JsonArray tps = new JsonArray();
+            for (TypeParameterType tpt : ms.getTypeParameters())
+            {
+                JsonObject tpObj = new JsonObject();
+                tpObj.addProperty("name", tpt.name());
+                if (tpt.getBound() != null)
+                {
+                    tpObj.addProperty("bound", tpt.getBound().name());
+                }
+                tps.add(tpObj);
+            }
+            obj.add("type_parameters", tps);
+        }
+
         return obj;
     }
 

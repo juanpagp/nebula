@@ -648,7 +648,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		MethodSymbol methodSym = new MethodSymbol(node.name, methodType, node.modifiers, isInsideExtern || node.isExtern, node, typeParams);
 		recordSymbol(node, methodSym);
 		SymbolTable defineIn = (outerScope != null) ? outerScope : currentScope;
-		if (!defineIn.define(methodSym))
+		if (!defineIn.forceDefine(methodSym))
 		{
 			error(DiagnosticCode.DUPLICATE_SYMBOL, node, node.name);
 		}

@@ -162,4 +162,21 @@ public class SymbolTable
 	{
 		return parent;
 	}
+
+	/**
+	 * Defines a symbol, replacing any existing symbol that was loaded from an
+	 * external symbol file (i.e. has no declaration node / is a .nebsym stub).
+	 * Returns false if an existing source-backed symbol would be overwritten.
+	 */
+	public boolean forceDefine(Symbol symbol)
+	{
+		Symbol existing = symbols.get(symbol.getName());
+		if (existing != null && existing.getDeclarationNode() != null)
+		{
+			return false; // Already defined from source — refuse overwrite
+		}
+		symbols.put(symbol.getName(), symbol);
+		symbol.setDefinedIn(this);
+		return true;
+	}
 }

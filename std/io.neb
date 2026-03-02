@@ -16,12 +16,3 @@ void print<T: Displayable>(T item) {
 void println<T: Displayable>(T item) {
     __nebula_rt_println(item.toStr().ptr);
 }
-
-// Low-level str versions
-void print_str(str s) {
-    __nebula_rt_print(s.ptr);
-}
-
-void println_str(str s) {
-    __nebula_rt_println(s.ptr);
-}

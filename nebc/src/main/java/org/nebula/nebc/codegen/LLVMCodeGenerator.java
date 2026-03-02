@@ -408,7 +408,13 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			LLVMValueRef paramValue = LLVMGetParam(function, llvmParamIdx++);
 
 			// Allocate space for the parameter
-			Type paramType = funcType.parameterTypes.get(llvmParamIdx - 1);
+			// The parameter type index accounts for 'this' if this is a member method
+			int paramTypeIdx = llvmParamIdx - 1;
+			if (paramTypeIdx >= funcType.parameterTypes.size())
+			{
+				throw new CodegenException("Parameter index out of bounds for function: " + node.name);
+			}
+			Type paramType = funcType.parameterTypes.get(paramTypeIdx);
 			LLVMValueRef alloca = LLVMBuildAlloca(builder, toLLVMType(paramType), param.name());
 			LLVMBuildStore(builder, paramValue, alloca);
 			namedValues.put(param.name(), alloca);
@@ -626,7 +632,14 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			Parameter param = node.parameters.get(i);
 			LLVMValueRef paramValue = LLVMGetParam(function, llvmParamIdx++);
 
-			Type paramType = funcType.parameterTypes.get(llvmParamIdx - 1);
+			// Allocate space for the parameter
+			// The parameter type index accounts for 'this' as the first parameter
+			int paramTypeIdx = llvmParamIdx - 1;
+			if (paramTypeIdx >= funcType.parameterTypes.size())
+			{
+				throw new CodegenException("Parameter index out of bounds for method: " + node.name);
+			}
+			Type paramType = funcType.parameterTypes.get(paramTypeIdx);
 			LLVMValueRef alloca = LLVMBuildAlloca(builder, toLLVMType(paramType), param.name());
 			LLVMBuildStore(builder, paramValue, alloca);
 			namedValues.put(param.name(), alloca);
@@ -1210,6 +1223,24 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		return LLVMAddFunction(module, actualName, toLLVMType(ft));
 	}
 
+	private LLVMValueRef resolveFunctionByName(String functionName)
+	{
+		LLVMValueRef func = LLVMGetNamedFunction(module, functionName);
+		if (func != null && !func.isNull())
+		{
+			return func;
+		}
+
+		// Try with mangled name pattern
+		LLVMValueRef mangledFunc = LLVMGetNamedFunction(module, functionName);
+		if (mangledFunc != null && !mangledFunc.isNull())
+		{
+			return mangledFunc;
+		}
+
+		return null;
+	}
+
 	@Override
 	public LLVMValueRef visitIdentifierExpression(IdentifierExpression node)
 	{
@@ -1256,6 +1287,13 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 					// Re-visit the method declaration directly
 					MethodDeclaration decl = (MethodDeclaration) ms.getDeclarationNode();
+					if (decl == null)
+					{
+						throw new CodegenException(
+							"Cannot monomorphize generic method '" + ms.getName() +
+							"': its declaration node is unavailable. " +
+							"Ensure the standard library source is being compiled alongside this project.");
+					}
 					function = visitMethodDeclaration(decl);
 
 					currentSubstitution = prevSub;

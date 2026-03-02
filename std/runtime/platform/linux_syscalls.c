@@ -1,6 +1,7 @@
 #include <stdint.h>
 
-long sys_write(int fd, const void* buf, long count) {
+long sys_write(int fd, const void* buf, long count)
+{
     long ret;
     __asm__ volatile (
         "syscall"
@@ -11,7 +12,8 @@ long sys_write(int fd, const void* buf, long count) {
     return ret;
 }
 
-void sys_exit(int code) {
+void sys_exit(int code)
+{
     __asm__ volatile (
         "syscall"
         :
@@ -20,7 +22,8 @@ void sys_exit(int code) {
     );
 }
 
-void* sys_mmap(void* addr, unsigned long length, int prot, int flags, int fd, long offset) {
+void* sys_mmap(void* addr, unsigned long length, int prot, int flags, int fd, long offset)
+{
     void* ret;
     long l_flags = flags;
     long l_fd = fd;
@@ -37,7 +40,8 @@ void* sys_mmap(void* addr, unsigned long length, int prot, int flags, int fd, lo
     return ret;
 }
 
-int sys_munmap(void* addr, unsigned long length) {
+int sys_munmap(void* addr, unsigned long length)
+{
     int ret;
     __asm__ volatile (
         "syscall"

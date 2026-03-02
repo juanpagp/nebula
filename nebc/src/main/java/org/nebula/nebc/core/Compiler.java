@@ -14,6 +14,8 @@ import org.nebula.nebc.io.SourceFile;
 import org.nebula.nebc.semantic.SemanticAnalyzer;
 import org.nebula.nebc.semantic.SymbolExporter;
 import org.nebula.nebc.semantic.SymbolImporter;
+import org.nebula.nebc.semantic.symbol.NamespaceSymbol;
+import org.nebula.nebc.semantic.symbol.Symbol;
 import org.nebula.nebc.util.Log;
 import org.nebula.util.ExitCode;
 
@@ -51,9 +53,9 @@ public class Compiler
 		// 3.1 Load external symbols
 		loadExternalSymbols(analyzer);
 
-		// 3.2 Resolve Standard Library Dependencies recursively (on-demand loading of .neb files)
-		// This is for source dependencies, mostly for when compiling the std itself or
-		// when user explicitly wants to compile from source.
+		// 3.2 Resolve Standard Library Dependencies recursively (on-demand loading of .neb files).
+		// Prelude source namespaces are also seeded here so that generic prelude functions
+		// (e.g. println<T>) have real AST declaration nodes available for monomorphization.
 		resolveDependencies(analyzer);
 		for (var cu : compilationUnits)
 		{
@@ -87,6 +89,12 @@ public class Compiler
 		{
 			analyzer.declareMethods(cu);
 		}
+
+		// 3.1.5 Export prelude symbols (make commonly-used std symbols globally available).
+		// Must run AFTER declareMethods so that source-loaded symbols have their declaration
+		// nodes populated (via forceDefine), ensuring generic prelude functions are
+		// monomorphizable during code generation.
+		exportPreludeSymbols(analyzer);
 
 		// Phase 1.75: Process all trait bodies so their member scopes are populated
 		// This allows generic method bodies to resolve trait-bound member access
@@ -146,6 +154,7 @@ public class Compiler
 			}
 
 			// Save IR to file for debugging
+			/* 
 			try (java.io.PrintWriter out = new java.io.PrintWriter("generated.ll"))
 			{
 				out.println(codegen.dumpIR());
@@ -154,6 +163,7 @@ public class Compiler
 			{
 				Log.err("Could not write IR to file: " + e.getMessage());
 			}
+			*/
 
 			// 6. Verify the module only after dumping it
 			codegen.verifyModule();
@@ -162,13 +172,11 @@ public class Compiler
 			String outputPath = config.outputFile() != null ? config.outputFile() : "a.out";
 			List<Path> extraObjects = new ArrayList<>();
 
-			// Always compile runtime objects. For libraries, this compiles everything
-			// except start.c.
-			// For executables, this compiles only start.c to be statically linked.
-			List<Path> runtimeObjs = compileRuntime(config.compileAsLibrary());
-			if (runtimeObjs != null)
+			// 6. Native Compilation Phase: Compile all C/C++ sources provided
+			List<Path> nativeObjects = compileNativeSources();
+			if (nativeObjects != null)
 			{
-				extraObjects.addAll(runtimeObjs);
+				extraObjects.addAll(nativeObjects);
 			}
 
 			NativeCompiler.compile(codegen.getModule(), outputPath, config.targetPlatform(), config.isStatic(), config.compileAsLibrary(), extraObjects, config.librarySearchPaths(), config.nebLibraries());
@@ -204,51 +212,89 @@ public class Compiler
 		}
 	}
 
-	private List<Path> compileRuntime(boolean isLibrary)
+	private List<Path> compileNativeSources()
 	{
 		List<Path> objects = new ArrayList<>();
-		Path runtimeDir = Path.of("runtime");
-		if (!Files.exists(runtimeDir))
+		List<org.nebula.nebc.io.SourceFile> nativeSources = new ArrayList<>(config.nativeSources());
+
+		// 1. Automatically include standard library runtime if enabled
+		if (config.useStdLib())
 		{
-			runtimeDir = Path.of("../runtime");
-			if (!Files.exists(runtimeDir))
+			Path stdRuntimeDir = Path.of("std", "runtime");
+			if (!Files.exists(stdRuntimeDir))
 			{
-				Log.warn("Runtime directory not found.");
-				return null;
+				stdRuntimeDir = Path.of("..", "std", "runtime"); // Try parent for dev environment
+			}
+
+			if (Files.exists(stdRuntimeDir))
+			{
+				try (java.util.stream.Stream<Path> stream = Files.walk(stdRuntimeDir))
+				{
+					List<Path> stdCFiles = stream.filter(p -> p.toString().endsWith(".c") || p.toString().endsWith(".cpp")).toList();
+					for (Path cFile : stdCFiles)
+					{
+						String fileName = cFile.getFileName().toString();
+						// Skip start.c if compiling as a library, it's the entry point wrapper
+						if (config.compileAsLibrary() && fileName.equals("start.c"))
+							continue;
+						// Skip deprecated wrapper file - syscalls.c is superseded by runtime.c and linux_syscalls.c
+						if (fileName.equals("syscalls.c"))
+							continue;
+						nativeSources.add(new org.nebula.nebc.io.SourceFile(cFile.toAbsolutePath().toString()));
+					}
+				}
+				catch (IOException e)
+				{
+					Log.warn("Failed to scan standard library runtime: " + e.getMessage());
+				}
+			}
+			else
+			{
+				Log.warn("Standard library runtime directory (std/runtime) not found.");
 			}
 		}
 
-		try (java.util.stream.Stream<Path> stream = Files.walk(runtimeDir))
+		// 2. Compile each native source to a temporary object file
+		for (org.nebula.nebc.io.SourceFile sf : nativeSources)
 		{
-			List<Path> cFiles = stream.filter(p -> p.toString().endsWith(".c")).toList();
-			for (Path cFile : cFiles)
-			{
-				boolean isStartFile = cFile.getFileName().toString().equals("start.c");
-				if (isLibrary && isStartFile)
-					continue;
+			if (sf.type() == org.nebula.nebc.io.FileType.NATIVE_HEADER || sf.type() == org.nebula.nebc.io.FileType.NATIVE_CPP_HEADER)
+				continue;
 
-				Path objFile = Files.createTempFile("neb_rt_" + cFile.getFileName().toString(), ".o");
-				// For the library we also want -fPIC so the objects can be linked dynamically
+			try
+			{
+				Path cFile = Path.of(sf.path());
+				Path objFile = Files.createTempFile("neb_native_" + cFile.getFileName().toString(), ".o");
+
 				List<String> cmd = new ArrayList<>(List.of("clang", "-c", cFile.toAbsolutePath().toString(), "-o", objFile.toAbsolutePath().toString(), "-O3", "-fno-stack-protector", "-ffreestanding"));
-				if (isLibrary)
+
+				if (config.compileAsLibrary())
+				{
 					cmd.add("-fPIC");
+				}
+
+				// If it's a C++ file, use clang++ or add flags
+				if (sf.type() == org.nebula.nebc.io.FileType.NATIVE_CPP_SOURCE)
+				{
+					cmd.set(0, "clang++");
+				}
 
 				ProcessBuilder pb = new ProcessBuilder(cmd);
 				int exitCode = pb.start().waitFor();
 				if (exitCode != 0)
 				{
-					Log.err("Failed to compile runtime file: " + cFile);
+					Log.err("Failed to compile native source: " + cFile);
 					return null;
 				}
 				objects.add(objFile);
 			}
+			catch ( IOException |
+					InterruptedException e)
+			{
+				Log.err("Error compiling native source: " + sf.path() + " - " + e.getMessage());
+				return null;
+			}
 		}
-		catch ( IOException |
-				InterruptedException e)
-		{
-			Log.err("Error compiling runtime: " + e.getMessage());
-			return null;
-		}
+
 		return objects;
 	}
 
@@ -261,10 +307,10 @@ public class Compiler
 		{
 			try
 			{
-				Path stdSyms = Path.of("std.nebsym");
+				Path stdSyms = Path.of("neb.nebsym");
 				if (!Files.exists(stdSyms))
 				{
-					stdSyms = Path.of("..", "std.nebsym"); // Try parent for dev environment
+					stdSyms = Path.of("..", "neb.nebsym"); // Try parent for dev environment
 				}
 
 				if (Files.exists(stdSyms))
@@ -274,7 +320,7 @@ public class Compiler
 				}
 				else
 				{
-					Log.warn("Standard library symbols (std.nebsym) not found. On-demand source loading will be used.");
+					Log.warn("Standard library symbols (neb.nebsym) not found. On-demand source loading will be used.");
 				}
 			}
 			catch (IOException e)
@@ -294,6 +340,48 @@ public class Compiler
 			catch (IOException e)
 			{
 				Log.err("Failed to load symbols from " + sf.path() + ": " + e.getMessage());
+			}
+		}
+	}
+
+	private void exportPreludeSymbols(SemanticAnalyzer analyzer)
+	{
+		System.out.println("DEBUG: Exporting prelude symbols...");
+		// Export prelude symbols: make commonly-used std::io symbols available globally
+		// without requiring explicit 'use' statements
+		if (!config.useStdLib())
+			return;
+
+		// Resolve std::io namespace
+		Symbol stdIoSymbol = analyzer.getGlobalScope().resolve("std");
+		if (stdIoSymbol == null || !(stdIoSymbol instanceof NamespaceSymbol stdNs))
+		{
+			Log.debug("Couldnt resolve the std namespace");
+			return;
+		}
+
+		Symbol ioSymbol = stdNs.getMemberTable().resolve("io");
+		if (ioSymbol == null || !(ioSymbol instanceof NamespaceSymbol ioNs))
+		{
+			Log.debug("Couldnt resolve the std::io namespace");
+			return;
+		}
+
+		// Export commonly-used I/O functions to the global scope
+		// This creates aliases in the global scope that point to std::io symbols
+		String[] preludeSymbols = { "print", "println" };
+
+		for (String symbolName : preludeSymbols)
+		{
+			Symbol symbol = ioNs.getMemberTable().resolve(symbolName);
+			if (symbol != null)
+			{
+				// Define the symbol in the global scope (as an alias/import)
+				analyzer.getGlobalScope().define(symbol);
+				if (config.verbose())
+				{
+					Log.debug("Prelude: exporting std::io::" + symbolName + " to global scope");
+				}
 			}
 		}
 	}
@@ -328,7 +416,13 @@ public class Compiler
 		java.util.Set<String> loadedFiles = new java.util.HashSet<>();
 		java.util.List<String> toLoad = new ArrayList<>();
 
-		// Standard library modules will be loaded on-demand based on 'use' statements.
+		// Always load prelude source namespaces so that generic prelude functions
+		// (e.g. println<T: Displayable>) have real AST declaration nodes available
+		// for monomorphization, even when the user writes no explicit 'use' statement.
+		if (config.useStdLib())
+		{
+			toLoad.add("std::io");
+		}
 
 		// Also check user code for explicit 'use std::...'
 		for (CompilationUnit cu : compilationUnits)
@@ -338,10 +432,12 @@ public class Compiler
 				if (directive instanceof UseStatement use && use.qualifiedName.startsWith("std::"))
 				{
 					// Only load from source if it wasn't already loaded as an external symbol (library)
-					if (analyzer.getGlobalScope().resolve(use.qualifiedName) == null)
-					{
-						toLoad.add(use.qualifiedName);
-					}
+					// We check if the EXACT namespace exists.
+					   Symbol existingNs = analyzer.getGlobalScope().resolve(use.qualifiedName);
+					   if (existingNs == null || existingNs.getDeclarationNode() == null)
+					   {
+						   toLoad.add(use.qualifiedName);
+					   }
 				}
 			}
 		}
@@ -374,10 +470,11 @@ public class Compiler
 						{
 							if (directive instanceof UseStatement use && use.qualifiedName.startsWith("std::"))
 							{
-								if (analyzer.getGlobalScope().resolve(use.qualifiedName) == null)
-								{
-									toLoad.add(use.qualifiedName);
-								}
+								   Symbol existingNs = analyzer.getGlobalScope().resolve(use.qualifiedName);
+								   if (existingNs == null || existingNs.getDeclarationNode() == null)
+								   {
+									   toLoad.add(use.qualifiedName);
+								   }
 							}
 						}
 					}

@@ -194,9 +194,13 @@ public record CompilerConfig(
 					{
 						nebSources.add(sf);
 					}
+					else if (sf.type() == FileType.NATIVE_SOURCE || sf.type() == FileType.NATIVE_CPP_SOURCE || sf.type() == FileType.NATIVE_HEADER || sf.type() == FileType.NATIVE_CPP_HEADER)
+					{
+						rawNativeSources.add(path);
+					}
 					else
 					{
-						throw new RuntimeException("Error: Invalid source file provided. Expected *.neb file: " + path);
+						throw new RuntimeException("Error: Invalid source file provided. Expected Nebula or Native source file: " + path);
 					}
 				}
 			}
@@ -205,7 +209,7 @@ public record CompilerConfig(
 
 			List<SourceFile> symbolFilesList = rawSymbolFiles.stream().map(SourceFile::new).toList();
 
-			List<SourceFile> nativeSourcesList = rawNativeSources.stream().map(SourceFile::new).filter(sf -> sf.type() == FileType.NATIVE_SOURCE || sf.type() == FileType.NATIVE_HEADER).toList();
+			List<SourceFile> nativeSourcesList = rawNativeSources.stream().map(SourceFile::new).filter(sf -> sf.type() == FileType.NATIVE_SOURCE || sf.type() == FileType.NATIVE_CPP_SOURCE || sf.type() == FileType.NATIVE_HEADER || sf.type() == FileType.NATIVE_CPP_HEADER).toList();
 
 			List<File> libraryDirs = rawLibraryPaths.stream().map(File::new).collect(Collectors.toList());
 

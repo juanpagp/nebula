@@ -10,7 +10,7 @@ import java.util.Map;
  */
 public enum FileType
 {
-	ERROR(""), NEBULA_SOURCE("neb"), NEBULA_SYMBOL_TABLE("nebsym"), NEBULA_LIBRARY("neblib"), NEBULA_PROJECT("nebproj"), NATIVE_SOURCE("cpp"), NATIVE_HEADER("h");
+	ERROR(""), NEBULA_SOURCE("neb"), NEBULA_SYMBOL_TABLE("nebsym"), NEBULA_LIBRARY("neblib"), NEBULA_PROJECT("nebproj"), NATIVE_SOURCE("c"), NATIVE_HEADER("h"), NATIVE_CPP_SOURCE("cpp"), NATIVE_CPP_HEADER("hpp");
 
 	private final String extension;
 

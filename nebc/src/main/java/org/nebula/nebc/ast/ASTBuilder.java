@@ -11,6 +11,7 @@ import org.nebula.nebc.ast.tags.TagOperation;
 import org.nebula.nebc.ast.tags.TagStatement;
 import org.nebula.nebc.ast.types.ArrayType;
 import org.nebula.nebc.ast.types.NamedType;
+import org.nebula.nebc.ast.types.OptionalTypeNode;
 import org.nebula.nebc.ast.types.TupleType;
 import org.nebula.nebc.ast.types.TypeNode;
 import org.nebula.nebc.frontend.diagnostic.SourceSpan;
@@ -407,43 +408,38 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	@Override
 	public ASTNode visitVariable_declaration(NebulaParser.Variable_declarationContext ctx)
 	{
-		// This handles "var x = 1;" or "int x = 1;" as a statement
-		return buildVariableDeclaration(ctx, ctx.modifiers(), ctx.VAR() != null, ctx.type(), ctx.variable_declarators());
+		boolean isBacklink = ctx.backlink_modifier() != null;
+		return buildVariableDeclaration(ctx, ctx.modifiers(), ctx.VAR() != null, ctx.type(), ctx.variable_declarators(), isBacklink);
 	}
 
 	@Override
 	public ASTNode visitField_declaration(NebulaParser.Field_declarationContext ctx)
 	{
-		// Field declaration in class context, usually has no modifiers in this specific
-		// grammar rule
-		// (modifiers are higher up in top-level, but fields inside structs/classes use
-		// this rule)
-		// If modifiers are needed for fields, the grammar might pass them down or they
-		// are implicit.
-		// Based on the grammar provided: field_declaration : type variable_declarators
-		// SEMICOLON
-		// It lacks explicit modifiers in the rule, defaulting to private/none.
-		return buildVariableDeclaration(ctx, ctx.variable_declaration().modifiers(), ctx.variable_declaration().VAR() != null, ctx.variable_declaration().type(), ctx.variable_declaration().variable_declarators());
+		// Field declarations delegate to variable_declaration, preserving backlink flag
+		var inner = ctx.variable_declaration();
+		boolean isBacklink = inner.backlink_modifier() != null;
+		return buildVariableDeclaration(ctx, inner.modifiers(), inner.VAR() != null, inner.type(), inner.variable_declarators(), isBacklink);
 	}
 
 	@Override
 	public ASTNode visitConst_declaration(NebulaParser.Const_declarationContext ctx)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-		VariableDeclaration varDecl = (VariableDeclaration) visitVariable_declaration(ctx.variable_declaration());
+		var inner = ctx.variable_declaration();
+		boolean isBacklink = inner.backlink_modifier() != null;
+		VariableDeclaration varDecl = buildVariableDeclaration(inner, inner.modifiers(), inner.VAR() != null, inner.type(), inner.variable_declarators(), isBacklink);
 		return new ConstDeclaration(span, varDecl);
 	}
 
-	private VariableDeclaration buildVariableDeclaration(org.antlr.v4.runtime.ParserRuleContext ctx, NebulaParser.ModifiersContext modCtx, boolean isVar, NebulaParser.TypeContext typeCtx, NebulaParser.Variable_declaratorsContext declsCtx)
+	private VariableDeclaration buildVariableDeclaration(
+		org.antlr.v4.runtime.ParserRuleContext ctx,
+		NebulaParser.ModifiersContext modCtx,
+		boolean isVar,
+		NebulaParser.TypeContext typeCtx,
+		NebulaParser.Variable_declaratorsContext declsCtx,
+		boolean isBacklink)
 	{
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-		// Modifiers are strictly for MethodDeclaration in this specific grammar version
-		// usually,
-		// but if VariableDeclaration supports them in AST, we parse them.
-		// The AST Node VariableDeclaration currently doesn't store Modifiers (based on
-		// ast.txt),
-		// so we skip them here or you need to update ASTNode.
-		// Assuming we just want the type and declarators:
 
 		TypeNode type = isVar ? null : (TypeNode) visit(typeCtx);
 		List<VariableDeclarator> declarators = new ArrayList<>();
@@ -459,7 +455,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			declarators.add(new VariableDeclarator(name, init));
 		}
 
-		return new VariableDeclaration(span, type, declarators, isVar);
+		return new VariableDeclaration(span, type, declarators, isVar, isBacklink);
 	}
 
 	// =========================================================================
@@ -641,11 +637,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 	{
 		if (ctx.assignment_expression() == null)
 		{
-			return visit(ctx.binary_or_expression());
+			return visit(ctx.null_coalescing_expression());
 		}
 
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
-		Expression target = (Expression) visit(ctx.binary_or_expression());
+		Expression target = (Expression) visit(ctx.null_coalescing_expression());
 		Expression value = (Expression) visit(ctx.assignment_expression());
 		String operator = ctx.assignment_operator().getText();
 
@@ -873,7 +869,32 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		// 2. Wrap with postfix operators
 		for (var postfix : ctx.postfix_operator())
 		{
-			if (postfix.DOT() != null)
+			if (postfix.OP_OPTIONAL_CHAIN() != null)
+			{
+				// Safe optional-chaining: expr?.member or expr?.method(args)
+				if (postfix.IDENTIFIER() != null)
+				{
+					current = new MemberAccessExpression(span, current, postfix.IDENTIFIER().getText(), true);
+				}
+				else
+				{
+					// Safe invocation: expr?.method(args)
+					List<Expression> args = new ArrayList<>();
+					if (postfix.argument_list() != null)
+					{
+						for (var arg : postfix.argument_list().argument())
+							args.add(extractArgument(arg));
+					}
+					// Safe-call: wrap member access + invocation with isSafe=true
+					current = new InvocationExpression(span, current, args);
+				}
+			}
+			else if (postfix.BANG() != null)
+			{
+				// Forced unwrap: expr!
+				current = new ForcedUnwrapExpression(span, current);
+			}
+			else if (postfix.DOT() != null)
 			{
 				String member = postfix.IDENTIFIER() != null ? postfix.IDENTIFIER().getText() : postfix.INTEGER_LITERAL().getText();
 				current = new MemberAccessExpression(span, current, member);
@@ -885,9 +906,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 				if (postfix.argument_list() != null)
 				{
 					for (var arg : postfix.argument_list().argument())
-					{
 						args.add(extractArgument(arg));
-					}
 				}
 				current = new InvocationExpression(span, current, args);
 			}
@@ -896,15 +915,13 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 				// Indexing
 				List<Expression> indices = new ArrayList<>();
 				for (var exprCtx : postfix.expression_list().expression())
-				{
 					indices.add((Expression) visit(exprCtx));
-				}
 				current = new IndexExpression(span, current, indices);
 			}
 			else if (postfix.OP_INC() != null || postfix.OP_DEC() != null)
 			{
 				UnaryOperator op = postfix.OP_INC() != null ? UnaryOperator.INCREMENT : UnaryOperator.DECREMENT;
-				current = new UnaryExpression(span, op, current, true); // isPostfix = true
+				current = new UnaryExpression(span, op, current, true);
 			}
 		}
 		return current;
@@ -950,6 +967,8 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			return visit(ctx.expression_block());
 		if (ctx.new_expression() != null)
 			return visit(ctx.new_expression());
+		if (ctx.NONE() != null)
+			return new NoneExpression(span);
 
 		return null;
 	}
@@ -1048,10 +1067,21 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			return new TypePattern(span, type, null);
 		}
 		if (ctx.parenthesized_pattern() != null)
-		{
 			return visit(ctx.parenthesized_pattern().pattern());
-		}
+		if (ctx.destructuring_pattern() != null)
+			return (Pattern) visit(ctx.destructuring_pattern());
 		return null;
+	}
+
+	@Override
+	public ASTNode visitDestructuring_pattern(NebulaParser.Destructuring_patternContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		String variantName = ctx.IDENTIFIER().getText();
+		List<String> bindings = new ArrayList<>();
+		for (var id : ctx.binding_list().IDENTIFIER())
+			bindings.add(id.getText());
+		return new DestructuringPattern(span, variantName, bindings);
 	}
 
 	// =========================================================================
@@ -1064,6 +1094,19 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
 		if (ctx.INTEGER_LITERAL() != null)
 			return new LiteralExpression(span, Long.parseLong(ctx.INTEGER_LITERAL().getText()), LiteralType.INT);
+		if (ctx.HEX_INTEGER_LITERAL() != null)
+		{
+			String text = ctx.HEX_INTEGER_LITERAL().getText();
+			// Strip trailing type suffix (e.g. i32, u64) if present
+			String digits = text.replaceAll("[iIuU].*$", "");
+			return new LiteralExpression(span, Long.parseUnsignedLong(digits.substring(2), 16), LiteralType.INT);
+		}
+		if (ctx.BIN_INTEGER_LITERAL() != null)
+		{
+			String text = ctx.BIN_INTEGER_LITERAL().getText();
+			String digits = text.replaceAll("[iIuU].*$", "");
+			return new LiteralExpression(span, Long.parseUnsignedLong(digits.substring(2), 2), LiteralType.INT);
+		}
 		if (ctx.REAL_LITERAL() != null)
 		{
 			String text = ctx.REAL_LITERAL().getText();
@@ -1079,6 +1122,12 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			return new LiteralExpression(span, false, LiteralType.BOOL);
 		if (ctx.string_literal() != null)
 		{
+			// Interpolated string: $"..." — build a StringInterpolationExpression
+			if (ctx.string_literal().interpolated_regular_string() != null)
+			{
+				return visitInterpolated_regular_string(ctx.string_literal().interpolated_regular_string());
+			}
+
 			String text = ctx.string_literal().getText();
 			// Strip leading and trailing quotes
 			if (text.length() >= 2 && text.startsWith("\"") && text.endsWith("\""))
@@ -1090,8 +1139,83 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			return new LiteralExpression(span, text, LiteralType.STRING);
 		}
 		if (ctx.CHARACTER_LITERAL() != null)
-			return new LiteralExpression(span, ctx.CHARACTER_LITERAL().getText(), LiteralType.CHAR);
+		{
+			String rawText = ctx.CHARACTER_LITERAL().getText();
+			// Strip surrounding single quotes and process escape sequences
+			String inner = rawText.length() >= 2 ? rawText.substring(1, rawText.length() - 1) : rawText;
+			inner = processEscapes(inner);
+			char ch = inner.isEmpty() ? '\0' : inner.charAt(0);
+			return new LiteralExpression(span, ch, LiteralType.CHAR);
+		}
 		return null;
+	}
+
+	@Override
+	public ASTNode visitInterpolated_regular_string(NebulaParser.Interpolated_regular_stringContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		List<Expression> parts = new ArrayList<>();
+
+		for (NebulaParser.Interpolated_regular_string_partContext partCtx : ctx.interpolated_regular_string_part())
+		{
+			if (partCtx.interpolated_string_expression() != null)
+			{
+				// {expression} — emit the first expression
+				NebulaParser.Interpolated_string_expressionContext exprCtx =
+					partCtx.interpolated_string_expression();
+				Expression e = (Expression) visit(exprCtx.expression(0));
+				if (e != null)
+					parts.add(e);
+			}
+			else if (partCtx.REGULAR_STRING_INSIDE() != null)
+			{
+				// Raw text fragment between interpolation holes
+				String text = partCtx.REGULAR_STRING_INSIDE().getText();
+				parts.add(new LiteralExpression(span, processEscapes(text), LiteralExpression.LiteralType.STRING));
+			}
+			else if (partCtx.DOUBLE_CURLY_INSIDE() != null)
+			{
+				// Escaped {{ or }} — emit a single { or }
+				String raw = partCtx.DOUBLE_CURLY_INSIDE().getText();
+				parts.add(new LiteralExpression(span, raw.equals("{{") ? "{" : "}", LiteralExpression.LiteralType.STRING));
+			}
+			else if (partCtx.REGULAR_CHAR_INSIDE() != null)
+			{
+				String ch = partCtx.REGULAR_CHAR_INSIDE().getText();
+				parts.add(new LiteralExpression(span, ch, LiteralExpression.LiteralType.STRING));
+			}
+		}
+
+		return new StringInterpolationExpression(span, parts);
+	}
+
+	// =========================================================================
+	// 5b. Optional / Control-flow expressions
+	// =========================================================================
+
+	@Override
+	public ASTNode visitNull_coalescing_expression(NebulaParser.Null_coalescing_expressionContext ctx)
+	{
+		SourceSpan span = SourceUtil.createSpan(ctx, currentFileName);
+		Expression left = (Expression) visit(ctx.binary_or_expression());
+		if (ctx.null_coalescing_expression() != null)
+		{
+			Expression right = (Expression) visit(ctx.null_coalescing_expression());
+			return new NullCoalescingExpression(span, left, right);
+		}
+		return left;
+	}
+
+	@Override
+	public ASTNode visitBreak_statement(NebulaParser.Break_statementContext ctx)
+	{
+		return new BreakStatement(SourceUtil.createSpan(ctx, currentFileName));
+	}
+
+	@Override
+	public ASTNode visitContinue_statement(NebulaParser.Continue_statementContext ctx)
+	{
+		return new ContinueStatement(SourceUtil.createSpan(ctx, currentFileName));
 	}
 
 	// =========================================================================
@@ -1111,17 +1235,29 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		else if (ctx.class_type() != null)
 		{
 			String name = ctx.class_type().qualified_name().getText();
-			// Generic args logic if present in class_type
-			base = new NamedType(span, name, Collections.emptyList());
+			// Parse generic type arguments if present: Pair<i32>, Map<str, i32>, etc.
+			List<TypeNode> typeArgs = Collections.emptyList();
+			var argList = ctx.class_type().type_argument_list();
+			if (argList != null && !argList.type().isEmpty())
+			{
+				typeArgs = new ArrayList<>();
+				for (var argCtx : argList.type())
+				{
+					typeArgs.add((TypeNode) visit(argCtx));
+				}
+			}
+			base = new NamedType(span, name, typeArgs);
 		}
 		else if (ctx.tuple_type() != null)
 		{
 			List<TypeNode> elems = new ArrayList<>();
+			List<String> names = new ArrayList<>();
 			for (var elem : ctx.tuple_type().tuple_type_element())
 			{
 				elems.add((TypeNode) visit(elem.type()));
+				names.add(elem.IDENTIFIER() != null ? elem.IDENTIFIER().getText() : null);
 			}
-			base = new TupleType(span, elems);
+			base = new TupleType(span, elems, names);
 		}
 
 		if (!ctx.rank_specifier().isEmpty())
@@ -1132,6 +1268,13 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 				base = new ArrayType(span, base, 1);
 			}
 		}
+
+		// Handle T? optional suffix
+		if (ctx.INTERR() != null)
+		{
+			base = new OptionalTypeNode(span, base);
+		}
+
 		return base;
 	}
 

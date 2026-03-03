@@ -120,7 +120,17 @@ statement
     | while_statement
     | foreach_statement
     | return_statement
+    | break_statement
+    | continue_statement
     | expression_statement
+    ;
+
+break_statement
+    : BREAK SEMICOLON
+    ;
+
+continue_statement
+    : CONTINUE SEMICOLON
     ;
 
 
@@ -209,8 +219,17 @@ pattern_or
 pattern_atom
     : literal
     | UNDERSCORE
+    | destructuring_pattern
     | IDENTIFIER
     | parenthesized_pattern
+    ;
+
+destructuring_pattern
+    : IDENTIFIER OPEN_PARENS binding_list CLOSE_PARENS
+    ;
+
+binding_list
+    : IDENTIFIER (COMMA IDENTIFIER)*
     ;
 
 parenthesized_pattern
@@ -225,7 +244,7 @@ const_declaration
     ;
 
 variable_declaration
-    : modifiers CONST? (VAR | type) variable_declarators SEMICOLON
+    : modifiers CONST? backlink_modifier? (VAR | type) variable_declarators SEMICOLON
     ;
 
 visibility_modifier
@@ -237,6 +256,11 @@ visibility_modifier
 cvt_modifier
     : KEEPS
     | DROPS
+    | MUTATES
+    ;
+
+backlink_modifier
+    : BACKLINK
     ;
 
 modifiers
@@ -339,7 +363,7 @@ inheritance_clause
     ;
 
 trait_declaration
-    : TRAIT IDENTIFIER trait_body
+    : TRAIT IDENTIFIER type_parameters? trait_body
     ;
 
 trait_body
@@ -397,7 +421,7 @@ type
         class_type rank_specifier*
         | predefined_type rank_specifier*
         | tuple_type rank_specifier*
-    )
+    ) INTERR?
     ;
 
 tuple_type
@@ -478,7 +502,7 @@ parenthesized_expression
     ;
 
 nonAssignmentExpression
-    : binary_or_expression
+    : null_coalescing_expression
     ;
 
 expression
@@ -486,7 +510,11 @@ expression
     ;
 
 assignment_expression
-    : binary_or_expression (assignment_operator assignment_expression)?
+    : null_coalescing_expression (assignment_operator assignment_expression)?
+    ;
+
+null_coalescing_expression
+    : binary_or_expression (OP_COALESCING null_coalescing_expression)?
     ;
 
 new_expression
@@ -498,6 +526,7 @@ assignment_operator
     | OP_ADD_ASSIGNMENT
     | OP_SUB_ASSIGNMENT
     | OP_MULT_ASSIGNMENT
+    | OP_POW_ASSIGNMENT
     | OP_DIV_ASSIGNMENT
     | OP_MOD_ASSIGNMENT
     | OP_AND_ASSIGNMENT
@@ -580,6 +609,7 @@ primary_expression_start
     | match_expression
     | expression_block
     | THIS
+    | NONE
     | array_literal
     | new_expression
     | IDENTIFIER
@@ -589,10 +619,13 @@ primary_expression_start
 postfix_operator
     : DOT IDENTIFIER
     | DOT INTEGER_LITERAL
+    | OP_OPTIONAL_CHAIN IDENTIFIER
+    | OP_OPTIONAL_CHAIN OPEN_PARENS argument_list? CLOSE_PARENS
     | OPEN_PARENS argument_list? CLOSE_PARENS
     | OPEN_BRACKET expression_list CLOSE_BRACKET
     | OP_INC
     | OP_DEC
+    | BANG
     ;
 
 array_literal
@@ -646,6 +679,7 @@ literal
 
 string_literal
     : REGULAR_STRING
+    | VERBATIUM_STRING
     | interpolated_regular_string
     ;
 

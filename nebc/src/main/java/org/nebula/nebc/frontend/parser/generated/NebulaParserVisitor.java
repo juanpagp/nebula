@@ -109,6 +109,18 @@ public interface NebulaParserVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitStatement(NebulaParser.StatementContext ctx);
 	/**
+	 * Visit a parse tree produced by {@link NebulaParser#break_statement}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitBreak_statement(NebulaParser.Break_statementContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link NebulaParser#continue_statement}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitContinue_statement(NebulaParser.Continue_statementContext ctx);
+	/**
 	 * Visit a parse tree produced by {@link NebulaParser#expression_statement}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
@@ -235,6 +247,18 @@ public interface NebulaParserVisitor<T> extends ParseTreeVisitor<T> {
 	 */
 	T visitPattern_atom(NebulaParser.Pattern_atomContext ctx);
 	/**
+	 * Visit a parse tree produced by {@link NebulaParser#destructuring_pattern}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitDestructuring_pattern(NebulaParser.Destructuring_patternContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link NebulaParser#binding_list}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitBinding_list(NebulaParser.Binding_listContext ctx);
+	/**
 	 * Visit a parse tree produced by {@link NebulaParser#parenthesized_pattern}.
 	 * @param ctx the parse tree
 	 * @return the visitor result
@@ -264,6 +288,12 @@ public interface NebulaParserVisitor<T> extends ParseTreeVisitor<T> {
 	 * @return the visitor result
 	 */
 	T visitCvt_modifier(NebulaParser.Cvt_modifierContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link NebulaParser#backlink_modifier}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitBacklink_modifier(NebulaParser.Backlink_modifierContext ctx);
 	/**
 	 * Visit a parse tree produced by {@link NebulaParser#modifiers}.
 	 * @param ctx the parse tree
@@ -564,6 +594,12 @@ public interface NebulaParserVisitor<T> extends ParseTreeVisitor<T> {
 	 * @return the visitor result
 	 */
 	T visitAssignment_expression(NebulaParser.Assignment_expressionContext ctx);
+	/**
+	 * Visit a parse tree produced by {@link NebulaParser#null_coalescing_expression}.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	T visitNull_coalescing_expression(NebulaParser.Null_coalescing_expressionContext ctx);
 	/**
 	 * Visit a parse tree produced by {@link NebulaParser#new_expression}.
 	 * @param ctx the parse tree

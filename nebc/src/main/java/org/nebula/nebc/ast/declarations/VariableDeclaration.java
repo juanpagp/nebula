@@ -10,14 +10,21 @@ public class VariableDeclaration extends Declaration
 {
 	public final TypeNode type; // null if using 'var'
 	public final List<VariableDeclarator> declarators;
-	public final boolean isVar; // true if 'var' was used
+	public final boolean isVar;      // true if 'var' was used
+	public final boolean isBacklink; // true if 'backlink' modifier is present
 
 	public VariableDeclaration(SourceSpan span, TypeNode type, List<VariableDeclarator> declarators, boolean isVar)
+	{
+		this(span, type, declarators, isVar, false);
+	}
+
+	public VariableDeclaration(SourceSpan span, TypeNode type, List<VariableDeclarator> declarators, boolean isVar, boolean isBacklink)
 	{
 		super(span);
 		this.type = type;
 		this.declarators = declarators;
 		this.isVar = isVar;
+		this.isBacklink = isBacklink;
 	}
 
 	public TypeNode getType()

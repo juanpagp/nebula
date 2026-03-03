@@ -86,7 +86,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				ClassType classType = new ClassType(cd.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(cd.name, classType, cd);
 				classType.getMemberScope().setOwner(sym);
-				if (!currentScope.define(sym))
+				if (!currentScope.forceDefine(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, cd, cd.name);
 				}
@@ -96,7 +96,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				StructType structType = new StructType(sd.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(sd.name, structType, sd);
 				structType.getMemberScope().setOwner(sym);
-				if (!currentScope.define(sym))
+				if (!currentScope.forceDefine(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, sd, sd.name);
 				}
@@ -105,7 +105,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				EnumType enumType = new EnumType(ed.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(ed.name, enumType, ed);
-				if (!currentScope.define(sym))
+				if (!currentScope.forceDefine(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, ed, ed.name);
 				}
@@ -114,7 +114,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				UnionType unionType = new UnionType(ud.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(ud.name, unionType, ud);
-				if (!currentScope.define(sym))
+				if (!currentScope.forceDefine(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, ud, ud.name);
 				}
@@ -123,7 +123,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				TraitType traitType = new TraitType(td.name, currentScope);
 				TypeSymbol sym = new TypeSymbol(td.name, traitType, td);
-				if (!currentScope.define(sym))
+				if (!currentScope.forceDefine(sym))
 				{
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, td, td.name);
 				}
@@ -352,9 +352,54 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				error(DiagnosticCode.UNKNOWN_TYPE, astType, nt.qualifiedName);
 				return Type.ERROR;
 			}
-			return ts.getType();
+			Type baseType = ts.getType();
+			// If the type has generic arguments (e.g. Pair<i32>), monomorphize by substituting
+			if (!nt.genericArguments.isEmpty() && baseType instanceof CompositeType ct)
+			{
+				// Collect type parameters from the composite's member scope
+				List<TypeParameterType> typeParams = ct.getMemberScope().getSymbols().values().stream()
+					.filter(s -> s instanceof TypeSymbol tts && tts.getType() instanceof TypeParameterType)
+					.map(s -> (TypeParameterType) s.getType())
+					.collect(java.util.stream.Collectors.toList());
+				if (!typeParams.isEmpty() && typeParams.size() == nt.genericArguments.size())
+				{
+					Substitution sub = new Substitution();
+					for (int i = 0; i < typeParams.size(); i++)
+					{
+						Type argType = resolveType(nt.genericArguments.get(i));
+						sub.bind(typeParams.get(i), argType);
+					}
+					return sub.substitute(baseType);
+				}
+			}
+			return baseType;
 		}
-		// TODO: Handle ArrayType and TupleType recursion here
+		if (astType instanceof org.nebula.nebc.ast.types.OptionalTypeNode otn)
+		{
+			Type inner = resolveType(otn.innerType);
+			if (inner == Type.ERROR)
+				return Type.ERROR;
+			return new OptionalType(inner);
+		}
+		if (astType instanceof org.nebula.nebc.ast.types.ArrayType atn)
+		{
+			Type elem = resolveType(atn.baseType);
+			if (elem == Type.ERROR)
+				return Type.ERROR;
+			return new ArrayType(elem, 0);
+		}
+		if (astType instanceof org.nebula.nebc.ast.types.TupleType ttn)
+		{
+			java.util.List<Type> elemTypes = new java.util.ArrayList<>();
+			for (org.nebula.nebc.ast.types.TypeNode t : ttn.elementTypes)
+			{
+				Type resolved = resolveType(t);
+				if (resolved == Type.ERROR)
+					return Type.ERROR;
+				elemTypes.add(resolved);
+			}
+			return new TupleType(elemTypes, ttn.fieldNames);
+		}
 		return Type.ANY;
 	}
 
@@ -389,12 +434,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 		currentScope = enterNamespace(node, baseScope);
 
-		// Pre-pass methods
+		// Pre-pass methods — only define if not already registered by Phase 1
 		for (ASTNode member : node.members)
 		{
 			if (member instanceof MethodDeclaration md)
 			{
-				defineMethodSignature(md);
+				if (getSymbol(md, MethodSymbol.class) == null)
+					defineMethodSignature(md);
 			}
 			else if (member instanceof ExternDeclaration ed)
 			{
@@ -429,6 +475,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			return null;
 		}
 		ClassType classType = (ClassType) existingSym.getType();
+		defineTypeParamsInScope(node.typeParams, classType.getMemberScope());
 		Type result = visitCompositeBody(node, classType, node.members);
 
 		// Trait implementation check
@@ -458,7 +505,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			return null;
 		}
 		StructType structType = (StructType) existingSym.getType();
-		return visitCompositeBody(node, structType, node.members);
+		defineTypeParamsInScope(node.typeParams, structType.getMemberScope());
+		Type result = visitCompositeBody(node, structType, node.members);
+		return result;
 	}
 
 	/**
@@ -486,6 +535,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			else if (member instanceof ConstructorDeclaration cd)
 			{
 				defineConstructorSignature(cd);
+			}
+			else if (member instanceof OperatorDeclaration od)
+			{
+				defineOperatorSignature(od);
 			}
 			else if (member instanceof ExternDeclaration ed)
 			{
@@ -537,6 +590,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (existingSym == null)
 			return null;
 		UnionType unionType = (UnionType) existingSym.getType();
+
+		// Record the symbol so codegen can retrieve the TypeSymbol via getSymbol(node).
+		recordSymbol(node, existingSym);
 
 		SymbolTable outerScope = currentScope;
 		Type prevTypeDef = currentTypeDefinition;
@@ -784,7 +840,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					// Type checking
 					if (!initType.isAssignableTo(explicitType))
 					{
-						error(DiagnosticCode.TYPE_MISMATCH, decl.initializer(), explicitType.name(), initType.name());
+						// Allow integer literal narrowing when the literal value fits the declared type
+						boolean literalNarrowing = initType instanceof PrimitiveType pi && pi.isInteger()
+							&& explicitType instanceof PrimitiveType pe && pe.isInteger()
+							&& decl.initializer() instanceof org.nebula.nebc.ast.expressions.LiteralExpression lit
+							&& lit.value instanceof Long lv
+							&& intLiteralFitsInType(lv, pe);
+						if (!literalNarrowing)
+							error(DiagnosticCode.TYPE_MISMATCH, decl.initializer(), explicitType.name(), initType.name());
 					}
 				}
 			}
@@ -960,6 +1023,23 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		Type left = node.left.accept(this);
 		Type right = node.right.accept(this);
 
+		// Check operator overloading on composite types before primitive dispatch
+		if (left instanceof CompositeType ct)
+		{
+			String opName = operatorMethodName(node.operator);
+			if (opName != null)
+			{
+				Symbol opSym = ct.getMemberScope().resolve(opName);
+				if (opSym instanceof MethodSymbol ms)
+				{
+					FunctionType ft = ms.getType();
+					Type result = ft.returnType;
+					recordType(node, result);
+					return result;
+				}
+			}
+		}
+
 		Type result = Type.ERROR;
 		switch (node.operator)
 		{
@@ -969,7 +1049,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case DIV:
 			case MOD:
 			case POW:
-				if (isNumeric(left) && isNumeric(right))
+				if (left instanceof TypeParameterType || right instanceof TypeParameterType)
+				{
+					// Generic type parameter — resolved at monomorphization; return left type
+					result = left instanceof TypeParameterType ? right : left;
+					if (result instanceof TypeParameterType)
+						result = left;
+				}
+				else if (isNumeric(left) && isNumeric(right))
 				{
 					PrimitiveType pLeft = (PrimitiveType) left;
 					PrimitiveType pRight = (PrimitiveType) right;
@@ -1004,12 +1091,17 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 			case EQ:
 			case NE:
-				if (!left.equals(right) && !(isNumeric(left) && isNumeric(right)))
+			{
+				// Allow comparison with none (OptionalType(ANY)) — always valid for optional types
+				boolean eitherIsNone = isNoneLiteral(left) || isNoneLiteral(right);
+				boolean eitherIsOptional = left instanceof OptionalType || right instanceof OptionalType;
+				if (!left.equals(right) && !(isNumeric(left) && isNumeric(right)) && !(eitherIsNone && eitherIsOptional))
 				{
 					error(DiagnosticCode.COMPARING_DISTINCT_TYPES, node, left.name(), right.name());
 				}
 				result = PrimitiveType.BOOL;
 				break;
+			}
 
 			case LT:
 			case GT:
@@ -1017,6 +1109,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case GE:
 				if (isNumeric(left) && isNumeric(right))
 					result = PrimitiveType.BOOL;
+				else if (left instanceof TypeParameterType || right instanceof TypeParameterType)
+					result = PrimitiveType.BOOL; // generic type — resolved at monomorphization
 				else
 				{
 					error(DiagnosticCode.RELATIONAL_NUMERIC, node);
@@ -1031,6 +1125,29 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				else
 				{
 					error(DiagnosticCode.LOGICAL_BOOLEAN, node);
+					result = Type.ERROR;
+				}
+				break;
+
+			case BIT_AND:
+			case BIT_OR:
+			case BIT_XOR:
+			case SHL:
+			case SHR:
+				if (isIntegral(left) && isIntegral(right))
+				{
+					PrimitiveType pLeft = (PrimitiveType) left;
+					PrimitiveType pRight = (PrimitiveType) right;
+					result = pLeft.getBitWidth() >= pRight.getBitWidth() ? pLeft : pRight;
+				}
+				else if (isIntegral(left))
+				{
+					// Shift: result is the left operand's type
+					result = left;
+				}
+				else
+				{
+					error(DiagnosticCode.OPERATOR_NOT_DEFINED, node, node.operator, left.name(), right.name());
 					result = Type.ERROR;
 				}
 				break;
@@ -1062,11 +1179,122 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (targetType instanceof FunctionType f)
 		{
 			fn = f;
+			// Bare constructor call — identifier resolves to the constructor MethodSymbol whose
+			// first parameter is the implicit 'this' (REF).  At the call site the caller does NOT
+			// provide 'this'; skip that parameter when validating argument count / types so that
+			// Vec2(x, y) with ctor FunctionType([REF, f32, f32]) is treated as expecting 2 args.
+			if (node.target instanceof IdentifierExpression ie
+					&& !fn.parameterTypes.isEmpty()
+					&& fn.parameterTypes.get(0) == PrimitiveType.REF)
+			{
+				TypeSymbol ts = currentScope.resolveType(ie.name);
+				if (ts != null && ts.getType() instanceof CompositeType ct)
+				{
+					// Reconstruct FunctionType without the 'this' parameter for argument checking
+					List<Type> reducedParams = fn.parameterTypes.subList(1, fn.parameterTypes.size());
+
+					// If the struct is generic, infer type arguments from the call-site arguments
+					// to produce a monomorphized return type (e.g. Pair(3, 7) -> Pair<i32>).
+					boolean hasTypeParams = reducedParams.stream().anyMatch(p -> p instanceof TypeParameterType);
+					if (hasTypeParams && reducedParams.size() == node.arguments.size())
+					{
+						Substitution ctorSub = new Substitution();
+						for (int i = 0; i < node.arguments.size(); i++)
+						{
+							Type argType = node.arguments.get(i).accept(this);
+							infer(reducedParams.get(i), argType, ctorSub);
+						}
+						if (!ctorSub.isEmpty())
+						{
+							// Substitute params and return type
+							List<Type> concreteParams = reducedParams.stream()
+								.map(ctorSub::substitute)
+								.collect(java.util.stream.Collectors.toList());
+							Type concreteReturn = ctorSub.substitute(ct);
+							fn = new FunctionType(concreteReturn, concreteParams);
+							targetType = concreteReturn;
+							methodSym = null;
+							// Record the inferred type arguments on the node for codegen
+							List<Type> typeArgsList = new java.util.ArrayList<>();
+							for (java.util.Map.Entry<TypeParameterType, Type> entry : ctorSub.getMapping().entrySet())
+							{
+								typeArgsList.add(entry.getValue());
+							}
+							node.setTypeArguments(typeArgsList);
+						}
+						else
+						{
+							fn = new FunctionType(ct, reducedParams);
+							targetType = ct;
+							methodSym = null;
+						}
+					}
+					else
+					{
+						fn = new FunctionType(ct, reducedParams);
+						methodSym = null;
+						targetType = ct;
+					}
+				}
+			}
 		}
-		else if (targetType instanceof StructType || targetType instanceof ClassType)
+		else if (targetType instanceof CompositeType compositeTarget)
 		{
-			// Constructor call — result is targetType
-			fn = null;
+			// Constructor call — the identifier resolved directly to the TypeSymbol.
+			// Check whether the struct/class is generic; if so, look up its constructor
+			// MethodSymbol and perform type inference to monomorphize the return type.
+			if (node.target instanceof IdentifierExpression ie)
+			{
+				Symbol ctorSym = compositeTarget.getMemberScope().resolveLocal(ie.name);
+				if (ctorSym instanceof MethodSymbol ctorMethod)
+				{
+					FunctionType ctorFnType = ctorMethod.getType();
+					List<Type> reducedParams = ctorFnType.parameterTypes.subList(1, ctorFnType.parameterTypes.size()); // skip REF
+					boolean hasTypeParams = reducedParams.stream().anyMatch(p -> p instanceof TypeParameterType);
+					if (hasTypeParams && reducedParams.size() == node.arguments.size())
+					{
+						Substitution ctorSub = new Substitution();
+						for (int i = 0; i < node.arguments.size(); i++)
+						{
+							Type argType = node.arguments.get(i).accept(this);
+							infer(reducedParams.get(i), argType, ctorSub);
+						}
+						if (!ctorSub.isEmpty())
+						{
+							List<Type> concreteParams = reducedParams.stream()
+								.map(ctorSub::substitute)
+								.collect(java.util.stream.Collectors.toList());
+							Type concreteReturn = ctorSub.substitute(compositeTarget);
+							fn = new FunctionType(concreteReturn, concreteParams);
+							targetType = concreteReturn;
+							methodSym = null;
+							// Record inferred type arguments on the node for codegen
+							List<Type> typeArgsList = new java.util.ArrayList<>();
+							for (java.util.Map.Entry<TypeParameterType, Type> entry : ctorSub.getMapping().entrySet())
+							{
+								typeArgsList.add(entry.getValue());
+							}
+							node.setTypeArguments(typeArgsList);
+						}
+						else
+						{
+							fn = null; // fall through to simple constructor path
+						}
+					}
+					else
+					{
+						fn = null; // non-generic constructor
+					}
+				}
+				else
+				{
+					fn = null;
+				}
+			}
+			else
+			{
+				fn = null;
+			}
 		}
 		else
 		{
@@ -1080,10 +1308,15 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		{
 			List<Expression> effectiveArgs = new ArrayList<>(node.arguments);
 			// If it's a member access call, prepend the receiver to effectiveArgs
+			// only if the function's first parameter is the object type (i.e. 'this').
 			if (node.target instanceof MemberAccessExpression mae && !fn.parameterTypes.isEmpty())
 			{
-				// Assume the first parameter is 'this' if it's a member call
-				effectiveArgs.add(0, mae.target);
+				Type receiverType = mae.target.accept(this);
+				Type firstParam = fn.parameterTypes.get(0);
+				if (receiverMatchesFirstParam(receiverType, firstParam))
+				{
+					effectiveArgs.add(0, mae.target);
+				}
 			}
 
 			// If it's a generic method, we need to perform type inference
@@ -1161,7 +1394,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 		else
 		{
-			// Constructor call — targetType is already the ClassType/StructType
+			// Constructor call — targetType is already the ClassType/StructType.
+			// Still visit each argument so the SA records their types for codegen.
+			for (Expression arg : node.arguments)
+			{
+				arg.accept(this);
+			}
 			result = targetType;
 		}
 
@@ -1202,6 +1440,19 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (objectType == Type.ERROR)
 			return Type.ERROR;
 
+		// Guard: bare member access on an optional type requires '?.' safe access
+		if (objectType instanceof OptionalType ot && !node.isSafe)
+		{
+			error(DiagnosticCode.UNSAFE_MEMBER_ACCESS_ON_OPTIONAL, node, objectType.name());
+			return Type.ERROR;
+		}
+
+		// For safe optional chaining '?.', unwrap the optional and resolve on inner type
+		if (node.isSafe && objectType instanceof OptionalType ot)
+		{
+			objectType = ot.innerType;
+		}
+
 		if (objectType == PrimitiveType.STR)
 		{
 			if (node.memberName.equals("ptr"))
@@ -1220,7 +1471,36 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 
 		SymbolTable memberScope = null;
-		if (objectType instanceof CompositeType ct)
+		if (objectType instanceof TupleType tt)
+		{
+			// Tuple member access: .0, .1 (positional) or .fieldName (named)
+			try
+			{
+				int index = Integer.parseInt(node.memberName);
+				if (index >= 0 && index < tt.elementTypes.size())
+				{
+					Type result = tt.elementTypes.get(index);
+					recordType(node, result);
+					return result;
+				}
+				error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
+				return Type.ERROR;
+			}
+			catch (NumberFormatException e)
+			{
+				// Named tuple member access
+				int idx = tt.indexOfField(node.memberName);
+				if (idx >= 0)
+				{
+					Type result = tt.elementTypes.get(idx);
+					recordType(node, result);
+					return result;
+				}
+				error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
+				return Type.ERROR;
+			}
+		}
+		else if (objectType instanceof CompositeType ct)
 		{
 			memberScope = ct.getMemberScope();
 		}
@@ -1359,10 +1639,6 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			case INT -> {
 				if (node.value instanceof Long l)
 				{
-					if (l >= Byte.MIN_VALUE && l <= Byte.MAX_VALUE)
-						yield PrimitiveType.I8;
-					if (l >= Short.MIN_VALUE && l <= Short.MAX_VALUE)
-						yield PrimitiveType.I16;
 					if (l >= Integer.MIN_VALUE && l <= Integer.MAX_VALUE)
 						yield PrimitiveType.I32;
 				}
@@ -1409,6 +1685,152 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			return p.isInteger() || p.isFloat();
 		}
 		return false;
+	}
+
+	private boolean isIntegral(Type t)
+	{
+		if (t instanceof PrimitiveType p)
+		{
+			return p.isInteger();
+		}
+		return false;
+	}
+
+	/** Returns true if the type represents the 'none' literal (OptionalType wrapping ANY). */
+	private boolean isNoneLiteral(Type t)
+	{
+		return t instanceof OptionalType ot && ot.innerType == Type.ANY;
+	}
+
+	/** Returns true if a long literal value fits within the range of the given integer primitive type. */
+	private boolean intLiteralFitsInType(long value, PrimitiveType targetType)
+	{
+		return switch (targetType.name())
+		{
+			case "i8"  -> value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE;
+			case "u8"  -> value >= 0 && value <= 255;
+			case "i16" -> value >= Short.MIN_VALUE && value <= Short.MAX_VALUE;
+			case "u16" -> value >= 0 && value <= 65535;
+			case "i32" -> value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE;
+			case "u32" -> value >= 0 && value <= 4294967295L;
+			default    -> true; // i64, u64 — always fits
+		};
+	}
+
+	/**
+	 * Determines whether a receiver type matches the first parameter of a method,
+	 * which is used to decide if the receiver should be prepended to the argument list.
+	 * Handles direct equality, composite name equality, and TypeParameterType with
+	 * a bound that matches a trait-typed first parameter.
+	 */
+	private boolean receiverMatchesFirstParam(Type receiverType, Type firstParam)
+	{
+		if (firstParam.equals(receiverType))
+			return true;
+		if (firstParam instanceof CompositeType && receiverType instanceof CompositeType)
+		{
+			// Exact name match
+			if (firstParam.name().equals(receiverType.name()))
+				return true;
+			// Monomorphized receiver: e.g. receiver is "Pair<i32>" and param is "Pair".
+			// The base name (before '<') must match.
+			String fpBase = compositeBaseName(firstParam.name());
+			String rvBase = compositeBaseName(receiverType.name());
+			if (fpBase.equals(rvBase))
+				return true;
+		}
+		// REF is the implicit 'this' pointer for struct/class methods (constructors).
+		if (firstParam == PrimitiveType.REF && receiverType instanceof CompositeType)
+			return true;
+		// TypeParameterType<T: Bound> — method declared on the trait, receiver is T
+		if (receiverType instanceof TypeParameterType tpt && tpt.hasBound()
+				&& firstParam instanceof TraitType ft
+				&& ft.name().equals(tpt.getBound().name()))
+			return true;
+		// TypeParameterType<T: Bound> — method declared on a composite type (impl for T)
+		if (receiverType instanceof TypeParameterType tpt2 && tpt2.hasBound()
+				&& firstParam instanceof CompositeType)
+			return true;
+		return false;
+	}
+
+	/** Returns the base name of a composite type, stripping any generic parameters. */
+	private static String compositeBaseName(String name)
+	{
+		int lt = name.indexOf('<');
+		return lt >= 0 ? name.substring(0, lt) : name;
+	}
+
+	/**
+	 * Maps a binary operator token to its Nebula operator declaration name.
+	 * Returns null for operators that cannot be overloaded.
+	 */
+	private String operatorMethodName(org.nebula.nebc.ast.BinaryOperator op)
+	{
+		return switch (op)
+		{
+			case ADD  -> "operator+";
+			case SUB  -> "operator-";
+			case MUL  -> "operator*";
+			case DIV  -> "operator/";
+			case MOD  -> "operator%";
+			case EQ   -> "operator==";
+			case NE   -> "operator!=";
+			case LT   -> "operator<";
+			case GT   -> "operator>";
+			case LE   -> "operator<=";
+			case GE   -> "operator>=";
+			default   -> null;
+		};
+	}
+
+	/**
+	 * Pushes a new scope containing TypeParameterType symbols for each generic
+	 * parameter in {@code typeParams}. Returns the old scope so the caller can
+	 * restore it, or {@code null} if there were no type params.
+	 */
+	private SymbolTable pushTypeParamScope(List<GenericParam> typeParams)
+	{
+		if (typeParams == null || typeParams.isEmpty())
+			return null;
+		SymbolTable outerScope = currentScope;
+		currentScope = new SymbolTable(outerScope);
+		for (GenericParam gp : typeParams)
+		{
+			TraitType bound = null;
+			if (gp.hasBound() && gp.bound() instanceof org.nebula.nebc.ast.types.NamedType nt)
+			{
+				TypeSymbol boundSym = outerScope.resolveType(nt.qualifiedName);
+				if (boundSym != null && boundSym.getType() instanceof TraitType tt)
+					bound = tt;
+			}
+			TypeParameterType tpt = new TypeParameterType(gp.name(), bound);
+			currentScope.define(new TypeSymbol(gp.name(), tpt, null));
+		}
+		return outerScope;
+	}
+
+	/**
+	 * Defines generic type parameters directly in the given {@code scope}.
+	 * Used for struct/class declarations so that type parameters are visible
+	 * inside the member scope when resolving field and method signatures.
+	 */
+	private void defineTypeParamsInScope(List<GenericParam> typeParams, SymbolTable scope)
+	{
+		if (typeParams == null || typeParams.isEmpty())
+			return;
+		for (GenericParam gp : typeParams)
+		{
+			TraitType bound = null;
+			if (gp.hasBound() && gp.bound() instanceof org.nebula.nebc.ast.types.NamedType nt)
+			{
+				TypeSymbol boundSym = currentScope.resolveType(nt.qualifiedName);
+				if (boundSym != null && boundSym.getType() instanceof TraitType tt)
+					bound = tt;
+			}
+			TypeParameterType tpt = new TypeParameterType(gp.name(), bound);
+			scope.forceDefine(new TypeSymbol(gp.name(), tpt, null));
+		}
 	}
 
 	// --- Stubs for features not yet fully implemented ---
@@ -1465,11 +1887,44 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (targetType == Type.ERROR)
 			return Type.ERROR;
 
+		// Unwrap optional target
+		Type matchedType = (targetType instanceof OptionalType ot) ? ot.innerType : targetType;
+
 		Type commonType = null;
 		for (MatchArm arm : node.arms)
 		{
-			arm.pattern.accept(this); // TODO: Pattern analysis
+			enterScope();
+			// Bind destructuring variables before visiting the arm body
+			if (arm.pattern instanceof DestructuringPattern dp)
+			{
+				if (!dp.bindings.isEmpty() && matchedType instanceof CompositeType ct)
+				{
+					SymbolTable memberScope = ct.getMemberScope();
+					Symbol variantSym = memberScope.resolve(dp.variantName);
+					if (variantSym instanceof MethodSymbol ms)
+					{
+						// FunctionType(unionType, [payloadType]) — skip the first 'this'-like param
+						FunctionType fnType = ms.getType();
+						// payload params start at index 0 (no prepended 'this' for variants)
+						for (int i = 0; i < dp.bindings.size() && i < fnType.parameterTypes.size(); i++)
+						{
+							Type bindingType = fnType.parameterTypes.get(i);
+							currentScope.define(new VariableSymbol(dp.bindings.get(i), bindingType, false, node));
+						}
+					}
+				}
+				else if (!dp.bindings.isEmpty())
+				{
+					// Unknown payload type — bind as ANY so the arm body can still resolve
+					for (String binding : dp.bindings)
+					{
+						currentScope.define(new VariableSymbol(binding, Type.ANY, false, node));
+					}
+				}
+			}
+			arm.pattern.accept(this);
 			Type armType = arm.result.accept(this);
+			exitScope();
 			if (commonType == null)
 			{
 				commonType = armType;
@@ -1602,6 +2057,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitStringInterpolationExpression(StringInterpolationExpression node)
 	{
+		// Analyse each part so that expression parts get their types recorded.
+		for (org.nebula.nebc.ast.expressions.Expression part : node.parts)
+		{
+			part.accept(this);
+		}
+		recordType(node, PrimitiveType.STR);
 		return PrimitiveType.STR;
 	}
 
@@ -1614,6 +2075,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitLiteralPattern(LiteralPattern node)
 	{
+		// Visit the literal expression so its type is recorded for codegen.
+		node.value.accept(this);
 		return null;
 	}
 
@@ -1632,6 +2095,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitOrPattern(OrPattern node)
 	{
+		// Visit each sub-pattern so their literals are typed.
+		for (Pattern sub : node.alternatives)
+		{
+			sub.accept(this);
+		}
 		return null;
 	}
 
@@ -1817,7 +2285,69 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitOperatorDeclaration(OperatorDeclaration node)
 	{
+		Symbol sym = getSymbol(node, Symbol.class);
+		if (sym == null)
+			return null;
+
+		MethodSymbol methodSym = (MethodSymbol) sym;
+		FunctionType fnType = methodSym.getType();
+
+		SymbolTable prevScope = currentScope;
+		Type prevMethodReturn = currentMethodReturnType;
+
+		currentScope = new SymbolTable(prevScope);
+		currentMethodReturnType = fnType.returnType;
+
+		try
+		{
+			// Skip 'this' (index 0), define explicit params starting at index 1
+			int paramIdx = 1;
+			for (Parameter p : node.parameters)
+			{
+				Type pType = fnType.parameterTypes.get(paramIdx++);
+				currentScope.define(new VariableSymbol(p.name(), pType, false, null));
+			}
+
+			if (node.body != null)
+				node.body.accept(this);
+		}
+		finally
+		{
+			currentScope = prevScope;
+			currentMethodReturnType = prevMethodReturn;
+		}
 		return null;
+	}
+
+	/**
+	 * Registers an operator declaration as a {@link MethodSymbol} in the current (member) scope.
+	 * The symbol name is {@code "operator" + token} (e.g. {@code "operator+"}).
+	 * Return type is inferred: {@code bool} for comparison operators, receiver type otherwise.
+	 */
+	private void defineOperatorSignature(OperatorDeclaration od)
+	{
+		Type receiverType = currentTypeDefinition;
+		List<Type> paramTypes = new ArrayList<>();
+		paramTypes.add(receiverType); // 'this'
+
+		for (Parameter p : od.parameters)
+		{
+			Type pType = (p.type() != null) ? resolveType(p.type()) : Type.ANY;
+			paramTypes.add(pType != null ? pType : Type.ERROR);
+		}
+
+		// Infer return type: bool for equality/relational, receiver type for arithmetic/bitwise
+		Type returnType = switch (od.operatorToken)
+		{
+			case "==", "!=", "<", ">", "<=", ">=" -> PrimitiveType.BOOL;
+			default                               -> receiverType;
+		};
+
+		FunctionType fnType = new FunctionType(returnType, paramTypes);
+		String symbolName = "operator" + od.operatorToken;
+		MethodSymbol sym = new MethodSymbol(symbolName, fnType, java.util.Collections.emptyList(), false, od, java.util.Collections.emptyList());
+		currentScope.forceDefine(sym);
+		recordSymbol(od, sym);
 	}
 
 	@Override
@@ -1897,8 +2427,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitUseStatement(UseStatement node)
 	{
-		// Resolve the namespace
-		Symbol sym = globalScope.resolve(node.qualifiedName);
+		// Resolve the namespace — check current scope chain first, then global scope
+		Symbol sym = currentScope.resolve(node.qualifiedName);
+		if (sym == null)
+			sym = globalScope.resolve(node.qualifiedName);
 		if (sym instanceof NamespaceSymbol ns)
 		{
 			currentScope.addImport(ns);
@@ -1915,6 +2447,96 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitConstDeclaration(ConstDeclaration node)
 	{
+		return node.declaration.accept(this);
+	}
+
+	// =========================================================================
+	// Optional type expressions
+	// =========================================================================
+
+	@Override
+	public Type visitNoneExpression(NoneExpression node)
+	{
+		// 'none' is the absent value; its type is an optional wrapping any T.
+		// The concrete T? is resolved by the assignment context during inference.
+		// Return a sentinel OptionalType(ANY) so callers know it's optional-compatible.
+		Type result = new OptionalType(Type.ANY);
+		recordType(node, result);
+		return result;
+	}
+
+	@Override
+	public Type visitForcedUnwrapExpression(ForcedUnwrapExpression node)
+	{
+		Type operandType = node.operand.accept(this);
+		if (operandType instanceof OptionalType ot)
+		{
+			// Strip optional wrapper — caller gets the inner T
+			Type result = ot.innerType;
+			recordType(node, result);
+			return result;
+		}
+		// Forced-unwrap on a non-optional is a type error
+		error(DiagnosticCode.FORCED_UNWRAP_ON_NON_OPTIONAL, node, operandType != null ? operandType.name() : "unknown");
+		return Type.ERROR;
+	}
+
+	@Override
+	public Type visitNullCoalescingExpression(NullCoalescingExpression node)
+	{
+		Type leftType  = node.left.accept(this);
+		Type rightType = node.right.accept(this);
+
+		if (leftType instanceof OptionalType ot)
+		{
+			// left ?? right  =>  type is T when right : T (or T?)
+			if (rightType instanceof OptionalType rt)
+			{
+				// both optional: result is T?
+				Type result = new OptionalType(ot.innerType);
+				recordType(node, result);
+				return result;
+			}
+			// right is T: result is T
+			recordType(node, ot.innerType);
+			return ot.innerType;
+		}
+
+		// left side is not optional — coalescing is a no-op, still valid
+		recordType(node, leftType);
+		return leftType;
+	}
+
+	@Override
+	public Type visitDestructuringPattern(DestructuringPattern node)
+	{
+		// Binding declarations are handled by visitMatchExpression's arm loop,
+		// which pushes a child scope and defines each binding variable.
+		// At this call-site there is nothing type-level to check; return null.
+		return null;
+	}
+
+	// =========================================================================
+	// Break / Continue
+	// =========================================================================
+
+	@Override
+	public Type visitBreakStatement(BreakStatement node)
+	{
+		if (!insideLoop)
+		{
+			error(DiagnosticCode.INVALID_BREAK_OUTSIDE_LOOP, node, "break");
+		}
+		return null;
+	}
+
+	@Override
+	public Type visitContinueStatement(ContinueStatement node)
+	{
+		if (!insideLoop)
+		{
+			error(DiagnosticCode.INVALID_BREAK_OUTSIDE_LOOP, node, "continue");
+		}
 		return null;
 	}
 }

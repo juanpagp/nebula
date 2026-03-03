@@ -170,6 +170,26 @@ public interface NebulaParserListener extends ParseTreeListener {
 	 */
 	void exitStatement(NebulaParser.StatementContext ctx);
 	/**
+	 * Enter a parse tree produced by {@link NebulaParser#break_statement}.
+	 * @param ctx the parse tree
+	 */
+	void enterBreak_statement(NebulaParser.Break_statementContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#break_statement}.
+	 * @param ctx the parse tree
+	 */
+	void exitBreak_statement(NebulaParser.Break_statementContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link NebulaParser#continue_statement}.
+	 * @param ctx the parse tree
+	 */
+	void enterContinue_statement(NebulaParser.Continue_statementContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#continue_statement}.
+	 * @param ctx the parse tree
+	 */
+	void exitContinue_statement(NebulaParser.Continue_statementContext ctx);
+	/**
 	 * Enter a parse tree produced by {@link NebulaParser#expression_statement}.
 	 * @param ctx the parse tree
 	 */
@@ -380,6 +400,26 @@ public interface NebulaParserListener extends ParseTreeListener {
 	 */
 	void exitPattern_atom(NebulaParser.Pattern_atomContext ctx);
 	/**
+	 * Enter a parse tree produced by {@link NebulaParser#destructuring_pattern}.
+	 * @param ctx the parse tree
+	 */
+	void enterDestructuring_pattern(NebulaParser.Destructuring_patternContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#destructuring_pattern}.
+	 * @param ctx the parse tree
+	 */
+	void exitDestructuring_pattern(NebulaParser.Destructuring_patternContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link NebulaParser#binding_list}.
+	 * @param ctx the parse tree
+	 */
+	void enterBinding_list(NebulaParser.Binding_listContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#binding_list}.
+	 * @param ctx the parse tree
+	 */
+	void exitBinding_list(NebulaParser.Binding_listContext ctx);
+	/**
 	 * Enter a parse tree produced by {@link NebulaParser#parenthesized_pattern}.
 	 * @param ctx the parse tree
 	 */
@@ -429,6 +469,16 @@ public interface NebulaParserListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	void exitCvt_modifier(NebulaParser.Cvt_modifierContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link NebulaParser#backlink_modifier}.
+	 * @param ctx the parse tree
+	 */
+	void enterBacklink_modifier(NebulaParser.Backlink_modifierContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#backlink_modifier}.
+	 * @param ctx the parse tree
+	 */
+	void exitBacklink_modifier(NebulaParser.Backlink_modifierContext ctx);
 	/**
 	 * Enter a parse tree produced by {@link NebulaParser#modifiers}.
 	 * @param ctx the parse tree
@@ -929,6 +979,16 @@ public interface NebulaParserListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	void exitAssignment_expression(NebulaParser.Assignment_expressionContext ctx);
+	/**
+	 * Enter a parse tree produced by {@link NebulaParser#null_coalescing_expression}.
+	 * @param ctx the parse tree
+	 */
+	void enterNull_coalescing_expression(NebulaParser.Null_coalescing_expressionContext ctx);
+	/**
+	 * Exit a parse tree produced by {@link NebulaParser#null_coalescing_expression}.
+	 * @param ctx the parse tree
+	 */
+	void exitNull_coalescing_expression(NebulaParser.Null_coalescing_expressionContext ctx);
 	/**
 	 * Enter a parse tree produced by {@link NebulaParser#new_expression}.
 	 * @param ctx the parse tree

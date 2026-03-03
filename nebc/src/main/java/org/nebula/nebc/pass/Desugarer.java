@@ -550,4 +550,47 @@ public class Desugarer implements ASTVisitor<ASTNode>
 	{
 		return node;
 	}
+
+	// =========================================================================
+	// Optional / Control-flow pass-through
+	// =========================================================================
+
+	@Override
+	public ASTNode visitNoneExpression(org.nebula.nebc.ast.expressions.NoneExpression node)
+	{
+		return node;
+	}
+
+	@Override
+	public ASTNode visitForcedUnwrapExpression(org.nebula.nebc.ast.expressions.ForcedUnwrapExpression node)
+	{
+		node.operand.accept(this);
+		return node;
+	}
+
+	@Override
+	public ASTNode visitNullCoalescingExpression(org.nebula.nebc.ast.expressions.NullCoalescingExpression node)
+	{
+		node.left.accept(this);
+		node.right.accept(this);
+		return node;
+	}
+
+	@Override
+	public ASTNode visitDestructuringPattern(org.nebula.nebc.ast.patterns.DestructuringPattern node)
+	{
+		return node;
+	}
+
+	@Override
+	public ASTNode visitBreakStatement(org.nebula.nebc.ast.statements.BreakStatement node)
+	{
+		return node;
+	}
+
+	@Override
+	public ASTNode visitContinueStatement(org.nebula.nebc.ast.statements.ContinueStatement node)
+	{
+		return node;
+	}
 }

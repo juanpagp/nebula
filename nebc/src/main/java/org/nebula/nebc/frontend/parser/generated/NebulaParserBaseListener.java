@@ -211,6 +211,30 @@ public class NebulaParserBaseListener implements NebulaParserListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
+	@Override public void enterBreak_statement(NebulaParser.Break_statementContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitBreak_statement(NebulaParser.Break_statementContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterContinue_statement(NebulaParser.Continue_statementContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitContinue_statement(NebulaParser.Continue_statementContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
 	@Override public void enterExpression_statement(NebulaParser.Expression_statementContext ctx) { }
 	/**
 	 * {@inheritDoc}
@@ -463,6 +487,30 @@ public class NebulaParserBaseListener implements NebulaParserListener {
 	 *
 	 * <p>The default implementation does nothing.</p>
 	 */
+	@Override public void enterDestructuring_pattern(NebulaParser.Destructuring_patternContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitDestructuring_pattern(NebulaParser.Destructuring_patternContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterBinding_list(NebulaParser.Binding_listContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitBinding_list(NebulaParser.Binding_listContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
 	@Override public void enterParenthesized_pattern(NebulaParser.Parenthesized_patternContext ctx) { }
 	/**
 	 * {@inheritDoc}
@@ -518,6 +566,18 @@ public class NebulaParserBaseListener implements NebulaParserListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitCvt_modifier(NebulaParser.Cvt_modifierContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterBacklink_modifier(NebulaParser.Backlink_modifierContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitBacklink_modifier(NebulaParser.Backlink_modifierContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *
@@ -1118,6 +1178,18 @@ public class NebulaParserBaseListener implements NebulaParserListener {
 	 * <p>The default implementation does nothing.</p>
 	 */
 	@Override public void exitAssignment_expression(NebulaParser.Assignment_expressionContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void enterNull_coalescing_expression(NebulaParser.Null_coalescing_expressionContext ctx) { }
+	/**
+	 * {@inheritDoc}
+	 *
+	 * <p>The default implementation does nothing.</p>
+	 */
+	@Override public void exitNull_coalescing_expression(NebulaParser.Null_coalescing_expressionContext ctx) { }
 	/**
 	 * {@inheritDoc}
 	 *

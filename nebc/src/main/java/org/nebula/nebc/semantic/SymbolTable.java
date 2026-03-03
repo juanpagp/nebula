@@ -144,9 +144,31 @@ public class SymbolTable
 	 */
 	public TypeSymbol resolveType(String name)
 	{
-		Symbol sym = resolve(name);
+		return resolveType(name, true);
+	}
+
+	/**
+	 * Resolves a type by name, skipping any non-TypeSymbol shadowing entries in
+	 * intermediate scopes (e.g. a constructor method that shares the struct's
+	 * name). This ensures that a constructor defined inside a struct member scope
+	 * does not shadow the type symbol that lives in the enclosing scope.
+	 */
+	private TypeSymbol resolveType(String name, boolean useParent)
+	{
+		Symbol sym = symbols.get(name);
 		if (sym instanceof TypeSymbol ts)
 			return ts;
+
+		// Import search
+		for (NamespaceSymbol ns : imports)
+		{
+			TypeSymbol importedSym = ns.getMemberTable().resolveType(name, false);
+			if (importedSym != null)
+				return importedSym;
+		}
+
+		if (useParent && parent != null)
+			return parent.resolveType(name, true);
 		return null;
 	}
 

@@ -23,7 +23,15 @@ public enum DiagnosticCode
 	INDEX_NOT_INTEGER("Array index must be an integer, got '%s'."), TYPE_NOT_INDEXABLE("Type '%s' is not indexable."), ARRAY_LITERAL_MISMATCH("Array literal element type mismatch. Expected '%s', got '%s'."),
 
 	// --- FFI & I/O ---
-	EXTERN_METHOD_HAS_BODY("Method '%s' is declared in an 'extern' block and cannot have a body.");
+	EXTERN_METHOD_HAS_BODY("Method '%s' is declared in an 'extern' block and cannot have a body."),
+
+	// --- Control-flow ---
+	INVALID_BREAK_OUTSIDE_LOOP("'%s' statement used outside of a loop."),
+
+	// --- Optionals ---
+	FORCED_UNWRAP_ON_NON_OPTIONAL("Forced unwrap '!' applied to non-optional type '%s'."),
+	UNSAFE_MEMBER_ACCESS_ON_OPTIONAL("Optional type '%s' requires safe access '?.' or explicit unwrap before member access."),
+	NONE_ASSIGNED_TO_NON_OPTIONAL("'none' cannot be assigned to non-optional type '%s'.");
 
 	private final String messageTemplate;
 

@@ -8,11 +8,14 @@ import java.util.List;
 public class TupleType extends TypeNode
 {
 	public final List<TypeNode> elementTypes;
+	/** Optional field names; element is {@code null} when the field is unnamed. */
+	public final List<String> fieldNames;
 
-	public TupleType(SourceSpan span, List<TypeNode> elementTypes)
+	public TupleType(SourceSpan span, List<TypeNode> elementTypes, List<String> fieldNames)
 	{
 		super(span);
 		this.elementTypes = elementTypes;
+		this.fieldNames = fieldNames;
 	}
 
 	@Override

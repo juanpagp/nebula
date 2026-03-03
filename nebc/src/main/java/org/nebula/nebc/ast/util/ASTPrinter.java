@@ -441,4 +441,46 @@ public class ASTPrinter implements ASTVisitor<String>
 			return line("TupleType") + visitNodes("Of", t.elementTypes);
 		return line("Type: " + node.getClass().getSimpleName());
 	}
+
+	// =========================================================================
+	// Optional / Control-flow
+	// =========================================================================
+
+	@Override
+	public String visitNoneExpression(org.nebula.nebc.ast.expressions.NoneExpression node)
+	{
+		return line("NoneExpression");
+	}
+
+	@Override
+	public String visitForcedUnwrapExpression(org.nebula.nebc.ast.expressions.ForcedUnwrapExpression node)
+	{
+		return line("ForcedUnwrap") + visitNode("Operand", node.operand);
+	}
+
+	@Override
+	public String visitNullCoalescingExpression(org.nebula.nebc.ast.expressions.NullCoalescingExpression node)
+	{
+		return line("NullCoalescing(??)")
+			+ visitNode("Left", node.left)
+			+ visitNode("Right", node.right);
+	}
+
+	@Override
+	public String visitDestructuringPattern(org.nebula.nebc.ast.patterns.DestructuringPattern node)
+	{
+		return line("DestructuringPattern: " + node.variantName + "(" + String.join(", ", node.bindings) + ")");
+	}
+
+	@Override
+	public String visitBreakStatement(org.nebula.nebc.ast.statements.BreakStatement node)
+	{
+		return line("BreakStatement");
+	}
+
+	@Override
+	public String visitContinueStatement(org.nebula.nebc.ast.statements.ContinueStatement node)
+	{
+		return line("ContinueStatement");
+	}
 }

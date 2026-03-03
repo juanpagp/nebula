@@ -51,3 +51,4 @@ test/
 *.so
 *.nebsym
 TODO.md
+.github/

@@ -234,6 +234,21 @@ public interface ASTVisitor<R>
      */
     R visitStringInterpolationExpression(StringInterpolationExpression node);
 
+    /**
+     * @grammar none — absence literal for optional types.
+     */
+    R visitNoneExpression(org.nebula.nebc.ast.expressions.NoneExpression node);
+
+    /**
+     * @grammar expr! — forced unwrap of an optional; panics if absent.
+     */
+    R visitForcedUnwrapExpression(org.nebula.nebc.ast.expressions.ForcedUnwrapExpression node);
+
+    /**
+     * @grammar expr1 ?? expr2 — unwrap with fallback.
+     */
+    R visitNullCoalescingExpression(org.nebula.nebc.ast.expressions.NullCoalescingExpression node);
+
     // ------------------
     // ---- Patterns ----
     // ------------------
@@ -262,6 +277,21 @@ public interface ASTVisitor<R>
      * Matches multiple alternatives (e.g., case A | B => ...).
      */
     R visitOrPattern(OrPattern node);
+
+    /**
+     * @grammar VariantName(binding1, binding2) — destructures a union variant payload.
+     */
+    R visitDestructuringPattern(org.nebula.nebc.ast.patterns.DestructuringPattern node);
+
+    // --------------------
+    // ---- Statements ----
+    // --------------------
+
+    /** @grammar break; */
+    R visitBreakStatement(org.nebula.nebc.ast.statements.BreakStatement node);
+
+    /** @grammar continue; */
+    R visitContinueStatement(org.nebula.nebc.ast.statements.ContinueStatement node);
 
     // --------------
     // ---- Tags ----

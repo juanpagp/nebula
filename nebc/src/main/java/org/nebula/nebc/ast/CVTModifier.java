@@ -21,6 +21,7 @@ public enum CVTModifier
 {
 	KEEPS("keeps"),
 	DROPS("drops"),
+	MUTATES("mutates"),
 	NONE("none");
 
 	private final String keyword;
@@ -46,6 +47,8 @@ public enum CVTModifier
 					KEEPS;
 			case "drops" ->
 					DROPS;
+			case "mutates" ->
+					MUTATES;
 			default ->
 					NONE;
 		};

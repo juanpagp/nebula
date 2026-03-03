@@ -12,6 +12,8 @@ function compilenebc
     /bin/sh /home/juanpa/apps/idea/plugins/maven/lib/maven3/bin/mvn -Didea.version=2025.2.6 -Dmaven.ext.class.path=/home/juanpa/apps/idea/plugins/maven/lib/maven-event-listener.jar -Djansi.passthrough=true -Dstyle.color=always -Dmaven.repo.local=/home/juanpa/.m2/repository package -f pom.xml
 end
 
+Keep in mind that after that, the updated nebc binary inst in the path, so you have to use the path to the compiled binary, which is /home/juanpa/dev/nebula/nebc/target/nebc
+
 If you need to use maven, use this path:/home/juanpa/apps/idea/plugins/maven/lib/maven3/bin/mvnas maven isnt globally installed
 
 To compile the standard library (std/) with nebc, use these flags:

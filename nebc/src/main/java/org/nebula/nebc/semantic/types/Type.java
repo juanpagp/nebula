@@ -15,6 +15,12 @@ public abstract class Type
 			return true; // Prevent cascading errors
 		if (this == ANY || destination == ANY)
 			return true;
+		// Any concrete type is assignable to a type parameter (resolved at monomorphization)
+		if (destination instanceof TypeParameterType)
+			return true;
+		// T is implicitly liftable to T? (optional promotion)
+		if (destination instanceof OptionalType opt && this.isAssignableTo(opt.innerType))
+			return true;
 		return this.name().equals(destination.name()); // Simple name-based equality for now
 	}
 }

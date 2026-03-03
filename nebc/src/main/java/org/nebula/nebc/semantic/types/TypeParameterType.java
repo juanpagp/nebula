@@ -45,6 +45,8 @@ public final class TypeParameterType extends Type
     /**
      * A type parameter is assignable to its bound, and anything is assignable
      * to an unconstrained type parameter (within the same generic context).
+     * During semantic analysis, type parameters are treated as compatible with
+     * any concrete type, since monomorphization resolves the actual types.
      */
     @Override
     public boolean isAssignableTo(Type target)
@@ -53,10 +55,13 @@ public final class TypeParameterType extends Type
             return true;
         if (target == Type.ANY)
             return true;
-        if (bound != null && target instanceof TraitType tt)
-        {
+        // Unconstrained type params are compatible with any type at the SA level
+        if (bound == null)
+            return true;
+        // Bounded type param is assignable to its bound
+        if (target instanceof TraitType tt)
             return bound.equals(tt);
-        }
-        return false;
+        // Bounded type param is also compatible with concrete types (resolved at monomorphization)
+        return true;
     }
 }

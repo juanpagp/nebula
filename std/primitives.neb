@@ -1,6 +1,11 @@
 namespace std::primitives;
 use std::io;
 
+tag { i8, i16, i32, i64 } as Signed;
+tag { u8, u16, u32, u64 } as Unsigned;
+tag { Signed | Unsigned } as Integers;
+
+
 extern "C" {
     str __nebula_rt_i64_to_str(i64 v);
     str __nebula_rt_u64_to_str(u64 v);
@@ -8,11 +13,12 @@ extern "C" {
     str __nebula_rt_bool_to_str(i32 v);
 }
 
-impl Stringable for i8, i16, i32, i64 {
+// old: impl Stringable for i8, i16, i32, i64 {
+impl Stringable for Signed {
     str toStr() => __nebula_rt_i64_to_str((i64) this)
 }
 
-impl Stringable for u8, u16, u32, u64 {
+impl Stringable for Unsigned {
     str toStr() => __nebula_rt_u64_to_str((u64) this)
 }
 
@@ -22,10 +28,7 @@ impl Stringable for f32, f64 {
 
 impl Stringable for bool {
     str toStr() {
-        if (this) {
-            return "true";
-        }
-        return "false";
+        return if (this) { "true" } else { "false" };
     }
 }
 

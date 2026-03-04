@@ -2,10 +2,10 @@ package org.nebula.nebc.ast.tags;
 
 import org.nebula.nebc.ast.ASTVisitor;
 import org.nebula.nebc.ast.Modifier;
-import org.nebula.nebc.ast.statements.Statement;
+import org.nebula.nebc.ast.declarations.Declaration;
 import org.nebula.nebc.frontend.diagnostic.SourceSpan;
 
-public class TagStatement extends Statement
+public class TagStatement extends Declaration
 {
 	public final Modifier visibility;
 	public final TagExpression tagExpression;

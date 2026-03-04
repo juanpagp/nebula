@@ -1,3 +1,0 @@
-namespace std::traits;
-
-// Primitive impls are now provided in std/primitives.neb

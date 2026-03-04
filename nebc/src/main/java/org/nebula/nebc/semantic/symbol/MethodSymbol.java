@@ -19,6 +19,12 @@ public final class MethodSymbol extends Symbol
 	private String traitName = null;
 	/** LLVM bitcode for the type-erased version of this generic method (null for non-generics). */
 	private byte[] genericBitcode = null;
+	/**
+	 * True when this symbol was synthesised by the compiler for a structural
+	 * type (tuple / array) that implements a trait by structural recursion rather
+	 * than via an explicit {@code impl} declaration in Nebula source code.
+	 */
+	private boolean syntheticStructural = false;
 
 	public MethodSymbol(String name, FunctionType type, List<Modifier> modifiers, boolean isExtern, ASTNode declarationNode, List<TypeParameterType> typeParameters)
 	{
@@ -46,6 +52,16 @@ public final class MethodSymbol extends Symbol
 	public void setGenericBitcode(byte[] bitcode)
 	{
 		this.genericBitcode = bitcode;
+	}
+
+	public boolean isSyntheticStructural()
+	{
+		return syntheticStructural;
+	}
+
+	public void setSyntheticStructural(boolean value)
+	{
+		this.syntheticStructural = value;
 	}
 
 	@Override

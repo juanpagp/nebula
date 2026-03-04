@@ -128,6 +128,108 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					error(DiagnosticCode.TYPE_ALREADY_DEFINED, td, td.name);
 				}
 			}
+			else if (decl instanceof TagStatement ts)
+			{
+				// Register a stub so the tag alias is resolvable as a bound
+				// in generic parameter declarations (phase 1.5). The member types
+				// are populated later in declareTagBodies (phase 1.8).
+				TagType tagType = new TagType(ts.alias, currentScope);
+				TypeSymbol sym = new TypeSymbol(ts.alias, tagType, ts);
+				if (!currentScope.forceDefine(sym))
+				{
+					error(DiagnosticCode.TYPE_ALREADY_DEFINED, ts, ts.alias);
+				}
+			}
+		}
+	}
+
+	// =========================================================================
+	// Phase 1.8: Resolve tag expressions and build tag member scopes
+	// =========================================================================
+
+	/**
+	 * Phase 1.8: Resolves each tag expression and populates the corresponding
+	 * {@link TagType} with its member types. Must run after
+	 * {@code declareTraitBodies} so that trait types referenced inside tags
+	 * already have their member scopes populated.
+	 */
+	public void declareTagBodies(CompilationUnit unit)
+	{
+		currentScope = globalScope;
+		processDirectives(unit);
+		declareTagBodiesRecursive(unit.declarations);
+	}
+
+	private void declareTagBodiesRecursive(List<ASTNode> declarations)
+	{
+		if (declarations == null)
+			return;
+		for (ASTNode decl : declarations)
+		{
+			if (decl instanceof NamespaceDeclaration nd)
+			{
+				if (nd.isBlockDeclaration)
+				{
+					SymbolTable original = currentScope;
+					currentScope = enterNamespace(nd, currentScope);
+					declareTagBodiesRecursive(nd.members);
+					currentScope = original;
+				}
+				else
+				{
+					currentScope = enterNamespace(nd, globalScope);
+				}
+			}
+			else if (decl instanceof TagStatement ts)
+			{
+				TypeSymbol sym = currentScope.resolveType(ts.alias);
+				if (sym != null && sym.getType() instanceof TagType tagType)
+				{
+					java.util.Set<String> visiting = new java.util.HashSet<>();
+					visiting.add(tagType.name());
+					resolveTagExpression(ts.tagExpression, tagType, visiting);
+					tagType.buildMemberScope();
+				}
+			}
+		}
+	}
+
+	/**
+	 * Recursively traverses a {@link TagExpression} and adds each resolved
+	 * {@link Type} to the given {@link TagType}.
+	 */
+	private void resolveTagExpression(
+			org.nebula.nebc.ast.tags.TagExpression expr, TagType tagType,
+			java.util.Set<String> visiting)
+	{
+		if (expr instanceof TagAtom atom)
+		{
+			Type resolved = resolveTagMemberType(atom.type);
+			if (resolved == Type.ERROR)
+				return;
+			if (resolved instanceof TagType inner)
+			{
+				// Tag-of-tag: check for cycles, then inline expanded members
+				if (visiting.contains(inner.name()))
+				{
+					error(DiagnosticCode.TAG_CYCLE, atom, tagType.name());
+					return;
+				}
+				// Inline all concrete members (no TagType nested further)
+				for (Type m : inner.getMemberTypes())
+					if (!(m instanceof TagType))
+						tagType.addMember(m);
+			}
+			else
+			{
+				tagType.addMember(resolved);
+			}
+		}
+		else if (expr instanceof TagOperation op)
+		{
+			resolveTagExpression(op.left, tagType, visiting);
+			if (op.right != null)
+				resolveTagExpression(op.right, tagType, visiting);
 		}
 	}
 
@@ -337,9 +439,39 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 	/**
 	 * Resolves a syntactic AST TypeNode to a semantic Type object.
-	 * Uses the symbol table to find TypeSymbols specifically.
+	 * <p>
+	 * <strong>Tag guard:</strong> if the resolved type is a {@link TagType}, this
+	 * method emits {@link DiagnosticCode#TAG_AS_VALUE_TYPE} and returns
+	 * {@link Type#ERROR}. Tags are compile-time-only constraints and may
+	 * <em>not</em> appear in value-type position (variable declarations, parameter
+	 * types, cast targets, etc.).
+	 * <p>
+	 * Use {@link #resolveTagMemberType} when resolving types that appear inside a
+	 * tag expression or in a generic-bound position.
 	 */
 	private Type resolveType(TypeNode astType)
+	{
+		Type result = resolveTagMemberType(astType);
+		if (result instanceof TagType tag)
+		{
+			error(DiagnosticCode.TAG_AS_VALUE_TYPE, astType, tag.name(), tag.name());
+			return Type.ERROR;
+		}
+		return result;
+	}
+
+	/**
+	 * Resolves a syntactic AST TypeNode to a semantic Type object without
+	 * applying the "tag-as-value-type" guard.
+	 * <p>
+	 * This is the internal resolution path used by:
+	 * <ul>
+	 *   <li>Tag expression members ({@code tag { str, Signed } as X})</li>
+	 *   <li>Generic bound positions ({@code <T: X>})</li>
+	 * </ul>
+	 * All other callers should use {@link #resolveType}.
+	 */
+	private Type resolveTagMemberType(TypeNode astType)
 	{
 		if (astType == null)
 			return PrimitiveType.VOID;
@@ -366,7 +498,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					Substitution sub = new Substitution();
 					for (int i = 0; i < typeParams.size(); i++)
 					{
-						Type argType = resolveType(nt.genericArguments.get(i));
+						Type argType = resolveTagMemberType(nt.genericArguments.get(i));
 						sub.bind(typeParams.get(i), argType);
 					}
 					return sub.substitute(baseType);
@@ -376,14 +508,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 		if (astType instanceof org.nebula.nebc.ast.types.OptionalTypeNode otn)
 		{
-			Type inner = resolveType(otn.innerType);
+			Type inner = resolveTagMemberType(otn.innerType);
 			if (inner == Type.ERROR)
 				return Type.ERROR;
 			return new OptionalType(inner);
 		}
 		if (astType instanceof org.nebula.nebc.ast.types.ArrayType atn)
 		{
-			Type elem = resolveType(atn.baseType);
+			Type elem = resolveTagMemberType(atn.baseType);
 			if (elem == Type.ERROR)
 				return Type.ERROR;
 			return new ArrayType(elem, 0);
@@ -393,7 +525,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			java.util.List<Type> elemTypes = new java.util.ArrayList<>();
 			for (org.nebula.nebc.ast.types.TypeNode t : ttn.elementTypes)
 			{
-				Type resolved = resolveType(t);
+				Type resolved = resolveTagMemberType(t);
 				if (resolved == Type.ERROR)
 					return Type.ERROR;
 				elemTypes.add(resolved);
@@ -657,7 +789,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			currentScope = new SymbolTable(outerScope);
 			for (GenericParam gp : node.typeParams)
 			{
-				TraitType bound = null;
+				CompositeType bound = null;
 				if (gp.hasBound() && gp.bound() instanceof org.nebula.nebc.ast.types.NamedType nt)
 				{
 					TypeSymbol boundSym = outerScope.resolveType(nt.qualifiedName);
@@ -665,9 +797,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					{
 						bound = tt;
 					}
+					else if (boundSym != null && boundSym.getType() instanceof TagType tag)
+					{
+						bound = tag;
+					}
 					else
 					{
-						error(DiagnosticCode.UNDEFINED_SYMBOL, node, "Unknown trait bound '" + nt.qualifiedName + "'");
+						error(DiagnosticCode.UNDEFINED_SYMBOL, node, "Unknown trait/tag bound '" + nt.qualifiedName + "'");
 					}
 				}
 				TypeParameterType tpt = new TypeParameterType(gp.name(), bound);
@@ -687,6 +823,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		for (Parameter p : node.parameters)
 		{
 			Type pType = resolveType(p.type());
+			// A tag cannot appear as a parameter type — the caller must use a
+			// type parameter constrained by that tag: <T: TagName>(T param).
+			if (pType instanceof TagType tag)
+			{
+				error(DiagnosticCode.TAG_IN_PARAM_POSITION, node, tag.name(), tag.name());
+				pType = Type.ERROR;
+			}
 			paramTypes.add(pType == Type.ERROR ? Type.ANY : pType);
 			paramInfos.add(new ParameterInfo(p.cvtModifier(), pType, p.name()));
 		}
@@ -820,6 +963,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	public Type visitVariableDeclaration(VariableDeclaration node)
 	{
 		Type explicitType = node.isVar ? null : resolveType(node.type);
+		// Tags are compile-time-only; resolveType already emits the diagnostic,
+		// but we short-circuit here to avoid cascading errors.
+		if (explicitType instanceof TagType)
+			return null;
 		boolean mutable = node.isVar; // var = mutable, explicit type = immutable by default
 
 		for (VariableDeclarator decl : node.declarators)
@@ -1344,29 +1491,44 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					Type concrete = sub.substitute(tpt);
 					typeArgs.add(concrete);
 
-					// Validate trait bounds
+					// Validate bounds (trait or tag)
 					if (tpt.getBound() != null)
 					{
-						SymbolTable memberScope = null;
-						if (concrete instanceof CompositeType ct)
+						if (tpt.getBound() instanceof TraitType traitBound)
 						{
-							memberScope = ct.getMemberScope();
-						}
-						else if (concrete instanceof PrimitiveType pt)
-						{
-							memberScope = primitiveImplScopes.get(pt);
-						}
+							SymbolTable memberScope = null;
+							if (concrete instanceof CompositeType ct)
+								memberScope = ct.getMemberScope();
+							else if (concrete instanceof PrimitiveType pt)
+								memberScope = primitiveImplScopes.get(pt);
 
-						if (memberScope == null)
-						{
-							error(DiagnosticCode.TYPE_MISMATCH, node, tpt.getBound().name(), concrete.name() + " (Cannot implement traits or no trait implementation found)");
-						}
-						else
-						{
-							String missing = tpt.getBound().findMissingMethod(memberScope);
-							if (missing != null)
+							if (memberScope == null)
 							{
-								error(DiagnosticCode.TYPE_MISMATCH, node, tpt.getBound().name(), concrete.name() + " (missing method '" + missing + "')");
+								error(DiagnosticCode.TYPE_MISMATCH, node, traitBound.name(),
+										concrete.name() + " (Cannot implement traits or no trait implementation found)");
+							}
+							else
+							{
+								String missing = traitBound.findMissingMethod(memberScope);
+								if (missing != null)
+								{
+									error(DiagnosticCode.TYPE_MISMATCH, node, traitBound.name(),
+											concrete.name() + " (missing method '" + missing + "')");
+								}
+							}
+						}
+						else if (tpt.getBound() instanceof TagType tagBound)
+						{
+							if (!tagBound.isSatisfiedBy(concrete, primitiveImplScopes))
+							{
+								error(DiagnosticCode.TYPE_MISMATCH, node, tagBound.name(),
+										concrete.name() + " (type is not a member of tag '" + tagBound.name() + "')");
+							}
+							else if (concrete instanceof TupleType || concrete instanceof ArrayType)
+							{
+								// Eagerly register the synthetic Stringable impl scope so the
+								// code-generator can build vtable wrappers for this structural type.
+								getOrCreateStructuralStringableScope(concrete);
 							}
 						}
 					}
@@ -1489,7 +1651,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			}
 			catch (NumberFormatException e)
 			{
-				// Named tuple member access
+				// Named tuple member access: try field names first
 				int idx = tt.indexOfField(node.memberName);
 				if (idx >= 0)
 				{
@@ -1497,8 +1659,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 					recordType(node, result);
 					return result;
 				}
-				error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
-				return Type.ERROR;
+				// Fall through: check for trait methods via synthetic Stringable scope
+				memberScope = getOrCreateStructuralStringableScope(tt);
+				if (memberScope == null)
+				{
+					error(DiagnosticCode.MEMBER_NOT_FOUND, node, node.memberName, objectType.name());
+					return Type.ERROR;
+				}
 			}
 		}
 		else if (objectType instanceof CompositeType ct)
@@ -1517,6 +1684,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		{
 			// Check if a trait impl was registered for this primitive
 			memberScope = primitiveImplScopes.get(objectType);
+		}
+		else if (objectType instanceof ArrayType)
+		{
+			// Arrays expose trait methods (e.g. toStr) via the synthetic Stringable scope
+			memberScope = getOrCreateStructuralStringableScope(objectType);
 		}
 
 		if (memberScope == null)
@@ -1569,6 +1741,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		if (ts == null)
 		{
 			error(DiagnosticCode.UNKNOWN_TYPE, node, node.typeName);
+			return Type.ERROR;
+		}
+		if (ts.getType() instanceof TagType tag)
+		{
+			error(DiagnosticCode.TAG_AS_VALUE_TYPE, node, tag.name(), tag.name());
 			return Type.ERROR;
 		}
 
@@ -1743,9 +1920,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		// REF is the implicit 'this' pointer for struct/class methods (constructors).
 		if (firstParam == PrimitiveType.REF && receiverType instanceof CompositeType)
 			return true;
-		// TypeParameterType<T: Bound> — method declared on the trait, receiver is T
+		// TypeParameterType<T: Bound> — method declared on the trait or tag, receiver is T
 		if (receiverType instanceof TypeParameterType tpt && tpt.hasBound()
-				&& firstParam instanceof TraitType ft
+				&& firstParam instanceof CompositeType ft
 				&& ft.name().equals(tpt.getBound().name()))
 			return true;
 		// TypeParameterType<T: Bound> — method declared on a composite type (impl for T)
@@ -1798,12 +1975,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		currentScope = new SymbolTable(outerScope);
 		for (GenericParam gp : typeParams)
 		{
-			TraitType bound = null;
+			CompositeType bound = null;
 			if (gp.hasBound() && gp.bound() instanceof org.nebula.nebc.ast.types.NamedType nt)
 			{
 				TypeSymbol boundSym = outerScope.resolveType(nt.qualifiedName);
 				if (boundSym != null && boundSym.getType() instanceof TraitType tt)
 					bound = tt;
+				else if (boundSym != null && boundSym.getType() instanceof TagType tag)
+					bound = tag;
 			}
 			TypeParameterType tpt = new TypeParameterType(gp.name(), bound);
 			currentScope.define(new TypeSymbol(gp.name(), tpt, null));
@@ -1822,12 +2001,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			return;
 		for (GenericParam gp : typeParams)
 		{
-			TraitType bound = null;
+			CompositeType bound = null;
 			if (gp.hasBound() && gp.bound() instanceof org.nebula.nebc.ast.types.NamedType nt)
 			{
 				TypeSymbol boundSym = currentScope.resolveType(nt.qualifiedName);
 				if (boundSym != null && boundSym.getType() instanceof TraitType tt)
 					bound = tt;
+				else if (boundSym != null && boundSym.getType() instanceof TagType tag)
+					bound = tag;
 			}
 			TypeParameterType tpt = new TypeParameterType(gp.name(), bound);
 			scope.forceDefine(new TypeSymbol(gp.name(), tpt, null));
@@ -1846,7 +2027,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	public Type visitCastExpression(CastExpression node)
 	{
 		node.expression.accept(this);
-		Type result = resolveType(node.targetType);
+		Type result = resolveTagMemberType(node.targetType);
+		if (result instanceof TagType tag)
+		{
+			error(DiagnosticCode.TAG_AS_VALUE_TYPE, node, tag.name(), tag.name());
+			return Type.ERROR;
+		}
 		recordType(node, result);
 		return result;
 	}
@@ -2152,14 +2338,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				currentScope = new SymbolTable(methodTypeParamScope);
 				for (GenericParam gp : method.typeParams)
 				{
-					TraitType bound = null;
+					CompositeType bound = null;
 					if (gp.hasBound() && gp.bound() instanceof NamedType nt)
 					{
 						TypeSymbol boundSym = methodTypeParamScope.resolveType(nt.qualifiedName);
 						if (boundSym != null && boundSym.getType() instanceof TraitType tt)
-						{
 							bound = tt;
-						}
+						else if (boundSym != null && boundSym.getType() instanceof TagType tag)
+							bound = tag;
 					}
 					TypeParameterType tpt = new TypeParameterType(gp.name(), bound);
 					currentScope.define(new TypeSymbol(gp.name(), tpt, method));
@@ -2205,8 +2391,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	@Override
 	public Type visitImplDeclaration(ImplDeclaration node)
 	{
-		// 1. Resolve the trait
-		Type traitResolved = resolveType(node.traitType);
+		// 1. Resolve the trait — use resolveTagMemberType so TraitType is not
+		//    incorrectly blocked by the tag-as-value-type guard.
+		Type traitResolved = resolveTagMemberType(node.traitType);
 		if (!(traitResolved instanceof TraitType traitType))
 		{
 			if (traitResolved != Type.ERROR)
@@ -2214,12 +2401,151 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			return null;
 		}
 
-		// 2. Process the target type
-		Type targetType = resolveType(node.targetType);
+		// 2. Process the target type — allow TagType here (we expand it below)
+		Type targetType = resolveTagMemberType(node.targetType);
 		if (targetType == Type.ERROR)
 			return null;
 
-		// Get or create the member scope for this type
+		// 3a. If the target is a TagType, expand to concrete per-member impls.
+		//     This desugars  `impl Stringable for Signed`  into individual impls
+		//     for each concrete type in the tag, validating for overlap as we go.
+		if (targetType instanceof TagType tagTarget)
+		{
+			return visitImplDeclarationForTag(node, traitType, tagTarget);
+		}
+
+		// 3b. Normal single-type impl path (unchanged)
+		return visitImplDeclarationForType(node, traitType, targetType);
+	}
+
+	/**
+	 * Expands {@code impl Trait for TagName} into one concrete impl per member
+	 * type of the tag and validates that no member already has an impl for this
+	 * trait (overlap rule).
+	 */
+	private Type visitImplDeclarationForTag(
+			ImplDeclaration node, TraitType traitType, TagType tagTarget)
+	{
+		for (Type member : tagTarget.getMemberTypes())
+		{
+			if (member instanceof TagType)
+				// Nested tags were already flattened during declareTagBodies; skip
+				continue;
+			if (member instanceof TraitType)
+				// A trait-constraint member (e.g. tag { str, Stringable }) cannot
+				// itself receive a concrete impl.
+				continue;
+
+			// Overlap check: does this concrete member already satisfy the trait?
+			SymbolTable existing = resolveImplScopeForType(member);
+			if (existing != null && traitType.findMissingMethod(existing) == null)
+			{
+				error(DiagnosticCode.TAG_IMPL_OVERLAP, node, traitType.name(), member.name());
+				continue;
+			}
+
+			visitImplDeclarationForType(node, traitType, member);
+		}
+		return null;
+	}
+
+	// ── Structural Stringable helpers ────────────────────────────────────────────
+
+	/**
+	 * Returns {@code true} when {@code type} can produce a string representation
+	 * without an explicit {@code impl Stringable} declaration.
+	 * <ul>
+	 *   <li>Any primitive type that already has an impl scope is directly stringable.</li>
+	 *   <li>A {@link TupleType} is stringable when all its element types are.</li>
+	 *   <li>An {@link ArrayType} is stringable when its base element type is.</li>
+	 * </ul>
+	 */
+	private boolean isStructurallyStringable(Type type)
+	{
+		if (primitiveImplScopes.containsKey(type))
+			return true;
+		if (type instanceof TupleType tt)
+			return tt.elementTypes.stream().allMatch(this::isStructurallyStringable);
+		if (type instanceof ArrayType at)
+			return isStructurallyStringable(at.baseType);
+		return false;
+	}
+
+	/**
+	 * Produces an identifier suitable for use as the owner name of a synthetic
+	 * impl scope. The result contains only ASCII letters, digits, and underscores.
+	 */
+	private static String toStructuralSafeName(Type type)
+	{
+		if (type instanceof TupleType tt)
+		{
+			StringBuilder sb = new StringBuilder("tuple");
+			for (Type elem : tt.elementTypes)
+			{
+				sb.append('_').append(elem.name().replaceAll("[^a-zA-Z0-9]", "_"));
+			}
+			return sb.toString();
+		}
+		if (type instanceof ArrayType at)
+		{
+			String base = at.baseType.name().replaceAll("[^a-zA-Z0-9]", "_");
+			return "array_" + base + (at.elementCount > 0 ? "_" + at.elementCount : "");
+		}
+		return type.name().replaceAll("[^a-zA-Z0-9]", "_");
+	}
+
+	/**
+	 * Returns (creating on first call) a synthetic {@link SymbolTable} that
+	 * exposes a {@code toStr()} {@link MethodSymbol} for a structurally-stringable
+	 * compound type such as a {@link TupleType} or {@link ArrayType}.
+	 * <p>
+	 * The scope is stored in {@link #primitiveImplScopes} so that subsequent
+	 * look-ups hit the cache and the same {@code MethodSymbol} instance is reused.
+	 *
+	 * @return the synthetic scope, or {@code null} when the type is not
+	 *         structurally stringable.
+	 */
+	private SymbolTable getOrCreateStructuralStringableScope(Type type)
+	{
+		if (!isStructurallyStringable(type))
+			return null;
+
+		return primitiveImplScopes.computeIfAbsent(type, t ->
+		{
+			String safeName = toStructuralSafeName(t);
+			TypeSymbol owner = new TypeSymbol(safeName, t, null);
+			SymbolTable scope = new SymbolTable(globalScope);
+			scope.setOwner(owner);
+
+			// toStr : (T) -> str  — first (and only) parameter is the receiver itself
+			FunctionType toStrFnType = new FunctionType(PrimitiveType.STR, List.of(t));
+			MethodSymbol toStrMethod = new MethodSymbol(
+					"toStr", toStrFnType, List.of(), false, null, List.of());
+			toStrMethod.setTraitName("Stringable");
+			toStrMethod.setSyntheticStructural(true);
+			scope.define(toStrMethod);
+			return scope;
+		});
+	}
+
+	/** Resolves the impl scope for a given concrete type (primitive or composite). */
+	private SymbolTable resolveImplScopeForType(Type type)
+	{
+		if (type instanceof PrimitiveType pt)
+			return primitiveImplScopes.get(pt);
+		if (type instanceof CompositeType ct)
+			return ct.getMemberScope();
+		return null;
+	}
+
+	/**
+	 * Single-type impl body: enters the target scope, defines and validates
+	 * method bodies, and checks that all required trait methods are satisfied.
+	 */
+	private Type visitImplDeclarationForType(
+			ImplDeclaration node, TraitType traitType, Type targetType)
+	{
+		// Resolve or create the member scope for this type
 		SymbolTable targetScope;
 		if (targetType instanceof CompositeType composite)
 		{
@@ -2238,11 +2564,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 		else
 		{
-			error(DiagnosticCode.TYPE_MISMATCH, node.targetType, "trait implementor", targetType.name() + " (cannot implement trait for this type)");
+			error(DiagnosticCode.TYPE_MISMATCH, node.targetType,
+					"trait implementor", targetType.name() + " (cannot implement trait for this type)");
 			return null;
 		}
 
-		// 3. Enter the target scope and define methods
+		// Enter the target scope and define methods
 		SymbolTable outerScope = currentScope;
 		currentScope = targetScope;
 		currentTypeDefinition = targetType;

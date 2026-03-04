@@ -3132,6 +3132,15 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				memberSym = tbl.resolve(node.memberName);
 			}
 		}
+		else if (baseType instanceof TupleType || baseType instanceof ArrayType)
+		{
+			// Structural types expose trait methods via their synthetic Stringable scope
+			SymbolTable tbl = analyzer.getPrimitiveImplScopes().get(baseType);
+			if (tbl != null)
+			{
+				memberSym = tbl.resolve(node.memberName);
+			}
+		}
 		else if (baseType instanceof NamespaceType nt)
 		{
 			memberSym = nt.getMemberScope().resolve(node.memberName);
@@ -3160,6 +3169,13 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 					specSuffix.append("_").append(ta.trim().replaceAll("[^a-zA-Z0-9]", "_"));
 				}
 				mangledName = mangledName + specSuffix;
+			}
+
+			// For synthetic structural methods (tuple / array toStr), generate the
+			// function body immediately so the call site can link against it.
+			if (ms.isSyntheticStructural())
+			{
+				return getOrEmitStructuralToStrFunction(baseType, mangledName);
 			}
 
 			LLVMValueRef func = LLVMGetNamedFunction(module, mangledName);
@@ -3657,6 +3673,378 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			return LLVMBuildCall2(builder, fnType, fn,
 				new PointerPointer<>(new LLVMValueRef[]{ asI64 }), 1, "i64_str");
 		}
+	}
+
+	// ── Structural toStr helpers ─────────────────────────────────────────────────
+
+	/**
+	 * Emits a constant {@code NebulaStr} ({@code { ptr, i64 }}) for a compile-time
+	 * string literal, inserting instructions at the current builder position.
+	 */
+	private LLVMValueRef emitStringLiteralValue(String text)
+	{
+		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+		LLVMTypeRef strT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+		LLVMValueRef gstr     = LLVMBuildGlobalStringPtr(builder, new BytePointer(text), new BytePointer("lit"));
+		LLVMValueRef strAlloca = LLVMBuildAlloca(builder, strT, new BytePointer("lit_str"));
+		LLVMBuildStore(builder, gstr,
+			LLVMBuildStructGEP2(builder, strT, strAlloca, 0, new BytePointer("lit_ptr")));
+		LLVMBuildStore(builder, LLVMConstInt(i64t, text.length(), 0),
+			LLVMBuildStructGEP2(builder, strT, strAlloca, 1, new BytePointer("lit_len")));
+		return LLVMBuildLoad2(builder, strT, strAlloca, new BytePointer("lit_val"));
+	}
+
+	/**
+	 * Concatenates a list of {@code NebulaStr} values into a single
+	 * {@code NebulaStr} by calling {@code __nebula_rt_str_concat(parts, count)}.
+	 */
+	private LLVMValueRef emitStrConcatParts(List<LLVMValueRef> parts)
+	{
+		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+		LLVMTypeRef strT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+		LLVMTypeRef ptrT = LLVMPointerTypeInContext(context, 0);
+
+		int count = parts.size();
+		LLVMTypeRef arrType    = LLVMArrayType(strT, count);
+		LLVMValueRef arrAlloca = LLVMBuildAlloca(builder, arrType, new BytePointer("concat_parts"));
+
+		for (int i = 0; i < count; i++)
+		{
+			LLVMValueRef[] idxs = {
+				LLVMConstInt(i64t, 0, 0),
+				LLVMConstInt(i64t, i, 0)
+			};
+			LLVMValueRef elemPtr = LLVMBuildGEP2(builder, arrType, arrAlloca,
+				new PointerPointer<>(idxs), 2, "part_ptr_" + i);
+			LLVMBuildStore(builder, parts.get(i), elemPtr);
+		}
+
+		LLVMValueRef[] firstIdx = { LLVMConstInt(i64t, 0, 0), LLVMConstInt(i64t, 0, 0) };
+		LLVMValueRef partsPtr = LLVMBuildGEP2(builder, arrType, arrAlloca,
+			new PointerPointer<>(firstIdx), 2, "parts_ptr");
+
+		LLVMTypeRef concatFnType = LLVMFunctionType(strT,
+			new PointerPointer<>(new LLVMTypeRef[]{ ptrT, i64t }), 2, 0);
+		LLVMValueRef concatFn = getOrDeclareIntrinsic("__nebula_rt_str_concat", concatFnType);
+
+		LLVMValueRef[] callArgs = { partsPtr, LLVMConstInt(i64t, count, 0) };
+		return LLVMBuildCall2(builder, concatFnType, concatFn,
+			new PointerPointer<>(callArgs), 2, "concat_result");
+	}
+
+	/**
+	 * Converts a value of the given Nebula type to a {@code NebulaStr}.
+	 * Inserts conversion instructions at the current builder insertion point.
+	 * Handles all primitive scalars, {@code str}, and nested structural types.
+	 */
+	private LLVMValueRef emitValueToNebulaStr(LLVMValueRef val, Type type)
+	{
+		LLVMTypeRef i32t = LLVMInt32TypeInContext(context);
+		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+		LLVMTypeRef strT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+
+		if (val == null)
+			return emitStringLiteralValue("<null>");
+
+		if (type == PrimitiveType.STR)
+			return val;
+
+		if (type == PrimitiveType.BOOL)
+		{
+			LLVMTypeRef fnType = LLVMFunctionType(strT,
+				new PointerPointer<>(new LLVMTypeRef[]{ i32t }), 1, 0);
+			LLVMValueRef fn    = getOrDeclareIntrinsic("__nebula_rt_bool_to_str", fnType);
+			LLVMValueRef asI32 = LLVMBuildZExt(builder, val, i32t, new BytePointer("bool_i32"));
+			return LLVMBuildCall2(builder, fnType, fn,
+				new PointerPointer<>(new LLVMValueRef[]{ asI32 }), 1, "bool_str");
+		}
+
+		if (type == PrimitiveType.F64 || type == PrimitiveType.F32)
+		{
+			LLVMTypeRef f64t   = LLVMDoubleTypeInContext(context);
+			LLVMTypeRef fnType = LLVMFunctionType(strT,
+				new PointerPointer<>(new LLVMTypeRef[]{ f64t }), 1, 0);
+			LLVMValueRef fn    = getOrDeclareIntrinsic("__nebula_rt_f64_to_str", fnType);
+			LLVMValueRef asF64 = emitCast(val, type, PrimitiveType.F64);
+			return LLVMBuildCall2(builder, fnType, fn,
+				new PointerPointer<>(new LLVMValueRef[]{ asF64 }), 1, "f64_str");
+		}
+
+		if (isUnsignedType(type))
+		{
+			LLVMTypeRef fnType  = LLVMFunctionType(strT,
+				new PointerPointer<>(new LLVMTypeRef[]{ i64t }), 1, 0);
+			LLVMValueRef fn     = getOrDeclareIntrinsic("__nebula_rt_u64_to_str", fnType);
+			LLVMValueRef asU64  = emitCast(val, type, PrimitiveType.U64);
+			return LLVMBuildCall2(builder, fnType, fn,
+				new PointerPointer<>(new LLVMValueRef[]{ asU64 }), 1, "u64_str");
+		}
+
+		// Default: signed integer
+		{
+			LLVMTypeRef fnType  = LLVMFunctionType(strT,
+				new PointerPointer<>(new LLVMTypeRef[]{ i64t }), 1, 0);
+			LLVMValueRef fn     = getOrDeclareIntrinsic("__nebula_rt_i64_to_str", fnType);
+			LLVMValueRef asI64  = emitCast(val, type, PrimitiveType.I64);
+			return LLVMBuildCall2(builder, fnType, fn,
+				new PointerPointer<>(new LLVMValueRef[]{ asI64 }), 1, "i64_str");
+		}
+	}
+
+	/**
+	 * Returns the LLVM type for a fat-pointer used to carry both an array pointer
+	 * and its element count through the vtable interface.
+	 * Layout: {@code { ptr, i64 }}.
+	 */
+	private LLVMTypeRef arrayFatPtrType()
+	{
+		LLVMTypeRef ptrT = LLVMPointerTypeInContext(context, 0);
+		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+		return LLVMStructTypeInContext(context,
+			new PointerPointer<>(new LLVMTypeRef[]{ ptrT, i64t }), 2, 0);
+	}
+
+	/**
+	 * Generates (or returns the cached) LLVM function that converts a {@link TupleType}
+	 * value to a {@code NebulaStr} of the form {@code "(elem0, elem1, ...)"}.
+	 * <p>
+	 * The function signature is {@code TupleLLVMType -> {ptr, i64}} — the tuple
+	 * is passed <em>by value</em>, so {@code extractvalue} is used for field access.
+	 * </p>
+	 */
+	private LLVMValueRef getOrEmitTupleToStrFunction(TupleType tt, String funcName)
+	{
+		LLVMTypeRef strT   = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+		LLVMTypeRef tupleT = LLVMTypeMapper.getOrCreateTupleType(context, tt);
+
+		LLVMTypeRef fnType = LLVMFunctionType(strT,
+			new PointerPointer<>(new LLVMTypeRef[]{ tupleT }), 1, 0);
+
+		LLVMValueRef fn = LLVMGetNamedFunction(module, new BytePointer(funcName));
+		if (fn == null || fn.isNull())
+			fn = LLVMAddFunction(module, new BytePointer(funcName), fnType);
+		if (LLVMCountBasicBlocks(fn) > 0)
+			return fn;
+
+		LLVMSetLinkage(fn, LLVMPrivateLinkage);
+
+		LLVMBasicBlockRef savedBB = LLVMGetInsertBlock(builder);
+		LLVMBasicBlockRef entry   = LLVMAppendBasicBlockInContext(context, fn, new BytePointer("entry"));
+		LLVMPositionBuilderAtEnd(builder, entry);
+
+		LLVMValueRef tupleVal = LLVMGetParam(fn, 0);
+
+		List<LLVMValueRef> parts = new ArrayList<>();
+		parts.add(emitStringLiteralValue("("));
+
+		for (int i = 0; i < tt.elementTypes.size(); i++)
+		{
+			if (i > 0) parts.add(emitStringLiteralValue(", "));
+			Type     elemType = tt.elementTypes.get(i);
+			LLVMValueRef elem = LLVMBuildExtractValue(builder, tupleVal, i, new BytePointer("t_f" + i));
+			parts.add(emitValueToNebulaStr(elem, elemType));
+		}
+
+		parts.add(emitStringLiteralValue(")"));
+		LLVMBuildRet(builder, emitStrConcatParts(parts));
+
+		if (savedBB != null && !savedBB.isNull())
+			LLVMPositionBuilderAtEnd(builder, savedBB);
+
+		return fn;
+	}
+
+	/**
+	 * Generates (or returns the cached) LLVM function that converts an array
+	 * (represented as a {@code { ptr, i64 }} fat pointer) to a {@code NebulaStr}
+	 * of the form {@code "[elem0, elem1, ...]"}.
+	 * <p>
+	 * The function signature is {@code {ptr, i64} -> {ptr, i64}} — the fat pointer
+	 * is passed by value.  A loop is emitted to convert each element to
+	 * {@code NebulaStr} using a dynamic stack allocation, then
+	 * {@code __nebula_rt_format_array_str} assembles the final string.
+	 * </p>
+	 */
+	private LLVMValueRef getOrEmitArrayToStrFunction(ArrayType at, String funcName)
+	{
+		LLVMTypeRef strT    = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+		LLVMTypeRef ptrT    = LLVMPointerTypeInContext(context, 0);
+		LLVMTypeRef i64t    = LLVMInt64TypeInContext(context);
+		LLVMTypeRef fatT    = arrayFatPtrType();
+		LLVMTypeRef elemT   = toLLVMType(at.baseType);
+
+		// Signature: { ptr, i64 } -> { ptr, i64 }
+		LLVMTypeRef fnType = LLVMFunctionType(strT,
+			new PointerPointer<>(new LLVMTypeRef[]{ fatT }), 1, 0);
+
+		LLVMValueRef fn = LLVMGetNamedFunction(module, new BytePointer(funcName));
+		if (fn == null || fn.isNull())
+			fn = LLVMAddFunction(module, new BytePointer(funcName), fnType);
+		if (LLVMCountBasicBlocks(fn) > 0)
+			return fn;
+
+		LLVMSetLinkage(fn, LLVMPrivateLinkage);
+
+		LLVMBasicBlockRef savedBB = LLVMGetInsertBlock(builder);
+		LLVMBasicBlockRef entry   = LLVMAppendBasicBlockInContext(context, fn, new BytePointer("entry"));
+		LLVMPositionBuilderAtEnd(builder, entry);
+
+		LLVMValueRef fatVal  = LLVMGetParam(fn, 0);
+		LLVMValueRef arrPtr  = LLVMBuildExtractValue(builder, fatVal, 0, new BytePointer("arr_ptr"));
+		LLVMValueRef count   = LLVMBuildExtractValue(builder, fatVal, 1, new BytePointer("arr_len"));
+
+		// Allocate NebulaStr[count] on stack (variable-length alloca)
+		LLVMValueRef partsAlloca = LLVMBuildArrayAlloca(builder, strT, count, new BytePointer("arr_parts"));
+
+		// idx alloca
+		LLVMValueRef idxAlloca = LLVMBuildAlloca(builder, i64t, new BytePointer("arr_idx"));
+		LLVMBuildStore(builder, LLVMConstInt(i64t, 0, 0), idxAlloca);
+
+		LLVMBasicBlockRef hdrBB  = LLVMAppendBasicBlockInContext(context, fn, new BytePointer("arr_hdr"));
+		LLVMBasicBlockRef bodyBB = LLVMAppendBasicBlockInContext(context, fn, new BytePointer("arr_body"));
+		LLVMBasicBlockRef exitBB = LLVMAppendBasicBlockInContext(context, fn, new BytePointer("arr_exit"));
+
+		LLVMBuildBr(builder, hdrBB);
+
+		// Header: check idx < count
+		LLVMPositionBuilderAtEnd(builder, hdrBB);
+		LLVMValueRef idx  = LLVMBuildLoad2(builder, i64t, idxAlloca, new BytePointer("idx"));
+		LLVMValueRef cond = LLVMBuildICmp(builder, LLVMIntULT, idx, count, new BytePointer("loop_cond"));
+		LLVMBuildCondBr(builder, cond, bodyBB, exitBB);
+
+		// Body: load element, convert, store in parts
+		LLVMPositionBuilderAtEnd(builder, bodyBB);
+		LLVMValueRef[] gepIdx   = { idx };
+		LLVMValueRef elemPtr    = LLVMBuildGEP2(builder, elemT, arrPtr,
+			new PointerPointer<>(gepIdx), 1, "elem_ptr");
+		LLVMValueRef elemVal    = LLVMBuildLoad2(builder, elemT, elemPtr, new BytePointer("elem_val"));
+		LLVMValueRef elemStr    = emitValueToNebulaStr(elemVal, at.baseType);
+		LLVMValueRef partPtr    = LLVMBuildGEP2(builder, strT, partsAlloca,
+			new PointerPointer<>(gepIdx), 1, "part_ptr");
+		LLVMBuildStore(builder, elemStr, partPtr);
+		LLVMValueRef idxNext    = LLVMBuildAdd(builder, idx, LLVMConstInt(i64t, 1, 0),
+			new BytePointer("idx_next"));
+		LLVMBuildStore(builder, idxNext, idxAlloca);
+		LLVMBuildBr(builder, hdrBB);
+
+		// Exit: call __nebula_rt_format_array_str(parts, count)
+		LLVMPositionBuilderAtEnd(builder, exitBB);
+		LLVMTypeRef fmtFnType = LLVMFunctionType(strT,
+			new PointerPointer<>(new LLVMTypeRef[]{ ptrT, i64t }), 2, 0);
+		LLVMValueRef fmtFn = getOrDeclareIntrinsic("__nebula_rt_format_array_str", fmtFnType);
+		LLVMValueRef[] fmtArgs = { partsAlloca, count };
+		LLVMValueRef result = LLVMBuildCall2(builder, fmtFnType, fmtFn,
+			new PointerPointer<>(fmtArgs), 2, "arr_str");
+		LLVMBuildRet(builder, result);
+
+		if (savedBB != null && !savedBB.isNull())
+			LLVMPositionBuilderAtEnd(builder, savedBB);
+
+		return fn;
+	}
+
+	/**
+	 * Returns the LLVM function for structural {@code toStr} on a {@link TupleType}
+	 * or {@link ArrayType}, generating its body on first call.
+	 */
+	private LLVMValueRef getOrEmitStructuralToStrFunction(Type type, String funcName)
+	{
+		if (type instanceof TupleType tt)
+			return getOrEmitTupleToStrFunction(tt, funcName);
+		if (type instanceof ArrayType at)
+			return getOrEmitArrayToStrFunction(at, funcName);
+		throw new CodegenException("Cannot generate structural toStr for type: " + type.name());
+	}
+
+	/**
+	 * Emits a vtable-slot wrapper for a structural type ({@link TupleType} or
+	 * {@link ArrayType}) implementing a trait method.
+	 * <p>
+	 * The wrapper has the universal vtable signature {@code (ptr %self) -> RetType}
+	 * and bridges to the concrete structural {@code toStr} function.
+	 * <ul>
+	 *   <li><b>TupleType</b>: loads the tuple struct from {@code %self} and calls
+	 *       the by-value structural function.</li>
+	 *   <li><b>ArrayType</b>: loads the {@code {ptr,i64}} fat-pointer struct from
+	 *       {@code %self} and calls the fat-pointer structural function.</li>
+	 * </ul>
+	 * </p>
+	 */
+	private LLVMValueRef getOrEmitStructuralVtableWrapper(
+			TraitType bound, String methodName, Type concreteType)
+	{
+		String wrapperName = "__nebula_vtwrap_"
+				+ concreteType.name().replaceAll("[^a-zA-Z0-9]", "_")
+				+ "_" + bound.name() + "_" + methodName;
+
+		LLVMValueRef existing = LLVMGetNamedFunction(module, new BytePointer(wrapperName));
+		if (existing != null && !existing.isNull() && LLVMCountBasicBlocks(existing) > 0)
+			return existing;
+
+		MethodSymbol traitMethod = bound.getRequiredMethods().get(methodName);
+		Type         returnType  = traitMethod.getType().getReturnType();
+		LLVMTypeRef  retLlvmType = toLLVMType(returnType);
+		LLVMTypeRef  ptrT        = LLVMPointerTypeInContext(context, 0);
+
+		// ── Wrapper signature: (ptr %self) -> retType ────────────────────────────────
+		LLVMTypeRef wrapperFnType = LLVMFunctionType(retLlvmType,
+			new PointerPointer<>(new LLVMTypeRef[]{ ptrT }), 1, 0);
+
+		LLVMValueRef wrapperFn = LLVMGetNamedFunction(module, new BytePointer(wrapperName));
+		if (wrapperFn == null || wrapperFn.isNull())
+			wrapperFn = LLVMAddFunction(module, new BytePointer(wrapperName), wrapperFnType);
+		LLVMSetLinkage(wrapperFn, LLVMPrivateLinkage);
+
+		LLVMBasicBlockRef savedBB = LLVMGetInsertBlock(builder);
+		LLVMBasicBlockRef entry   = LLVMAppendBasicBlockInContext(context, wrapperFn, new BytePointer("entry"));
+		LLVMPositionBuilderAtEnd(builder, entry);
+
+		LLVMValueRef selfPtr = LLVMGetParam(wrapperFn, 0);
+
+		// ── Determine concrete function name from the synthetic impl scope ───────────
+		SymbolTable implScope = analyzer.getPrimitiveImplScopes().get(concreteType);
+		if (implScope == null)
+			throw new CodegenException("No impl scope for structural type: " + concreteType.name());
+		Symbol sym = implScope.resolveLocal(methodName);
+		if (!(sym instanceof MethodSymbol ms))
+			throw new CodegenException("No MethodSymbol for '" + methodName + "' in structural scope of " + concreteType.name());
+		String concreteFuncName = ms.getMangledName();
+
+		LLVMValueRef result;
+
+		if (concreteType instanceof TupleType tt)
+		{
+			// Load tuple struct from self and call the by-value toStr
+			LLVMTypeRef tupleT    = LLVMTypeMapper.getOrCreateTupleType(context, tt);
+			LLVMValueRef tupleVal = LLVMBuildLoad2(builder, tupleT, selfPtr, new BytePointer("tuple_self"));
+			LLVMValueRef concreteFn = getOrEmitTupleToStrFunction(tt, concreteFuncName);
+			LLVMTypeRef concreteFnType = LLVMGlobalGetValueType(concreteFn);
+			LLVMValueRef[] args = { tupleVal };
+			result = LLVMBuildCall2(builder, concreteFnType, concreteFn,
+				new PointerPointer<>(args), 1, "tuple_str");
+		}
+		else if (concreteType instanceof ArrayType at)
+		{
+			// Load the {ptr,i64} fat pointer from self and call the fat-ptr toStr
+			LLVMTypeRef fatT      = arrayFatPtrType();
+			LLVMValueRef fatVal   = LLVMBuildLoad2(builder, fatT, selfPtr, new BytePointer("arr_fat_self"));
+			LLVMValueRef concreteFn = getOrEmitArrayToStrFunction(at, concreteFuncName);
+			LLVMTypeRef concreteFnType = LLVMGlobalGetValueType(concreteFn);
+			LLVMValueRef[] args = { fatVal };
+			result = LLVMBuildCall2(builder, concreteFnType, concreteFn,
+				new PointerPointer<>(args), 1, "arr_str");
+		}
+		else
+		{
+			throw new CodegenException("Unsupported structural type for vtable wrapper: " + concreteType.name());
+		}
+
+		LLVMBuildRet(builder, result);
+
+		if (savedBB != null && !savedBB.isNull())
+			LLVMPositionBuilderAtEnd(builder, savedBB);
+
+		return wrapperFn;
 	}
 
 	private void emitIfExpressionBranch(LLVMBasicBlockRef bb, ExpressionBlock expr, LLVMValueRef resultPtr, LLVMBasicBlockRef mergeBB)
@@ -4454,7 +4842,10 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		if (vtable == null)
 			throw new CodegenException("No vtable parameter for type param '" + tpt.name() + "'");
 
-		TraitType bound = tpt.getBound();
+		TraitType bound = resolveEffectiveTrait(tpt.getBound());
+		if (bound == null)
+			throw new CodegenException("No trait associated with bound '" + tpt.getBound().name()
+					+ "' for method dispatch on '" + mae.memberName + "'");
 		int slotIndex = bound.getVtableSlotIndex(mae.memberName);
 		if (slotIndex < 0)
 			throw new CodegenException("Method '" + mae.memberName + "' not found in trait '" + bound.name() + "'");
@@ -4562,11 +4953,54 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				// Use the concrete struct LLVM type for composite args so the alloca is
 				// correctly sized. toLLVMType() returns opaque `ptr` for composites,
 				// which would silently mis-size the allocation for structs > ptr-width.
-				LLVMTypeRef boxTy = (argSemTy instanceof CompositeType ctArg)
-						? LLVMTypeMapper.getOrCreateStructType(context, ctArg)
-						: argLlvmTy;
+				LLVMTypeRef boxTy;
+				LLVMValueRef valToBox = argVal;
+
+				if (argSemTy instanceof ArrayType)
+				{
+					// Box array args as {ptr,i64} fat pointers so the vtable wrapper can
+					// recover both the element pointer and the compile-time element count.
+					boxTy = arrayFatPtrType();
+					LLVMTypeRef ptrT = LLVMPointerTypeInContext(context, 0);
+					LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+					int elemCount = 0;
+					if (argNode instanceof IdentifierExpression ie
+							&& arrayElementCounts.containsKey(ie.name))
+					{
+						elemCount = arrayElementCounts.get(ie.name);
+					}
+					else if (argSemTy instanceof ArrayType at && at.elementCount > 0)
+					{
+						elemCount = at.elementCount;
+					}
+					LLVMValueRef fatAlloca = LLVMBuildAlloca(builder, boxTy,
+						new BytePointer("arr_fat_box"));
+					LLVMValueRef ptrField = LLVMBuildStructGEP2(builder, boxTy, fatAlloca,
+						0, new BytePointer("fat_pf"));
+					LLVMValueRef lenField = LLVMBuildStructGEP2(builder, boxTy, fatAlloca,
+						1, new BytePointer("fat_lf"));
+					LLVMBuildStore(builder, argVal, ptrField);
+					LLVMBuildStore(builder, LLVMConstInt(i64t, elemCount, 0), lenField);
+					callArgs.add(fatAlloca);
+					continue;
+				}
+				else if (argSemTy instanceof CompositeType ctArg)
+				{
+					boxTy = LLVMTypeMapper.getOrCreateStructType(context, ctArg);
+				}
+				else if (argSemTy instanceof TupleType tt)
+				{
+					// Tuples are struct values; box using the concrete LLVM struct type
+					// so the vtable wrapper can load the full struct.
+					boxTy = LLVMTypeMapper.getOrCreateTupleType(context, tt);
+				}
+				else
+				{
+					boxTy = argLlvmTy;
+				}
+
 				LLVMValueRef alloca = LLVMBuildAlloca(builder, boxTy, new BytePointer("erased_arg_box"));
-				LLVMBuildStore(builder, argVal, alloca);
+				LLVMBuildStore(builder, valToBox, alloca);
 				callArgs.add(alloca);
 			}
 		}
@@ -4577,8 +5011,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			TypeParameterType tpt = ms.getTypeParameters().get(i);
 			if (tpt.hasBound() && i < typeArgs.size())
 			{
-				LLVMValueRef vtable = getOrCreateConcreteVtable(tpt.getBound(), typeArgs.get(i));
-				callArgs.add(vtable);
+				TraitType effectiveTrait = resolveEffectiveTrait(tpt.getBound());
+				if (effectiveTrait != null)
+				{
+					LLVMValueRef vtable = getOrCreateConcreteVtable(effectiveTrait, typeArgs.get(i));
+					callArgs.add(vtable);
+				}
 			}
 		}
 
@@ -4677,6 +5115,25 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	// ── Concrete vtable construction (call-site, consumer compilation) ─────────
 
 	/**
+	 * Resolves the effective {@link TraitType} from a generic parameter's bound.
+	 * <p>
+	 * For a {@link TraitType} bound the trait itself is returned. For a
+	 * {@link TagType} bound the first trait member of the tag is returned
+	 * (the "ambient trait") since vtable dispatch requires a concrete trait.
+	 * Returns {@code null} when the bound carries no trait (e.g. a tag of only
+	 * concrete types such as {@code tag { str, i8 }}).
+	 */
+	private TraitType resolveEffectiveTrait(
+			org.nebula.nebc.semantic.types.CompositeType bound)
+	{
+		if (bound instanceof TraitType tt)
+			return tt;
+		if (bound instanceof org.nebula.nebc.semantic.types.TagType tag)
+			return tag.findAmbientTrait().orElse(null);
+		return null;
+	}
+
+	/**
 	 * Returns a compile-time constant global containing the vtable for
 	 * {@code concreteType} implementing {@code bound}.
 	 *
@@ -4701,8 +5158,17 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		for (int i = 0; i < methodNames.size(); i++)
 		{
 			String methodName = methodNames.get(i);
-			MethodSymbol concrete = resolveConcreteTraitMethod(bound, methodName, concreteType);
-			slotFns[i] = getOrEmitVtableWrapper(bound, methodName, concreteType, concrete);
+			// Structural types (tuples / arrays) use an inline vtable wrapper that
+			// generates the toStr logic on demand, bypassing the external impl lookup.
+			if (concreteType instanceof TupleType || concreteType instanceof ArrayType)
+			{
+				slotFns[i] = getOrEmitStructuralVtableWrapper(bound, methodName, concreteType);
+			}
+			else
+			{
+				MethodSymbol concrete = resolveConcreteTraitMethod(bound, methodName, concreteType);
+				slotFns[i] = getOrEmitVtableWrapper(bound, methodName, concreteType, concrete);
+			}
 		}
 
 		// Build the constant initialiser in-context and derive the global type from it,

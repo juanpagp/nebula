@@ -205,6 +205,16 @@ public class SymbolExporter
             obj.addProperty("kind", "trait");
             obj.add("members", exportTable(tt.getMemberScope()));
         }
+        else if (type instanceof TagType tag)
+        {
+            // Export the tag as a list of its member type names so that
+            // consumers can reconstruct the TagType for bound checking.
+            obj.addProperty("kind", "tag");
+            JsonArray members = new JsonArray();
+            for (Type m : tag.getMemberTypes())
+                members.add(m.name());
+            obj.add("members", members);
+        }
 
         return obj;
     }

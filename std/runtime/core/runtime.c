@@ -199,3 +199,40 @@ NebulaStr __nebula_rt_str_concat(NebulaStr* parts, int64_t count)
 
     return (NebulaStr){ buf, total_len };
 }
+
+// ---------------------------------------------------------
+// Structural toStr helpers for tuples and arrays
+// ---------------------------------------------------------
+
+/**
+ * Build a string of the form "[elem0, elem1, ...]" from an array of already-
+ * converted NebulaStr parts.  Ownership of the input parts array stays with
+ * the caller (nothing is freed here).
+ */
+NebulaStr __nebula_rt_format_array_str(const NebulaStr* elements, int64_t count)
+{
+    // Total length: "["(1) + elements + ", " between each pair + "]"(1)
+    int64_t total_len = 2; // '[' + ']'
+    for (int64_t i = 0; i < count; i++)
+    {
+        total_len += elements[i].len;
+        if (i > 0) total_len += 2; // ", "
+    }
+
+    uint8_t* buf = (uint8_t*)neb_alloc((uint64_t)(total_len + 1));
+    if (!buf)
+        return (NebulaStr){ (const uint8_t*)"", 0 };
+
+    int64_t off = 0;
+    buf[off++] = '[';
+    for (int64_t i = 0; i < count; i++)
+    {
+        if (i > 0) { buf[off++] = ','; buf[off++] = ' '; }
+        for (int64_t j = 0; j < elements[i].len; j++)
+            buf[off++] = elements[i].ptr[j];
+    }
+    buf[off++] = ']';
+    buf[off]   = '\0';
+
+    return (NebulaStr){ buf, total_len };
+}

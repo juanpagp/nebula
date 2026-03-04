@@ -104,6 +104,14 @@ public class Compiler
 			analyzer.declareTraitBodies(cu);
 		}
 
+		// Phase 1.8: Resolve all tag expressions and build tag member scopes.
+		// Must run after declareTraitBodies so that traits referenced inside tags
+		// (e.g. tag { str, Stringable }) already have their member scopes populated.
+		for (var cu : compilationUnits)
+		{
+			analyzer.declareTagBodies(cu);
+		}
+
 		// Phase 2: Full visitation — solve bodies, check types.
 		for (var cu : compilationUnits)
 		{

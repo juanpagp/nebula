@@ -558,10 +558,17 @@ namespace math
 
 void test_namespaces()
 {
-    use math;
     write_i32(math::square(5));   // 25
     write_i32(math::cube(3));     // 27
     write_i32(math::abs_val(-8)); // 8
+}
+
+void test_namespaces_scoping()
+{
+    use math;
+    write_i32(square(5));   // 25
+    write_i32(cube(3));     // 27
+    write_i32(abs_val(-8)); // 8
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

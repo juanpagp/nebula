@@ -59,4 +59,20 @@ public class TupleType extends Type
         }
         return super.isAssignableTo(destination);
     }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+        if (this == obj)
+            return true;
+        if (!(obj instanceof TupleType other))
+            return false;
+        return this.elementTypes.equals(other.elementTypes);
+    }
+
+    @Override
+    public int hashCode()
+    {
+        return elementTypes.hashCode();
+    }
 }

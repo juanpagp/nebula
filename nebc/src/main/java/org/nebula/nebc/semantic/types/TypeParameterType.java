@@ -7,18 +7,23 @@ package org.nebula.nebc.semantic.types;
  * During semantic analysis this type is used as a stand-in for the real
  * concrete type. During code generation the monomorphizer substitutes
  * it with a concrete {@link Type}.
+ * <p>
+ * The bound can be either a {@link TraitType} (trait-based constraint) or a
+ * {@link TagType} (tag-based set constraint), both of which extend
+ * {@link CompositeType} and expose a member scope for method resolution.
  */
 public final class TypeParameterType extends Type
 {
     private final String name;
 
     /**
-     * The trait bound on this parameter, or {@code null} if unconstrained.
-     * E.g. for {@code T: Stringable}, {@code bound} = TraitType("Stringable").
+     * The bound on this parameter, or {@code null} if unconstrained.
+     * Can be a {@link TraitType} (e.g. {@code T: Stringable}) or a
+     * {@link TagType} (e.g. {@code T: Printable} where Printable is a tag).
      */
-    private final TraitType bound;
+    private final CompositeType bound;
 
-    public TypeParameterType(String name, TraitType bound)
+    public TypeParameterType(String name, CompositeType bound)
     {
         this.name = name;
         this.bound = bound;
@@ -30,13 +35,16 @@ public final class TypeParameterType extends Type
         return name;
     }
 
-    /** Returns the trait bound, or {@code null} when unconstrained. */
-    public TraitType getBound()
+    /**
+     * Returns the bound (a {@link TraitType} or {@link TagType}), or
+     * {@code null} when unconstrained.
+     */
+    public CompositeType getBound()
     {
         return bound;
     }
 
-    /** Returns {@code true} when this parameter carries a trait bound. */
+    /** Returns {@code true} when this parameter carries a bound. */
     public boolean hasBound()
     {
         return bound != null;
@@ -59,8 +67,8 @@ public final class TypeParameterType extends Type
         if (bound == null)
             return true;
         // Bounded type param is assignable to its bound
-        if (target instanceof TraitType tt)
-            return bound.equals(tt);
+        if (bound.equals(target))
+            return true;
         // Bounded type param is also compatible with concrete types (resolved at monomorphization)
         return true;
     }

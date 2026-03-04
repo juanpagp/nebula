@@ -101,15 +101,26 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 					{
 						declarations.add(decl);
 					}
-					else if (subNode instanceof UseStatement || subNode instanceof TagStatement)
+					else if (subNode instanceof UseStatement)
 					{
 						directives.add(subNode);
 					}
+					else if (subNode instanceof TagStatement)
+					{
+						// Tags are type declarations, not directives — they must be
+						// processed in namespace scope order alongside other type decls.
+						declarations.add(subNode);
+					}
 				}
 			}
-			else if (node instanceof UseStatement || node instanceof TagStatement)
+			else if (node instanceof UseStatement)
 			{
 				directives.add(node);
+			}
+			else if (node instanceof TagStatement)
+			{
+				// Tags are type declarations, processed in namespace scope order.
+				declarations.add(node);
 			}
 			else if (node instanceof Declaration decl)
 			{

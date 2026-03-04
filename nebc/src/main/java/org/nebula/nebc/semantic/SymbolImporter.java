@@ -135,6 +135,16 @@ public class SymbolImporter
                 case "enum":
                     table.define(importEnumType(obj, table));
                     break;
+                case "tag":
+                {
+                    // Register a stub TagType so that bound references like
+                    // 'T: Printable' can be resolved during method import (pass 2).
+                    // Members are populated in pass 2 once all trait types are available.
+                    String  tagName = obj.get("name").getAsString();
+                    TagType tagType = new TagType(tagName, globalScope);
+                    table.define(new TypeSymbol(tagName, tagType, null));
+                    break;
+                }
                 default:
                     break;
             }
@@ -178,6 +188,25 @@ public class SymbolImporter
                 case "variable":
                     table.define(importVariable(obj, table));
                     break;
+                case "tag":
+                {
+                    // Find the stub TagType registered in pass 1 and populate its members.
+                    String     tagName = obj.get("name").getAsString();
+                    TypeSymbol tagSym  = table.resolveType(tagName);
+                    if (tagSym != null && tagSym.getType() instanceof TagType tagType
+                            && tagType.getMemberTypes().isEmpty()
+                            && obj.has("members"))
+                    {
+                        for (JsonElement mEl : obj.getAsJsonArray("members"))
+                        {
+                            Type memberType = resolveTagMember(mEl.getAsString(), globalScope);
+                            if (memberType != null)
+                                tagType.addMember(memberType);
+                        }
+                        tagType.buildMemberScope();
+                    }
+                    break;
+                }
                 default:
                     break;
             }
@@ -203,13 +232,13 @@ public class SymbolImporter
             {
                 JsonObject tpObj  = tpEl.getAsJsonObject();
                 String     tpName = tpObj.get("name").getAsString();
-                TraitType  bound  = null;
+                CompositeType  bound  = null;
                 if (tpObj.has("bound"))
                 {
-                    // Use a deep search from globalScope so that traits defined
+                    // Use a deep search from globalScope so that traits/tags defined
                     // in sibling namespaces (e.g. std::traits::Stringable) are
                     // found even when we are currently importing std::io.
-                    bound = resolveTraitDeep(tpObj.get("bound").getAsString(), globalScope);
+                    bound = resolveBoundDeep(tpObj.get("bound").getAsString(), globalScope);
                 }
                 TypeParameterType tpt = new TypeParameterType(tpName, bound);
                 typeParams.add(tpt);
@@ -379,6 +408,42 @@ public class SymbolImporter
     }
 
     // ── Type resolution helpers ─────────────────────────────────────────────────
+
+    /**
+     * Resolves a tag member type by name.
+     * Tries primitive types first (e.g. {@code str}, {@code i32}), then falls back
+     * to a deep composite-type search for traits, classes and other tags.
+     */
+    private Type resolveTagMember(String name, SymbolTable globalScope)
+    {
+        Type prim = PrimitiveType.getByName(name);
+        if (prim != null)
+            return prim;
+        return resolveBoundDeep(name, globalScope);
+    }
+
+    /**
+     * Recursively searches {@code scope} and all descendant namespace scopes for a
+     * {@link CompositeType} ({@link TraitType} or {@link TagType}) with the given
+     * simple name. Used when importing method type-parameter bounds from .nebsym files.
+     */
+    private CompositeType resolveBoundDeep(String name, SymbolTable scope)
+    {
+        TypeSymbol sym = scope.resolveType(name);
+        if (sym != null && sym.getType() instanceof CompositeType ct)
+            return ct;
+
+        for (Symbol child : scope.getSymbols().values())
+        {
+            if (child instanceof NamespaceSymbol ns)
+            {
+                CompositeType found = resolveBoundDeep(name, ns.getMemberTable());
+                if (found != null)
+                    return found;
+            }
+        }
+        return null;
+    }
 
     /**
      * Recursively searches {@code scope} and all descendant namespace scopes for a

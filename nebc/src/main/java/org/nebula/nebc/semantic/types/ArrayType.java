@@ -28,4 +28,21 @@ public class ArrayType extends Type
 		}
 		return super.isAssignableTo(destination);
 	}
+
+	@Override
+	public boolean equals(Object obj)
+	{
+		if (this == obj)
+			return true;
+		if (!(obj instanceof ArrayType other))
+			return false;
+		return this.elementCount == other.elementCount
+			&& this.baseType.name().equals(other.baseType.name());
+	}
+
+	@Override
+	public int hashCode()
+	{
+		return 31 * baseType.name().hashCode() + elementCount;
+	}
 }

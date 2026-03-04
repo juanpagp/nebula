@@ -31,7 +31,13 @@ public enum DiagnosticCode
 	// --- Optionals ---
 	FORCED_UNWRAP_ON_NON_OPTIONAL("Forced unwrap '!' applied to non-optional type '%s'."),
 	UNSAFE_MEMBER_ACCESS_ON_OPTIONAL("Optional type '%s' requires safe access '?.' or explicit unwrap before member access."),
-	NONE_ASSIGNED_TO_NON_OPTIONAL("'none' cannot be assigned to non-optional type '%s'.");
+	NONE_ASSIGNED_TO_NON_OPTIONAL("'none' cannot be assigned to non-optional type '%s'."),
+
+	// --- Tags ---
+	TAG_AS_VALUE_TYPE("Tag '%s' cannot be used as a value type. Tags are compile-time-only constraints; use '<T: %s>' in a generic."),
+	TAG_IN_PARAM_POSITION("Parameter type is tag '%s'. Use the generic type parameter instead: '<T: %s>(T param)'."),
+	TAG_CYCLE("Circular tag definition detected: tag '%s' references itself (directly or indirectly)."),
+	TAG_IMPL_OVERLAP("Overlapping 'impl %s': type '%s' is already covered by a previous impl for this tag.");
 
 	private final String messageTemplate;
 

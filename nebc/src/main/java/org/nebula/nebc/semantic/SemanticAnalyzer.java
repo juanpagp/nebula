@@ -474,6 +474,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			error(DiagnosticCode.INTERNAL_ERROR, node, "class '" + node.name + "' was not forward-declared.");
 			return null;
 		}
+		// Record so codegen can retrieve the TypeSymbol via getSymbol(node, TypeSymbol.class).
+		recordSymbol(node, existingSym);
 		ClassType classType = (ClassType) existingSym.getType();
 		defineTypeParamsInScope(node.typeParams, classType.getMemberScope());
 		Type result = visitCompositeBody(node, classType, node.members);
@@ -504,6 +506,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			error(DiagnosticCode.INTERNAL_ERROR, node, "struct '" + node.name + "' was not forward-declared.");
 			return null;
 		}
+		// Record so codegen can retrieve the TypeSymbol via getSymbol(node, TypeSymbol.class).
+		recordSymbol(node, existingSym);
 		StructType structType = (StructType) existingSym.getType();
 		defineTypeParamsInScope(node.typeParams, structType.getMemberScope());
 		Type result = visitCompositeBody(node, structType, node.members);
@@ -675,27 +679,23 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		Type returnType = (node.returnType == null) ? PrimitiveType.VOID : resolveType(node.returnType);
 
 		// 1. Build function signature
+		// Always create paramInfos so the codegen can see CVT modifiers (drops/keeps)
+		// on both extern "C" declarations and normal Nebula functions.
 		List<Type> paramTypes = new ArrayList<>();
-		List<ParameterInfo> paramInfos = isInsideExtern ? new ArrayList<>() : null;
+		List<ParameterInfo> paramInfos = new ArrayList<>();
 
 		for (Parameter p : node.parameters)
 		{
 			Type pType = resolveType(p.type());
 			paramTypes.add(pType == Type.ERROR ? Type.ANY : pType);
-			if (isInsideExtern)
-			{
-				paramInfos.add(new ParameterInfo(p.cvtModifier(), pType, p.name()));
-			}
+			paramInfos.add(new ParameterInfo(p.cvtModifier(), pType, p.name()));
 		}
 
 		// Prepend 'this' parameter for member methods
 		if (currentTypeDefinition != null)
 		{
 			paramTypes.add(0, currentTypeDefinition);
-			if (paramInfos != null)
-			{
-				paramInfos.add(0, new ParameterInfo(null, currentTypeDefinition, "this"));
-			}
+			paramInfos.add(0, new ParameterInfo(null, currentTypeDefinition, "this"));
 		}
 
 		FunctionType methodType = new FunctionType(returnType, paramTypes, paramInfos);
@@ -859,7 +859,8 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 
 			if (actualType != Type.ERROR)
 			{
-				VariableSymbol varSym = new VariableSymbol(decl.name(), actualType, mutable, node);
+				VariableSymbol varSym = new VariableSymbol(
+					decl.name(), actualType, mutable, node.isBacklink, node);
 				recordSymbol(node, varSym);
 				if (!currentScope.define(varSym))
 				{
@@ -2396,15 +2397,19 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	private void defineConstructorSignature(ConstructorDeclaration node)
 	{
 		List<Type> paramTypes = new ArrayList<>();
+		List<ParameterInfo> paramInfos = new ArrayList<>();
+
 		paramTypes.add(PrimitiveType.REF); // 'this' parameter
+		paramInfos.add(new ParameterInfo(null, PrimitiveType.REF, "this"));
 
 		for (Parameter p : node.parameters)
 		{
 			Type t = resolveType(p.type());
 			paramTypes.add(t == Type.ERROR ? Type.ANY : t);
+			paramInfos.add(new ParameterInfo(p.cvtModifier(), t, p.name()));
 		}
 
-		FunctionType fnType = new FunctionType(PrimitiveType.VOID, paramTypes, null);
+		FunctionType fnType = new FunctionType(PrimitiveType.VOID, paramTypes, paramInfos);
 		// Constructors are technically methods attached to the class name
 		MethodSymbol ms = new MethodSymbol(node.name, fnType, java.util.Collections.emptyList(), false, node, java.util.Collections.emptyList());
 

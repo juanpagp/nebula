@@ -23,6 +23,7 @@ import org.nebula.nebc.semantic.types.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -120,6 +121,14 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	 * so we never link the same bitcode module twice.
 	 */
 	private final Set<String> linkedErasedFunctions = new HashSet<>();
+
+	/**
+	 * Tracks heap-allocated class instances and {@code drops} parameters in the
+	 * current function, enabling deterministic deallocation via LUA (Last-Usage
+	 * Analysis). Created fresh for each function body and emits conditional
+	 * {@code neb_free} calls before every {@code ret}.
+	 */
+	private RegionTracker regionTracker;
 
 	public LLVMCodeGenerator()
 	{
@@ -299,7 +308,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		module = LLVMModuleCreateWithNameInContext("nebula_module", context);
 		builder = LLVMCreateBuilderInContext(context);
 
-		// 2. Visit every compilation unit
+		// 2a. Pre-pass: emit compiler-generated deep drop functions for all classes.
+		//     This must happen BEFORE user function bodies so that RegionTracker
+		//     can always find "TypeName__drop" in the module during cleanup emission.
+		emitDropFunctionsPrePass(units);
+
+		// 2b. Visit every compilation unit (methods, constructors, etc.)
 		for (CompilationUnit cu : units)
 		{
 			cu.accept(this);
@@ -498,6 +512,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		currentFunctionIsVoidMain = isVoidMain;
 		Type prevReturnType = currentMethodReturnType;
 		currentMethodReturnType = returnType;
+		RegionTracker prevRegionTracker = regionTracker;
+		regionTracker = new RegionTracker(context, builder, module);
 
 		Map<String, LLVMValueRef> prevNamedValues = new HashMap<>(namedValues);
 		Set<String> prevInlineStructVars = new HashSet<>(inlineStructVars);
@@ -535,6 +551,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			LLVMValueRef alloca = LLVMBuildAlloca(builder, toLLVMType(paramType), param.name());
 			LLVMBuildStore(builder, paramValue, alloca);
 			namedValues.put(param.name(), alloca);
+
+			// CVT: If this parameter has 'drops', we own the region and must free it.
+			if (param.cvtModifier() == CVTModifier.DROPS && paramType instanceof ClassType ct)
+			{
+				regionTracker.registerRegion(param.name(), alloca, ct.name());
+			}
 		}
 
 		// 7. Emit Body
@@ -547,6 +569,9 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		// 8. Handle Implicit Returns (Now using the verified returnType object)
 		if (!currentBlockTerminated)
 		{
+			// CVT/LUA: Emit deterministic cleanup for all tracked regions before return.
+			regionTracker.emitCleanup(currentFunction);
+
 			if (returnType == PrimitiveType.VOID)
 			{
 				if (isVoidMain)
@@ -575,6 +600,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		currentBlockTerminated = prevTerminated;
 		currentFunctionIsVoidMain = prevVoidMain;
 		currentMethodReturnType = prevReturnType;
+		regionTracker = prevRegionTracker;
 		namedValues.clear();
 		namedValues.putAll(prevNamedValues);
 		inlineStructVars.clear();
@@ -597,6 +623,247 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			method.accept(this);
 		}
 		return null;
+	}
+
+	// =================================================================
+	// CVT: DEEP-DROP PRE-PASS
+	// =================================================================
+
+	/**
+	 * Two-phase pre-pass that generates compiler-owned deep drop functions for
+	 * every non-generic class declaration in {@code units}.
+	 * <p>
+	 * <b>Phase 1</b> — forward-declare {@code void TypeName__drop(ptr)} for all
+	 * classes, so cross-references between drop functions always resolve.
+	 * <b>Phase 2</b> — fill in each function body (GEP + recursive field drops +
+	 * self {@code neb_free}).
+	 */
+	private void emitDropFunctionsPrePass(List<CompilationUnit> units)
+	{
+		// Collect all non-generic class declarations
+		List<ClassDeclaration> classes = new ArrayList<>();
+		for (CompilationUnit cu : units)
+		{
+			collectClassDeclarations(cu, classes);
+		}
+
+		// Phase 1: forward-declare void ClassName__drop(ptr)
+		LLVMTypeRef ptrT  = LLVMPointerTypeInContext(context, 0);
+		LLVMTypeRef voidT = LLVMVoidTypeInContext(context);
+		LLVMTypeRef dropFnType = LLVMFunctionType(voidT,
+			new PointerPointer<>(new LLVMTypeRef[]{ ptrT }), 1, 0);
+
+		for (ClassDeclaration cd : classes)
+		{
+			String dropName = cd.name + "__drop";
+			LLVMValueRef existing = LLVMGetNamedFunction(module, dropName);
+			if (existing == null || existing.isNull())
+			{
+				LLVMAddFunction(module, dropName, dropFnType);
+			}
+		}
+
+		// Phase 2: fill in function bodies
+		for (ClassDeclaration cd : classes)
+		{
+			emitDropFunction(cd);
+		}
+	}
+
+	/** Recursively collect all non-generic {@link ClassDeclaration} nodes. */
+	private void collectClassDeclarations(ASTNode node, List<ClassDeclaration> out)
+	{
+		if (node instanceof ClassDeclaration cd)
+		{
+			if (cd.typeParams == null || cd.typeParams.isEmpty())
+			{
+				out.add(cd);
+			}
+		}
+		else if (node instanceof CompilationUnit cu)
+		{
+			for (ASTNode decl : cu.declarations)
+			{
+				collectClassDeclarations(decl, out);
+			}
+		}
+		else if (node instanceof NamespaceDeclaration nd)
+		{
+			for (ASTNode member : nd.members)
+			{
+				collectClassDeclarations(member, out);
+			}
+		}
+	}
+
+	/**
+	 * Generate the body of {@code void ClassName__drop(ptr %this)}.
+	 * <p>
+	 * The generated function:
+	 * <ol>
+	 *   <li>For each non-{@code backlink} field of {@link ClassType}: loads the
+	 *       field pointer and calls {@code FieldType__drop}.</li>
+	 *   <li>For each non-{@code backlink} field of {@code OptionalType<ClassType>}:
+	 *       conditionally loads and drops the inner pointer if present.</li>
+	 *   <li>For each {@code str} field: extracts the data pointer and calls
+	 *       {@code neb_free}.</li>
+	 *   <li>Calls {@code neb_free(ptr %this)} to release the object itself.</li>
+	 * </ol>
+	 */
+	private void emitDropFunction(ClassDeclaration node)
+	{
+		// Look up the resolved ClassType — recorded by SemanticAnalyzer.visitClassDeclaration.
+		TypeSymbol typeSym = analyzer.getSymbol(node, TypeSymbol.class);
+		if (typeSym == null || !(typeSym.getType() instanceof ClassType ct))
+		{
+			return;
+		}
+
+		String dropName = node.name + "__drop";
+		LLVMValueRef dropFn = LLVMGetNamedFunction(module, dropName);
+		if (dropFn == null || dropFn.isNull())
+		{
+			return; // should have been forward-declared in phase 1
+		}
+
+		// Save insertion point (we might be generating inside another context)
+		LLVMBasicBlockRef prevBlock = LLVMGetInsertBlock(builder);
+
+		LLVMBasicBlockRef entryBB = LLVMAppendBasicBlockInContext(context, dropFn, "entry");
+		LLVMPositionBuilderAtEnd(builder, entryBB);
+
+		LLVMValueRef thisPtr = LLVMGetParam(dropFn, 0);
+		LLVMTypeRef structLlvmType = LLVMTypeMapper.getOrCreateStructType(context, ct);
+
+		// Walk fields in declaration order (same order as LLVM struct body).
+		// Use VariableSymbol.isBacklink() — the authoritative, symbol-table-side flag.
+		int fieldIdx = 0;
+		for (Symbol s : ct.getMemberScope().getSymbols().values())
+		{
+			if (!(s instanceof VariableSymbol vs) || vs.getName().equals("this"))
+			{
+				continue;
+			}
+
+			if (vs.isBacklink())
+			{
+				// Non-owning back-reference — must not be freed by this destructor.
+				fieldIdx++;
+				continue;
+			}
+
+			Type fieldType = vs.getType();
+			String fieldName = vs.getName();
+
+			// GEP to the field inside *this
+			LLVMValueRef fieldPtr = LLVMBuildStructGEP2(builder, structLlvmType,
+				thisPtr, fieldIdx, fieldName + "_gep");
+
+			if (fieldType instanceof ClassType fieldCt)
+			{
+				// Non-optional owned class field — always present, drop unconditionally
+				LLVMValueRef fieldVal = LLVMBuildLoad2(builder,
+					LLVMPointerTypeInContext(context, 0),
+					fieldPtr, fieldName + "_load");
+				emitDropCall(fieldVal, fieldCt.name());
+			}
+			else if (fieldType instanceof OptionalType ot
+				&& ot.innerType instanceof ClassType fieldCt)
+			{
+				// Optional owned class field — check presence flag first
+				LLVMTypeRef optLlvmType = LLVMTypeMapper.getOrCreateOptionalStructType(
+					context, ot);
+				LLVMValueRef optVal = LLVMBuildLoad2(builder, optLlvmType,
+					fieldPtr, fieldName + "_opt");
+				LLVMValueRef hasValue = LLVMBuildExtractValue(builder, optVal, 0,
+					fieldName + "_has");
+				LLVMValueRef innerPtr = LLVMBuildExtractValue(builder, optVal, 1,
+					fieldName + "_inner");
+
+				LLVMBasicBlockRef dropBB = LLVMAppendBasicBlockInContext(context,
+					dropFn, "drop_" + fieldName);
+				LLVMBasicBlockRef skipBB = LLVMAppendBasicBlockInContext(context,
+					dropFn, "skip_" + fieldName);
+				LLVMBuildCondBr(builder, hasValue, dropBB, skipBB);
+
+				LLVMPositionBuilderAtEnd(builder, dropBB);
+				emitDropCall(innerPtr, fieldCt.name());
+				LLVMBuildBr(builder, skipBB);
+
+				LLVMPositionBuilderAtEnd(builder, skipBB);
+			}
+			// Primitives, structs, and str fields require no additional action here
+
+			fieldIdx++;
+		}
+
+		// Free the object itself
+		emitNebFreeCall(thisPtr);
+		LLVMBuildRetVoid(builder);
+
+		// Restore previous insertion point
+		if (prevBlock != null && !prevBlock.isNull())
+		{
+			LLVMPositionBuilderAtEnd(builder, prevBlock);
+		}
+	}
+
+	/**
+	/**
+	 * Emit a drop call for a heap pointer: calls {@code TypeName__drop(ptr)} if
+	 * the function exists in the module, otherwise falls back to {@code neb_free}.
+	 */
+	private void emitDropCall(LLVMValueRef ptr, String typeName)
+	{
+		LLVMValueRef dropFn = LLVMGetNamedFunction(module, typeName + "__drop");
+		if (dropFn != null && !dropFn.isNull())
+		{
+			LLVMTypeRef ptrT  = LLVMPointerTypeInContext(context, 0);
+			LLVMTypeRef voidT = LLVMVoidTypeInContext(context);
+			LLVMTypeRef fnType = LLVMFunctionType(voidT,
+				new PointerPointer<>(new LLVMTypeRef[]{ ptrT }), 1, 0);
+			LLVMValueRef[] args = { ptr };
+			LLVMBuildCall2(builder, fnType, dropFn, new PointerPointer<>(args), 1, "");
+		}
+		else
+		{
+			emitNebFreeCall(ptr);
+		}
+	}
+
+	/** Emit a plain {@code call void @neb_free(ptr %ptr)}. */
+	private void emitNebFreeCall(LLVMValueRef ptr)
+	{
+		LLVMValueRef nebFree = LLVMGetNamedFunction(module, "neb_free");
+		if (nebFree == null || nebFree.isNull())
+		{
+			LLVMTypeRef ptrT  = LLVMPointerTypeInContext(context, 0);
+			LLVMTypeRef voidT = LLVMVoidTypeInContext(context);
+			LLVMTypeRef ft = LLVMFunctionType(voidT,
+				new PointerPointer<>(new LLVMTypeRef[]{ ptrT }), 1, 0);
+			nebFree = LLVMAddFunction(module, "neb_free", ft);
+		}
+		LLVMTypeRef ptrT  = LLVMPointerTypeInContext(context, 0);
+		LLVMTypeRef voidT = LLVMVoidTypeInContext(context);
+		LLVMTypeRef ft = LLVMFunctionType(voidT,
+			new PointerPointer<>(new LLVMTypeRef[]{ ptrT }), 1, 0);
+		LLVMValueRef[] args = { ptr };
+		LLVMBuildCall2(builder, ft, nebFree, new PointerPointer<>(args), 1, "");
+	}
+
+	/**
+	 * Returns {@code true} if the named field of {@code ct} is declared with
+	 * the {@code backlink} modifier (i.e. it is a non-owning weak reference).
+	 */
+	/**
+	 * Returns {@code true} if the named member of {@code ct} carries the
+	 * {@code backlink} modifier — i.e. it is a non-owning weak reference that
+	 * must not trigger an ownership transfer when assigned.
+	 */
+	private boolean isBacklinkField(CompositeType ct, String memberName)
+	{
+		Symbol sym = ct.getMemberScope().resolveLocal(memberName);
+		return sym instanceof VariableSymbol vs && vs.isBacklink();
 	}
 
 	@Override
@@ -677,6 +944,23 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 					{
 						LLVMValueRef castedVal = emitCast(initVal, analyzer.getType(decl.initializer()), type);
 						LLVMBuildStore(builder, castedVal, alloca);
+					}
+
+					// CVT/LUA: Track heap allocations for deterministic deallocation.
+					// A variable initialised from a 'new' expression owns the region.
+					if (type instanceof ClassType ct && decl.initializer() instanceof NewExpression
+						&& regionTracker != null)
+					{
+						regionTracker.registerRegion(varName, alloca, ct.name());
+					}
+					// CVT/LUA: Track dynamic strings as Aggregate Proxies (§7.1).
+					// String interpolation heap-allocates a buffer via neb_alloc,
+					// so we track the %str struct and extract field 0 (ptr) to free.
+					else if (type == PrimitiveType.STR
+						&& decl.initializer() instanceof StringInterpolationExpression
+						&& regionTracker != null)
+					{
+						regionTracker.registerRegion(varName, alloca, RegionTracker.RegionKind.STRING_PROXY);
 					}
 					// Track array element counts for foreach iteration bounds.
 					if (type instanceof ArrayType && decl.initializer() instanceof ArrayLiteralExpression ale)
@@ -1038,6 +1322,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		currentBlockTerminated = false;
 		Type prevReturnType = currentMethodReturnType;
 		currentMethodReturnType = returnType;
+		RegionTracker prevRegionTracker = regionTracker;
+		regionTracker = new RegionTracker(context, builder, module);
 
 		Map<String, LLVMValueRef> prevNamedValues = new HashMap<>(namedValues);
 		Set<String> prevInlineStructVars = new HashSet<>(inlineStructVars);
@@ -1069,6 +1355,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			LLVMValueRef alloca = LLVMBuildAlloca(builder, toLLVMType(paramType), param.name());
 			LLVMBuildStore(builder, paramValue, alloca);
 			namedValues.put(param.name(), alloca);
+
+			// CVT: If this parameter has 'drops', we own the region and must free it.
+			if (param.cvtModifier() == CVTModifier.DROPS && paramType instanceof ClassType ct)
+			{
+				regionTracker.registerRegion(param.name(), alloca, ct.name());
+			}
 		}
 
 		if (node.body != null)
@@ -1089,12 +1381,15 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 		if (!currentBlockTerminated)
 		{
+			// CVT/LUA: Emit deterministic cleanup for all tracked regions before return.
+			regionTracker.emitCleanup(currentFunction);
 			LLVMBuildRetVoid(builder); // constructors always return void
 		}
 
 		currentFunction = prevFunction;
 		currentBlockTerminated = prevTerminated;
 		currentMethodReturnType = prevReturnType;
+		regionTracker = prevRegionTracker;
 		namedValues.clear();
 		namedValues.putAll(prevNamedValues);
 		inlineStructVars.clear();
@@ -1129,6 +1424,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	{
 		if (currentBlockTerminated)
 			return null;
+
+		// CVT/LUA: Emit deterministic cleanup for all tracked regions before return.
+		if (regionTracker != null)
+		{
+			regionTracker.emitCleanup(currentFunction);
+		}
 
 		if (node.value == null)
 		{
@@ -2055,6 +2356,25 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			LLVMValueRef rhs = emitCast(value, analyzer.getType(node.value), targetSemType);
 			LLVMValueRef storeVal = emitCompoundRhs(pointer, targetSemType, node.operator, rhs);
 			LLVMBuildStore(builder, storeVal, pointer);
+
+			// CVT/LUA: Storing a class reference into a field captures it — the parent
+			// object now owns the region. Mark the source variable as transferred,
+			// unless the target field is a backlink (weak reference — not truly captured).
+			if (regionTracker != null && node.operator.equals("=")
+				&& (targetSemType instanceof ClassType
+					|| (targetSemType instanceof OptionalType ot2 && ot2.innerType instanceof ClassType))
+				&& node.value instanceof IdentifierExpression srcIdent
+				&& regionTracker.isTracked(srcIdent.name))
+			{
+				Type baseType2 = analyzer.getType(mae.target);
+				boolean isBacklink = baseType2 instanceof CompositeType compT2
+					&& isBacklinkField(compT2, mae.memberName);
+				if (!isBacklink)
+				{
+					regionTracker.markTransferred(srcIdent.name);
+				}
+			}
+
 			return storeVal;
 		}
 		else if (node.target instanceof IndexExpression indexExpr)
@@ -2538,6 +2858,19 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 			// System.out.println("[DEBUG]   Arg " + i + ": " + argSemType.name() + " -> " + paramType.name());
 			argsArr[llvmArgIdx++] = emitCast(argValue, argSemType, paramType);
+
+			// CVT/LUA: If this argument is passed to a 'drops' parameter, mark it as
+			// transferred — the callee takes ownership and is responsible for freeing.
+			if (regionTracker != null && ft.parameterInfo != null)
+			{
+				ParameterInfo pi = ft.getParameterInfo(llvmArgIdx - 1);
+				if (pi != null && pi.isDrops()
+					&& argNode instanceof IdentifierExpression argIdent
+					&& regionTracker.isTracked(argIdent.name))
+				{
+					regionTracker.markTransferred(argIdent.name);
+				}
+			}
 		}
 
 		PointerPointer<LLVMValueRef> args = new PointerPointer<>(argsArr);
@@ -2613,6 +2946,24 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 		PointerPointer<LLVMValueRef> argsPtr = new PointerPointer<>(argsArr);
 		LLVMBuildCall2(builder, ctorLlvmType, ctorFunc, argsPtr, llvmArgCount, "");
+
+		// CVT/LUA: Mark arguments as transferred if the constructor parameter
+		// has 'drops' — the callee (constructor) takes ownership.
+		if (regionTracker != null && ctorFnType.parameterInfo != null)
+		{
+			int ctorArgIdx = 1; // skip 'this'
+			for (int i = 0; i < node.arguments.size() && ctorArgIdx < llvmArgCount; i++)
+			{
+				ParameterInfo pi = ctorFnType.getParameterInfo(ctorArgIdx);
+				if (pi != null && pi.isDrops()
+					&& node.arguments.get(i) instanceof IdentifierExpression argIdent
+					&& regionTracker.isTracked(argIdent.name))
+				{
+					regionTracker.markTransferred(argIdent.name);
+				}
+				ctorArgIdx++;
+			}
+		}
 
 		// Load and return the constructed value
 		return LLVMBuildLoad2(builder, structLlvmType, alloca, ct.name() + "_val");
@@ -2908,6 +3259,22 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			}
 
 			LLVMBuildCall2(builder, toLLVMType(ms.getType()), constructor, new PointerPointer<>(argsArr), argsArr.length, "");
+
+			// CVT/LUA: Mark arguments as transferred if the constructor parameter
+			// has 'drops' — the callee (constructor) takes ownership.
+			if (regionTracker != null && ms.getType().parameterInfo != null)
+			{
+				for (int i = 0; i < node.arguments.size(); i++)
+				{
+					ParameterInfo pi = ms.getType().getParameterInfo(i + 1);
+					if (pi != null && pi.isDrops()
+						&& node.arguments.get(i) instanceof IdentifierExpression argIdent
+						&& regionTracker.isTracked(argIdent.name))
+					{
+						regionTracker.markTransferred(argIdent.name);
+					}
+				}
+			}
 		}
 
 		return pointer;

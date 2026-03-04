@@ -121,10 +121,12 @@ public class Parser
 				}
 
 				// 5. Debug: Print tokens if verbose mode is active
+				/*
 				for (Token token : tokenStream.getTokens())
 				{
 					Log.debug(token.toString());
 				}
+				*/
 
 			}
 			catch (IOException e)

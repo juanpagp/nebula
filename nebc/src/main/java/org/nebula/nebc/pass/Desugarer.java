@@ -87,7 +87,7 @@ public class Desugarer implements ASTVisitor<ASTNode>
 				decls.add(decl);
 			}
 		}
-		return new VariableDeclaration(node.getSpan(), node.type, decls, node.isVar);
+		return new VariableDeclaration(node.getSpan(), node.type, decls, node.isVar, node.isBacklink);
 	}
 
 	@Override

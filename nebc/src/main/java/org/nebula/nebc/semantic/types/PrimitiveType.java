@@ -36,6 +36,14 @@ public class PrimitiveType extends Type
 		}
 	};
 
+	/**
+	 * Raw C string primitive ({@code const char*} / null-terminated pointer).
+	 * Maps to an opaque {@code ptr} in LLVM IR, matching the C ABI for string
+	 * arguments.  A Nebula {@code str} fat-pointer is implicitly coercible to
+	 * {@code cstr} by extracting its data pointer field.
+	 */
+	public static final PrimitiveType CSTR = new PrimitiveType("cstr");
+
 	private final String name;
 
 	public PrimitiveType(String name)
@@ -69,6 +77,7 @@ public class PrimitiveType extends Type
 		// FFI/CVT primitives
 		scope.define(TypeSymbol.builtIn("Ref", REF));
 		scope.define(TypeSymbol.builtIn("Region", REF)); // Reuse REF logic for Region for now as a catch-all
+		scope.define(TypeSymbol.builtIn("cstr", CSTR));
 	}
 
 	public boolean isValidMainMethodReturnType()
@@ -85,9 +94,9 @@ public class PrimitiveType extends Type
 			return true;
 
 		// string is now STR (a struct-like value type)
-		if (this == STR && target instanceof PrimitiveType pt && pt == REF)
+		if (this == STR && target instanceof PrimitiveType pt && (pt == REF || pt == CSTR))
 		{
-			return true; // str is implicitly compatible with Ref for FFI compatibility
+			return true; // str is implicitly coercible to Ref (opaque ptr) and cstr (raw char*)
 		}
 
 		if (target instanceof PrimitiveType pTarget)
@@ -142,6 +151,7 @@ public class PrimitiveType extends Type
 			case "i16", "u16" -> 16;
 			case "i32", "u32", "f32" -> 32;
 			case "i64", "u64", "f64", "str" -> 64;
+			case "cstr", "Ref" -> 64; // pointer-sized on 64-bit platforms
 			default -> 0;
 		};
 	}
@@ -169,6 +179,7 @@ public class PrimitiveType extends Type
 			case "void" -> VOID;
 			case "char" -> CHAR;
 			case "str" -> STR;
+			case "cstr" -> CSTR;
 			case "Ref" -> REF;
 			default -> null;
 		};

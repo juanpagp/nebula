@@ -8,12 +8,12 @@ trait Stringable {
 }
 
 extern "C" {
-    void __nebula_rt_print(keeps Ref<u8> buf);
-    void __nebula_rt_println(keeps Ref<u8> buf);
+    void __nebula_rt_print(keeps str s);
+    void __nebula_rt_println(keeps str s);
 }
 
 // Generic print that works for anything Stringable
-void print<T: Printable>(T item) => __nebula_rt_print(item.toStr().ptr)
+void print<T: Printable>(T item) => __nebula_rt_print(item.toStr())
 
 // Generic println that works for anything Stringable
-void println<T: Printable>(T item) => __nebula_rt_println(item.toStr().ptr)
+void println<T: Printable>(T item) => __nebula_rt_println(item.toStr())

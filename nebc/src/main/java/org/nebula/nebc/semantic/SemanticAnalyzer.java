@@ -308,6 +308,167 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		}
 	}
 
+	// =========================================================================
+	// Phase 1.9: Resolve class inheritance and import inherited members
+	// =========================================================================
+
+	/**
+	 * Phase 1.9: For every {@link ClassDeclaration} that has an inheritance
+	 * clause, resolves each parent type that is itself a {@link ClassType},
+	 * registers it on the {@link ClassType}, and imports all parent-scope symbols
+	 * into the child's member scope (excluding names already declared in the
+	 * child — child declarations always win).
+	 *
+	 * <p>Must run after Phase 1.5 ({@code declareMethods}) so that all class
+	 * member scopes already hold their own method stubs.
+	 */
+	public void declareInheritance(CompilationUnit unit)
+	{
+		currentScope = globalScope;
+		processDirectives(unit);
+		declareInheritanceRecursive(unit.declarations);
+	}
+
+	private void declareInheritanceRecursive(List<ASTNode> declarations)
+	{
+		if (declarations == null)
+			return;
+		for (ASTNode decl : declarations)
+		{
+			if (decl instanceof NamespaceDeclaration nd)
+			{
+				if (nd.isBlockDeclaration)
+				{
+					SymbolTable original = currentScope;
+					currentScope = enterNamespace(nd, currentScope);
+					declareInheritanceRecursive(nd.members);
+					currentScope = original;
+				}
+				else
+				{
+					currentScope = enterNamespace(nd, globalScope);
+				}
+			}
+			else if (decl instanceof ClassDeclaration cd && cd.inheritance != null)
+			{
+				TypeSymbol sym = currentScope.resolveType(cd.name);
+				if (sym == null || !(sym.getType() instanceof ClassType classType))
+					continue;
+				for (org.nebula.nebc.ast.types.TypeNode inheritedNode : cd.inheritance)
+				{
+					Type resolved = resolveType(inheritedNode);
+					if (resolved instanceof ClassType parentClassType)
+					{
+						classType.addParent(parentClassType);
+						registerSuperScopes(classType, parentClassType);
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * Recursively registers {@code parent}'s member scope (and all its ancestor
+	 * scopes) as super-scopes of {@code child}'s member scope.
+	 *
+	 * <p>The registration is done depth-first so that the most-distant ancestor
+	 * is consulted before closer ones when there is a name conflict.  Lookup is
+	 * lazy — the actual symbol walk happens during Phase 2 when the parent
+	 * member scopes are fully populated by {@code visitCompositeBody}.
+	 */
+	private void registerSuperScopes(ClassType child, ClassType parent)
+	{
+		// Register grandparents first (depth-first, most-distant ancestors first)
+		for (ClassType grandParent : parent.getParentTypes())
+		{
+			registerSuperScopes(child, grandParent);
+		}
+		// Register parent's member scope as a super scope for lazy inherited lookup
+		child.getMemberScope().addSuperScope(parent.getMemberScope());
+	}
+
+	// =========================================================================
+	// Phase 1.95: Pre-populate class member scopes across all units
+	// =========================================================================
+
+	/**
+	 * Phase 1.95: For every {@link ClassDeclaration} in the unit, enters its
+	 * member scope and pre-declares {@code this} plus all method / constructor /
+	 * operator signatures <em>without</em> visiting method bodies.
+	 *
+	 * <p>This ensures that parent class member scopes are fully populated with
+	 * their own symbols before Phase 2 starts analysing child classes, so that
+	 * inherited-member resolution via super-scopes works regardless of the order
+	 * in which compilation units are processed in Phase 2.
+	 */
+	public void declareClassBodies(CompilationUnit unit)
+	{
+		currentScope = globalScope;
+		processDirectives(unit);
+		declareClassBodiesRecursive(unit.declarations);
+	}
+
+	private void declareClassBodiesRecursive(List<ASTNode> declarations)
+	{
+		if (declarations == null)
+			return;
+		for (ASTNode decl : declarations)
+		{
+			if (decl instanceof NamespaceDeclaration nd)
+			{
+				if (nd.isBlockDeclaration)
+				{
+					SymbolTable original = currentScope;
+					currentScope = enterNamespace(nd, currentScope);
+					declareClassBodiesRecursive(nd.members);
+					currentScope = original;
+				}
+				else
+				{
+					currentScope = enterNamespace(nd, globalScope);
+				}
+			}
+			else if (decl instanceof ClassDeclaration cd)
+			{
+				TypeSymbol sym = currentScope.resolveType(cd.name);
+				if (sym == null || !(sym.getType() instanceof ClassType classType))
+					continue;
+
+				SymbolTable outerScope = currentScope;
+				Type prevTypeDef = currentTypeDefinition;
+				currentScope = classType.getMemberScope();
+				currentTypeDefinition = classType;
+				defineTypeParamsInScope(cd.typeParams, classType.getMemberScope());
+
+				// 'this' — no-op if already defined
+				currentScope.define(new VariableSymbol("this", classType, false, cd));
+
+				// Pre-declare each member signature, guarding against duplicates
+				for (Declaration member : cd.members)
+				{
+					if (member instanceof MethodDeclaration md
+							&& currentScope.resolveLocal(md.name) == null)
+					{
+						defineMethodSignature(md);
+					}
+					else if (member instanceof ConstructorDeclaration ctorDecl
+							&& currentScope.resolveLocal(ctorDecl.name) == null)
+					{
+						defineConstructorSignature(ctorDecl);
+					}
+					else if (member instanceof OperatorDeclaration od
+							&& currentScope.resolveLocal("operator" + od.operatorToken) == null)
+					{
+						defineOperatorSignature(od);
+					}
+				}
+
+				currentTypeDefinition = prevTypeDef;
+				currentScope = outerScope;
+			}
+		}
+	}
+
 	private void processDirectives(CompilationUnit unit)
 	{
 		for (ASTNode directive : unit.directives)
@@ -612,7 +773,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		defineTypeParamsInScope(node.typeParams, classType.getMemberScope());
 		Type result = visitCompositeBody(node, classType, node.members);
 
-		// Trait implementation check
+		// Trait implementation check (Phase 1.9 already handled ClassType parents)
 		for (org.nebula.nebc.ast.types.TypeNode inheritedNode : node.inheritance)
 		{
 			Type resolved = resolveType(inheritedNode);
@@ -661,18 +822,22 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		// Define 'this' as a variable symbol pointing to the type
 		currentScope.define(new VariableSymbol("this", type, false, node));
 
-		// Pre-pass methods
+		// Pre-pass methods — skip any signature already declared by Phase 1.95
+		// to avoid duplicate-symbol errors when the same class is processed twice.
 		for (Declaration member : members)
 		{
-			if (member instanceof MethodDeclaration md)
+			if (member instanceof MethodDeclaration md
+					&& currentScope.resolveLocal(md.name) == null)
 			{
 				defineMethodSignature(md);
 			}
-			else if (member instanceof ConstructorDeclaration cd)
+			else if (member instanceof ConstructorDeclaration cd
+					&& currentScope.resolveLocal(cd.name) == null)
 			{
 				defineConstructorSignature(cd);
 			}
-			else if (member instanceof OperatorDeclaration od)
+			else if (member instanceof OperatorDeclaration od
+					&& currentScope.resolveLocal("operator" + od.operatorToken) == null)
 			{
 				defineOperatorSignature(od);
 			}
@@ -769,9 +934,25 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	{
 		boolean oldExtern = isInsideExtern;
 		isInsideExtern = true;
+		boolean isExternC = "C".equals(node.language);
 		for (MethodDeclaration member : node.members)
 		{
-			defineMethodSignature(member);
+			// Guard against re-registration: declareMethodsRecursive (Phase 1.5),
+			// the namespace/composite pre-pass, and the main member loop all call
+			// visitExternDeclaration on the same node. Only define on first encounter.
+			if (getSymbol(member, MethodSymbol.class) == null)
+			{
+				defineMethodSignature(member);
+			}
+			// Mark the symbol so codegen can apply C-ABI lowering (str → ptr)
+			// only for genuine extern "C" declarations, not for Nebula-aware extern
+			// functions imported from .nebsym symbol files.
+			if (isExternC)
+			{
+				MethodSymbol ms = getSymbol(member, MethodSymbol.class);
+				if (ms != null)
+					ms.setExplicitExternC(true);
+			}
 		}
 		isInsideExtern = oldExtern;
 		return null;
@@ -1488,6 +1669,22 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				}
 			}
 
+			// Bare inherited member call: greet() inside Child.run() where greet() is defined
+			// in Base.  The resolved FunctionType has `this: Base` as its first parameter, but
+			// the call site provides no explicit receiver.  When we are inside a composite body
+			// (currentTypeDefinition != null) and the first param is a CompositeType that the
+			// current class is assignable to, synthesise an implicit 'this' expression.
+			if (node.target instanceof IdentifierExpression
+					&& !fn.parameterTypes.isEmpty()
+					&& fn.parameterTypes.get(0) instanceof CompositeType firstParamComposite
+					&& currentTypeDefinition instanceof ClassType callerClass
+					&& (callerClass == firstParamComposite || callerClass.isAssignableTo((ClassType) firstParamComposite))
+					&& effectiveArgs.size() < fn.parameterTypes.size())
+			{
+				// Inject a synthetic 'this' identifier as the implicit receiver
+				effectiveArgs.add(0, new org.nebula.nebc.ast.expressions.IdentifierExpression(node.getSpan(), "this"));
+			}
+
 			// If it's a generic method, we need to perform type inference
 			if (methodSym != null && !methodSym.getTypeParameters().isEmpty())
 			{
@@ -1941,6 +2138,11 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			String fpBase = compositeBaseName(firstParam.name());
 			String rvBase = compositeBaseName(receiverType.name());
 			if (fpBase.equals(rvBase))
+				return true;
+			// Class inheritance: receiver is a subclass of the parameter type
+			if (receiverType instanceof ClassType childClass
+					&& firstParam instanceof ClassType parentClass
+					&& childClass.isAssignableTo(parentClass))
 				return true;
 		}
 		// REF is the implicit 'this' pointer for struct/class methods (constructors).

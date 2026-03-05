@@ -26,6 +26,14 @@ public class SymbolTable
 	private final SymbolTable parent;
 	private final Map<String, Symbol> symbols = new LinkedHashMap<>();
 	private final java.util.List<NamespaceSymbol> imports = new java.util.ArrayList<>();
+	/**
+	 * Additional scopes consulted after the local symbol table and named imports
+	 * but before walking up to the enclosing {@link #parent} scope.
+	 * Used to implement class inheritance: a child class member scope adds its
+	 * parent class member scopes here so that inherited symbols are found during
+	 * normal {@link #resolve} calls without being copied into the child scope.
+	 */
+	private final java.util.List<SymbolTable> superScopes = new java.util.ArrayList<>();
 	private Symbol owner = null; // The symbol that owns this table (e.g. NamespaceSymbol)
 
 	public SymbolTable(SymbolTable parent)
@@ -53,6 +61,23 @@ public class SymbolTable
 		if (!imports.contains(ns))
 		{
 			imports.add(ns);
+		}
+	}
+
+	/**
+	 * Registers a parent class member scope as a super-scope.  During name
+	 * resolution the super-scopes are consulted after the local symbol table and
+	 * named imports but <em>before</em> walking up to the enclosing scope.
+	 * This enables inherited members to be found without copying them into the
+	 * child scope, and naturally supports method overriding (local definition wins).
+	 *
+	 * @param superScope the member scope of a direct parent class
+	 */
+	public void addSuperScope(SymbolTable superScope)
+	{
+		if (superScope != null && !superScopes.contains(superScope))
+		{
+			superScopes.add(superScope);
 		}
 	}
 
@@ -121,6 +146,19 @@ public class SymbolTable
 			Symbol importedSym = ns.getMemberTable().resolve(name, false);
 			if (importedSym != null)
 				return importedSym;
+		}
+
+		// 2.5. Search in super-scopes (parent class member scopes for inheritance).
+		// Consulted after local symbols and explicit imports but before the enclosing
+		// lexical scope so that inherited members are visible inside class bodies.
+		for (SymbolTable superScope : superScopes)
+		{
+			// Only look inside the super scope itself (and its own super chain), not
+			// the surrounding lexical scope — useParent=false prevents leaking into
+			// the enclosing global/namespace scope.
+			Symbol inheritedSym = superScope.resolve(name, false);
+			if (inheritedSym != null)
+				return inheritedSym;
 		}
 
 		// 3. Parent resolution

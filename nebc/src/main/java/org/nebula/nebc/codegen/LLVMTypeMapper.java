@@ -131,6 +131,10 @@ public final class LLVMTypeMapper
 		if (pt == PrimitiveType.REF || pt == (PrimitiveType) Type.ANY)
 			return LLVMPointerTypeInContext(ctx, 0);
 
+		// cstr → ptr (raw null-terminated C string, i.e. char*)
+		if (pt == PrimitiveType.CSTR)
+			return LLVMPointerTypeInContext(ctx, 0);
+
 		throw new CodegenException("Unmappable primitive type: " + pt.name());
 	}
 
@@ -174,9 +178,20 @@ public final class LLVMTypeMapper
 		LLVMTypeRef structType = LLVMStructCreateNamed(ctx, ct.name());
 		structTypes.put(ct.name(), structType);
 
-		// Populate fields
-		java.util.Collection<org.nebula.nebc.semantic.symbol.Symbol> symbols = ct.getMemberScope().getSymbols().values();
-		java.util.List<org.nebula.nebc.semantic.symbol.VariableSymbol> fields = symbols.stream().filter(s -> s instanceof org.nebula.nebc.semantic.symbol.VariableSymbol vs && !vs.getName().equals("this")).map(s -> (org.nebula.nebc.semantic.symbol.VariableSymbol) s).toList();
+		// Collect fields: inherited parent fields first (depth-first, ancestors before child),
+		// then the child's own fields.  This mirrors C++ base-subobject layout so that
+		// casting a child pointer to its parent type is a valid no-op ptr cast.
+		java.util.List<org.nebula.nebc.semantic.symbol.VariableSymbol> fields = new java.util.ArrayList<>();
+		if (ct instanceof org.nebula.nebc.semantic.types.ClassType classType)
+		{
+			collectInheritedFields(classType, fields, new java.util.HashSet<>());
+		}
+		// Own fields (symbols defined directly in this scope, excluding 'this' and methods)
+		for (org.nebula.nebc.semantic.symbol.Symbol s : ct.getMemberScope().getSymbols().values())
+		{
+			if (s instanceof org.nebula.nebc.semantic.symbol.VariableSymbol vs && !vs.getName().equals("this"))
+				fields.add(vs);
+		}
 
 		LLVMTypeRef[] fieldTypesArr = new LLVMTypeRef[fields.size()];
 		for (int i = 0; i < fields.size(); i++)
@@ -193,6 +208,33 @@ public final class LLVMTypeMapper
 	public static void clearCache()
 	{
 		structTypes.clear();
+	}
+
+	/**
+	 * Recursively collects all inherited field symbols for {@code classType} into
+	 * {@code out}, depth-first (most-distant ancestor first), skipping duplicates.
+	 * Only {@link VariableSymbol}s (not methods or 'this') are collected.
+	 */
+	private static void collectInheritedFields(
+			org.nebula.nebc.semantic.types.ClassType classType,
+			java.util.List<org.nebula.nebc.semantic.symbol.VariableSymbol> out,
+			java.util.Set<String> seen)
+	{
+		for (org.nebula.nebc.semantic.types.ClassType parent : classType.getParentTypes())
+		{
+			// Recurse into grandparents first
+			collectInheritedFields(parent, out, seen);
+			// Then add parent's own fields
+			for (org.nebula.nebc.semantic.symbol.Symbol s : parent.getMemberScope().getSymbols().values())
+			{
+				if (s instanceof org.nebula.nebc.semantic.symbol.VariableSymbol vs
+						&& !vs.getName().equals("this")
+						&& seen.add(vs.getName()))
+				{
+					out.add(vs);
+				}
+			}
+		}
 	}
 
 	/**
@@ -286,5 +328,49 @@ public final class LLVMTypeMapper
 			paramTypes.put(i, map(ctx, ft.parameterTypes.get(i)));
 		}
 		return LLVMFunctionType(returnType, paramTypes, paramCount, /* isVarArg */ 0);
+	}
+
+	/**
+	 * Maps a Nebula {@link FunctionType} to its C-ABI-compatible LLVM function type.
+	 * Nebula's {@code str} fat-pointer struct ({@code { ptr, i64 }}) is lowered to
+	 * a raw {@code ptr} so that {@code extern "C"} declarations match the expected
+	 * C ABI ({@code char*} / {@code const char*}).
+	 */
+	public static LLVMTypeRef mapForExternC(LLVMContextRef ctx, FunctionType ft)
+	{
+		LLVMTypeRef returnType;
+		if (ft.returnType instanceof org.nebula.nebc.semantic.types.StructType stRet)
+		{
+			returnType = getOrCreateStructType(ctx, stRet);
+		}
+		else
+		{
+			returnType = externCLower(ctx, ft.returnType);
+		}
+		int paramCount = ft.parameterTypes.size();
+		if (paramCount == 0)
+		{
+			return LLVMFunctionType(returnType, new LLVMTypeRef(), 0, /* isVarArg */ 0);
+		}
+		PointerPointer<LLVMTypeRef> paramTypes = new PointerPointer<>(paramCount);
+		for (int i = 0; i < paramCount; i++)
+		{
+			paramTypes.put(i, externCLower(ctx, ft.parameterTypes.get(i)));
+		}
+		return LLVMFunctionType(returnType, paramTypes, paramCount, /* isVarArg */ 0);
+	}
+
+	/**
+	 * Lowers a single Nebula type to its C ABI counterpart:
+	 * <ul>
+	 *   <li>{@code str} &rarr; {@code ptr} (C {@code char*})</li>
+	 *   <li>everything else &rarr; {@link #map(LLVMContextRef, Type)}</li>
+	 * </ul>
+	 */
+	public static LLVMTypeRef externCLower(LLVMContextRef ctx, Type type)
+	{
+		if (type == PrimitiveType.STR)
+			return LLVMPointerTypeInContext(ctx, 0);
+		return map(ctx, type);
 	}
 }

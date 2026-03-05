@@ -21,28 +21,31 @@ void __nebula_rt_write(const uint8_t* buf, int32_t len)
     sys_write(1, (const void*)buf, (long)len);
 }
 
-// Wrapper for direct string printing in Nebula
-void __nebula_rt_print(const uint8_t* buf)
-{
-    int32_t len = __nebula_strlen(buf);
-    __nebula_rt_write(buf, len);
-}
-
-// Wrapper for printing string with a newline
-void __nebula_rt_println(const uint8_t* buf)
-{
-    __nebula_rt_print(buf);
-    __nebula_rt_write((const uint8_t*)"\n", 1);
-}
-
 // ---------------------------------------------------------
-// Primitive toString helpers (used by Stringable trait)
+// Core Nebula string type
 // ---------------------------------------------------------
 
 typedef struct {
     const uint8_t* ptr;
     int64_t len;
 } NebulaStr;
+
+// Wrapper for direct string printing in Nebula
+void __nebula_rt_print(NebulaStr s)
+{
+    __nebula_rt_write(s.ptr, (int32_t)s.len);
+}
+
+// Wrapper for printing string with a newline
+void __nebula_rt_println(NebulaStr s)
+{
+    __nebula_rt_print(s);
+    __nebula_rt_write((const uint8_t*)"\n", 1);
+}
+
+// ---------------------------------------------------------
+// Primitive toString helpers (used by Stringable trait)
+// ---------------------------------------------------------
 
 // We use thread-local static buffers to avoid malloc for simple printing.
 // This means the returned strings are temporary and will be overwritten

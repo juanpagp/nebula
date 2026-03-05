@@ -112,6 +112,23 @@ public class Compiler
 			analyzer.declareTagBodies(cu);
 		}
 
+		// Phase 1.9: Resolve class inheritance hierarchies and import inherited members
+		// into child class member scopes. Must run after declareMethods (1.5) so that
+		// all class member scopes already hold their own method stubs, and after
+		// declareTraitBodies (1.75) / declareTagBodies (1.8) so all types are fully
+		// known. Runs before Phase 2 so that method bodies can resolve inherited names.
+		for (var cu : compilationUnits)
+		{
+			analyzer.declareInheritance(cu);
+		}
+			// Phase 1.95: Pre-populate all class member scopes with their own method
+			// signatures across every compilation unit — without visiting bodies.
+			// This ensures parent class member scopes are ready before Phase 2 analyses
+			// child classes, so inherited-symbol resolution is order-independent.
+			for (var cu : compilationUnits)
+			{
+				analyzer.declareClassBodies(cu);
+			}
 		// Phase 2: Full visitation — solve bodies, check types.
 		for (var cu : compilationUnits)
 		{

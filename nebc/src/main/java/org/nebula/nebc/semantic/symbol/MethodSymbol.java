@@ -15,6 +15,14 @@ public final class MethodSymbol extends Symbol
 {
 	private final List<Modifier> modifiers;
 	private final boolean isExtern;
+	/**
+	 * True when this method was declared inside an {@code extern "C" { ... }} block
+	 * in Nebula source code.  Only these functions need C-ABI lowering
+	 * (e.g. {@code str} fat-pointer → raw {@code ptr}) at call sites and
+	 * declarations.  Nebula-aware extern functions imported from {@code .nebsym}
+	 * files use the full Nebula fat-pointer ABI and must NOT be lowered.
+	 */
+	private boolean isExplicitExternC = false;
 	private final List<TypeParameterType> typeParameters;
 	private String traitName = null;
 	/** LLVM bitcode for the type-erased version of this generic method (null for non-generics). */
@@ -78,6 +86,16 @@ public final class MethodSymbol extends Symbol
 	public boolean isExtern()
 	{
 		return isExtern;
+	}
+
+	public boolean isExplicitExternC()
+	{
+		return isExplicitExternC;
+	}
+
+	public void setExplicitExternC(boolean value)
+	{
+		isExplicitExternC = value;
 	}
 
 	public List<TypeParameterType> getTypeParameters()

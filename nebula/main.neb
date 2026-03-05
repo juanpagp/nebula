@@ -1,0 +1,18 @@
+void main(str[] args)
+{
+    parseArgs(args);
+}
+
+void parseArgs(str[] args)
+{
+    for(i < args.len)
+    {
+        if(args[i] == "--help")
+        {
+            println("Usage: nebc [options]");
+            println("Options:");
+            println("  --help    Show this help message");
+            return;
+        }
+    }
+}

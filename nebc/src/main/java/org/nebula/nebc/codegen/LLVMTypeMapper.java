@@ -321,13 +321,25 @@ public final class LLVMTypeMapper
 		{
 			return LLVMFunctionType(returnType, new LLVMTypeRef(), 0, /* isVarArg */ 0);
 		}
-		// Build PointerPointer array of param type refs
-		PointerPointer<LLVMTypeRef> paramTypes = new PointerPointer<>(paramCount);
+		// Build the expanded LLVM parameter list.
+		// ArrayType parameters are expanded to (ptr, i64) to pass both the data
+		// pointer and the runtime element count as a fat-parameter pair.
+		java.util.List<LLVMTypeRef> expanded = new java.util.ArrayList<>();
 		for (int i = 0; i < paramCount; i++)
 		{
-			paramTypes.put(i, map(ctx, ft.parameterTypes.get(i)));
+			expanded.add(map(ctx, ft.parameterTypes.get(i)));
+			if (ft.parameterTypes.get(i) instanceof ArrayType)
+			{
+				expanded.add(LLVMInt64TypeInContext(ctx));
+			}
 		}
-		return LLVMFunctionType(returnType, paramTypes, paramCount, /* isVarArg */ 0);
+		int llvmCount = expanded.size();
+		PointerPointer<LLVMTypeRef> paramTypes = new PointerPointer<>(llvmCount);
+		for (int i = 0; i < llvmCount; i++)
+		{
+			paramTypes.put(i, expanded.get(i));
+		}
+		return LLVMFunctionType(returnType, paramTypes, llvmCount, /* isVarArg */ 0);
 	}
 
 	/**

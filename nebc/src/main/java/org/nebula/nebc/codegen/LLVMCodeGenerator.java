@@ -626,7 +626,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			int llvmParamIdx = 0;
 			// If this is a member method (represented by having 'this' in the FunctionType),
 			// bind the first LLVM parameter to "this".
-			if (funcType.parameterTypes.size() > node.parameters.size())
+			boolean hasSyntheticThis = funcType.parameterTypes.size() > node.parameters.size();
+			if (hasSyntheticThis)
 			{
 				LLVMValueRef thisValue = LLVMGetParam(function, llvmParamIdx++);
 				Type thisType = funcType.parameterTypes.get(0);
@@ -635,22 +636,35 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				namedValues.put("this", alloca);
 			}
 
+			// Nebula-level type index: starts after 'this' (if present).
+			int nebulaParamIdx = hasSyntheticThis ? 1 : 0;
+
 			for (int i = 0; i < node.parameters.size(); i++)
 			{
 				Parameter param = node.parameters.get(i);
 				LLVMValueRef paramValue = LLVMGetParam(function, llvmParamIdx++);
 
-				// Allocate space for the parameter
-				// The parameter type index accounts for 'this' if this is a member method
-				int paramTypeIdx = llvmParamIdx - 1;
-				if (paramTypeIdx >= funcType.parameterTypes.size())
+				// Allocate space for the parameter using the Nebula-level type index.
+				if (nebulaParamIdx >= funcType.parameterTypes.size())
 				{
 					throw new CodegenException("Parameter index out of bounds for function: " + node.name);
 				}
-				Type paramType = funcType.parameterTypes.get(paramTypeIdx);
+				Type paramType = funcType.parameterTypes.get(nebulaParamIdx++);
 				LLVMValueRef alloca = LLVMBuildAlloca(builder, toLLVMType(paramType), param.name());
 				LLVMBuildStore(builder, paramValue, alloca);
 				namedValues.put(param.name(), alloca);
+
+				// Array parameters are expanded to (ptr, i64) in the LLVM ABI.
+				// Bind the companion i64 length to a "__<name>_len" alloca so that
+				// member access ".len" and foreach can load it at runtime.
+				if (paramType instanceof ArrayType)
+				{
+					LLVMValueRef lenValue = LLVMGetParam(function, llvmParamIdx++);
+					LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+					LLVMValueRef lenAlloca = LLVMBuildAlloca(builder, i64t, "__" + param.name() + "_len");
+					LLVMBuildStore(builder, lenValue, lenAlloca);
+					namedValues.put("__" + param.name() + "_len", lenAlloca);
+				}
 
 				// CVT: If this parameter has 'drops', we own the region and must free it.
 				if (param.cvtModifier() == CVTModifier.DROPS && paramType instanceof ClassType ct)
@@ -3052,10 +3066,20 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		}
 
 		int nebulaArgCount = node.arguments.size();
-		int llvmArgCount = ft.parameterTypes.size();
+		// The Nebula-level param count: used for 'this' detection.
+		int nebulaParamCount = ft.parameterTypes.size();
+		// Compute the expanded LLVM arg count: ArrayType params become (ptr, i64) pairs.
+		int llvmArgCount = 0;
+		for (Type t : ft.parameterTypes)
+		{
+			llvmArgCount++;
+			if (t instanceof ArrayType) llvmArgCount++;
+		}
 
 		LLVMValueRef[] argsArr = new LLVMValueRef[llvmArgCount];
 		int llvmArgIdx = 0;
+		// Separate index tracking position in ft.parameterTypes (Nebula-level).
+		int nebulaParamIdx = 0;
 
 		// System.out.println("[DEBUG] Calling " + ((LLVMIsAFunction(function) != null && !LLVMIsAFunction(function).isNull()) ? LLVMGetValueName(function).getString() : "function"));
 		// System.out.println("[DEBUG]   Target Nebula Type: " + ft.name());
@@ -3063,7 +3087,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		// System.out.println("[DEBUG]   Arg Count: " + llvmArgCount);
 
 		// If this is a member call, prepend the receiver as 'this'
-		if (node.target instanceof MemberAccessExpression mae && llvmArgCount > nebulaArgCount)
+		if (node.target instanceof MemberAccessExpression mae && nebulaParamCount > nebulaArgCount)
 		{
 			LLVMValueRef receiver = mae.target.accept(this);
 			Type receiverSemType = analyzer.getType(mae.target);
@@ -3071,6 +3095,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 
 			// System.out.println("[DEBUG]   Receiver: " + receiverSemType.name() + " -> " + thisParamType.name());
 			argsArr[llvmArgIdx++] = emitCast(receiver, receiverSemType, thisParamType);
+			nebulaParamIdx++;
 		}
 		// Bare inherited member call: greet() inside Child.run() where greet() is defined in
 		// Base.  The SA injects a synthetic 'this' identifier as the first effective argument.
@@ -3078,7 +3103,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		// FunctionType has a ClassType (not REF) as its first parameter, meaning the callee
 		// expects an explicit receiver that we must supply from the current 'this' alloca.
 		else if (node.target instanceof IdentifierExpression
-				&& llvmArgCount > nebulaArgCount
+				&& nebulaParamCount > nebulaArgCount
 				&& !ft.parameterTypes.isEmpty()
 				&& ft.parameterTypes.get(0) instanceof ClassType inheritedThisType)
 		{
@@ -3091,6 +3116,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			LLVMTypeRef thisLlvmType = toLLVMType(inheritedThisType);
 			LLVMValueRef thisVal = LLVMBuildLoad2(builder, thisLlvmType, thisAlloca, "this_load");
 			argsArr[llvmArgIdx++] = thisVal;
+			nebulaParamIdx++;
 		}
 
 		for (int i = 0; i < nebulaArgCount; i++)
@@ -3098,17 +3124,42 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			Expression argNode = node.arguments.get(i);
 			LLVMValueRef argValue = argNode.accept(this);
 
-			Type paramType = ft.parameterTypes.get(llvmArgIdx);
+			Type paramType = ft.parameterTypes.get(nebulaParamIdx);
 			Type argSemType = analyzer.getType(argNode);
 
 			// System.out.println("[DEBUG]   Arg " + i + ": " + argSemType.name() + " -> " + paramType.name());
 			argsArr[llvmArgIdx++] = emitCast(argValue, argSemType, paramType);
 
+			// ArrayType parameters are expanded to (ptr, i64): pass the companion length.
+			if (paramType instanceof ArrayType)
+			{
+				LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+				LLVMValueRef lenVal;
+				if (argNode instanceof IdentifierExpression ie)
+				{
+					LLVMValueRef lenAlloca = namedValues.get("__" + ie.name + "_len");
+					if (lenAlloca != null)
+					{
+						lenVal = LLVMBuildLoad2(builder, i64t, lenAlloca, ie.name + "_len_pass");
+					}
+					else
+					{
+						Integer staticLen = arrayElementCounts.get(ie.name);
+						lenVal = LLVMConstInt(i64t, staticLen != null ? staticLen : 0, 0);
+					}
+				}
+				else
+				{
+					lenVal = LLVMConstInt(i64t, 0, 0);
+				}
+				argsArr[llvmArgIdx++] = lenVal;
+			}
+
 			// CVT/LUA: If this argument is passed to a 'drops' parameter, mark it as
 			// transferred — the callee takes ownership and is responsible for freeing.
 			if (regionTracker != null && ft.parameterInfo != null)
 			{
-				ParameterInfo pi = ft.getParameterInfo(llvmArgIdx - 1);
+				ParameterInfo pi = ft.getParameterInfo(nebulaParamIdx);
 				if (pi != null && pi.isDrops()
 					&& argNode instanceof IdentifierExpression argIdent
 					&& regionTracker.isTracked(argIdent.name))
@@ -3116,6 +3167,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 					regionTracker.markTransferred(argIdent.name);
 				}
 			}
+			nebulaParamIdx++;
 		}
 
 		PointerPointer<LLVMValueRef> args = new PointerPointer<>(argsArr);

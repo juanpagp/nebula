@@ -1192,7 +1192,7 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			}
 			else if (partCtx.REGULAR_CHAR_INSIDE() != null)
 			{
-				String ch = partCtx.REGULAR_CHAR_INSIDE().getText();
+				String ch = processEscapes(partCtx.REGULAR_CHAR_INSIDE().getText());
 				parts.add(new LiteralExpression(span, ch, LiteralExpression.LiteralType.STRING));
 			}
 		}
@@ -1368,6 +1368,75 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 					case '\\' -> sb.append('\\');
 					case '"' -> sb.append('"');
 					case '\'' -> sb.append('\'');
+					case '0' -> sb.append('\0');
+					case 'a' -> sb.append('\u0007');
+					case 'b' -> sb.append('\b');
+					case 'f' -> sb.append('\f');
+					case 'v' -> sb.append('\u000B');
+					case 'x' -> {
+						// \xH, \xHH, \xHHH, \xHHHH
+						int start = i + 1;
+						int end = start;
+						while (end < text.length() && end < start + 4 && isHexDigit(text.charAt(end)))
+							end++;
+						if (end > start)
+						{
+							int cp = Integer.parseInt(text.substring(start, end), 16);
+							sb.appendCodePoint(cp);
+							i = end - 1;
+						}
+						else
+						{
+							sb.append('\\');
+							sb.append(next);
+						}
+					}
+					case 'u' -> {
+						// Lowercase u: 4 hex digits (BMP codepoint)
+						if (i + 4 < text.length())
+						{
+							String hex = text.substring(i + 1, i + 5);
+							try
+							{
+								int cp = Integer.parseInt(hex, 16);
+								sb.appendCodePoint(cp);
+								i += 4;
+							}
+							catch (NumberFormatException e)
+							{
+								sb.append('\\');
+								sb.append(next);
+							}
+						}
+						else
+						{
+							sb.append('\\');
+							sb.append(next);
+						}
+					}
+					case 'U' -> {
+						// Uppercase U: 8 hex digits (full Unicode codepoint)
+						if (i + 8 < text.length())
+						{
+							String hex = text.substring(i + 1, i + 9);
+							try
+							{
+								int cp = Integer.parseInt(hex, 16);
+								sb.appendCodePoint(cp);
+								i += 8;
+							}
+							catch (NumberFormatException e)
+							{
+								sb.append('\\');
+								sb.append(next);
+							}
+						}
+						else
+						{
+							sb.append('\\');
+							sb.append(next);
+						}
+					}
 					default -> {
 						sb.append('\\');
 						sb.append(next);
@@ -1380,6 +1449,11 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 			}
 		}
 		return sb.toString();
+	}
+
+	private static boolean isHexDigit(char c)
+	{
+		return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 	}
 
 	private Expression extractArgument(NebulaParser.ArgumentContext ctx)

@@ -212,6 +212,8 @@ OPEN_BRACE_INSIDE
 // Regular String Logic
 REGULAR_CHAR_INSIDE
     : { this.IsRegularCharInside() }? SimpleEscapeSequence
+    | { this.IsRegularCharInside() }? HexEscapeSequence
+    | { this.IsRegularCharInside() }? UnicodeEscapeSequence
     ;
 
 REGULAR_STRING_INSIDE

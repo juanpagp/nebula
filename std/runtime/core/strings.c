@@ -191,6 +191,17 @@ NebulaStr neb_str_to_lower(NebulaStr s)
     return (NebulaStr){ buf, s.len };
 }
 
+int32_t neb_str_equals(NebulaStr a, NebulaStr b)
+{
+    if (a.len != b.len) return 0;
+    for (int64_t i = 0; i < a.len; i++)
+    {
+        if (a.ptr[i] != b.ptr[i])
+            return 0;
+    }
+    return 1;
+}
+
 int32_t neb_str_equals_ignore_case(NebulaStr a, NebulaStr b)
 {
     if (a.len != b.len) return 0;

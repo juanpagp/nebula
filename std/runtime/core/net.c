@@ -111,6 +111,7 @@ typedef struct
 #define SO_REUSEADDR 2
 #define SO_REUSEPORT 15
 #define SO_KEEPALIVE 9
+#define SO_ERROR     4
 #define TCP_NODELAY  1
 #define F_GETFL      3
 #define F_SETFL      4
@@ -370,6 +371,85 @@ int32_t neb_net_tcp_connect(uint32_t ip_net, uint16_t port_host)
     return fd;
 }
 
+/* Forward declaration — defined below */
+int32_t neb_net_set_nonblocking(int32_t fd);
+
+/*
+ * Open a TCP connection with a timeout (in seconds).
+ * Uses non-blocking connect + poll to enforce the deadline.
+ * Returns the connected fd on success (restored to blocking mode),
+ * or a negative error code on failure/timeout.
+ */
+int32_t neb_net_tcp_connect_timeout(uint32_t ip_net, uint16_t port_host, int32_t timeout_secs)
+{
+    int32_t fd = neb_net_socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return fd;
+
+    /* Set non-blocking for connect */
+    neb_net_set_nonblocking(fd);
+
+    NebulaSockAddrIn addr;
+    fill_addr(&addr, ip_net, neb_htons(port_host));
+
+    long rc = sys_net_connect(fd, &addr, (uint32_t)sizeof(NebulaSockAddrIn));
+    if (rc < 0)
+    {
+        /* EINPROGRESS = -115 on Linux — connect is proceeding asynchronously */
+        if (rc != -115)
+        {
+            sys_net_close(fd);
+            return -1;
+        }
+    }
+    else
+    {
+        /* Connected immediately — restore blocking mode and return */
+        long flags = sys_net_fcntl(fd, F_GETFL, 0);
+        if (flags >= 0)
+            sys_net_fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+        return fd;
+    }
+
+    /* Poll for writability (connect completion) with timeout */
+    NebulaPollFd pfd;
+    pfd.fd      = fd;
+    pfd.events  = 4; /* POLLOUT */
+    pfd.revents = 0;
+
+    long poll_rc = sys_net_poll(&pfd, 1, timeout_secs * 1000);
+    if (poll_rc <= 0)
+    {
+        /* Timeout or error */
+        sys_net_close(fd);
+        return -1;
+    }
+
+    /* Check for connection error */
+    if (pfd.revents & (8 | 16))  /* POLLERR | POLLHUP */
+    {
+        sys_net_close(fd);
+        return -1;
+    }
+
+    /* Verify the socket is actually connected by checking SO_ERROR */
+    int32_t sock_err = 0;
+    uint32_t err_len = sizeof(sock_err);
+    sys_net_getsockopt(fd, SOL_SOCKET, SO_ERROR, &sock_err, &err_len);
+    if (sock_err != 0)
+    {
+        sys_net_close(fd);
+        return -1;
+    }
+
+    /* Restore blocking mode */
+    long flags = sys_net_fcntl(fd, F_GETFL, 0);
+    if (flags >= 0)
+        sys_net_fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+
+    return fd;
+}
+
 /* Create an unbound UDP socket. */
 int32_t neb_net_udp_socket(void)
 {
@@ -411,6 +491,34 @@ int32_t neb_net_set_keepalive(int32_t fd)
 {
     int32_t one = 1;
     return neb_net_setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
+}
+
+/*
+ * Set receive timeout on fd.
+ * timeout_secs – timeout in seconds (0 = disable timeout).
+ * Returns 0 on success, negative on error.
+ *
+ * Linux timeval is { long tv_sec; long tv_usec; } = 16 bytes on x86-64.
+ */
+#define SO_RCVTIMEO 20
+#define SO_SNDTIMEO 21
+
+int32_t neb_net_set_recv_timeout(int32_t fd, int32_t timeout_secs)
+{
+    struct { long tv_sec; long tv_usec; } tv;
+    tv.tv_sec  = timeout_secs;
+    tv.tv_usec = 0;
+    return (int32_t)sys_net_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+                                        &tv, sizeof(tv));
+}
+
+int32_t neb_net_set_send_timeout(int32_t fd, int32_t timeout_secs)
+{
+    struct { long tv_sec; long tv_usec; } tv;
+    tv.tv_sec  = timeout_secs;
+    tv.tv_usec = 0;
+    return (int32_t)sys_net_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO,
+                                        &tv, sizeof(tv));
 }
 
 // =============================================================================

@@ -2789,6 +2789,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				st.setOwner(new TypeSymbol(pt.name(), pt, null));
 				return st;
 			});
+			// When multiple files add impl blocks for the same primitive (e.g. str),
+			// the cached scope's parent may point to a different file's namespace.
+			// Add the current scope as a super-scope so that symbols declared in
+			// THIS file's namespace (such as private extern "C" FFI functions) are
+			// reachable from the impl method bodies.
+			targetScope.addSuperScope(currentScope);
 		}
 		else
 		{

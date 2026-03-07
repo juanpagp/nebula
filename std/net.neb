@@ -162,12 +162,15 @@ extern "C"
     // -- Layer 2: convenience -------------------------------------------------
     i32 neb_net_tcp_server(u32 ip_net, u16 port_host, i32 backlog);
     i32 neb_net_tcp_connect(u32 ip_net, u16 port_host);
+    i32 neb_net_tcp_connect_timeout(u32 ip_net, u16 port_host, i32 timeout_secs);
     i32 neb_net_udp_socket();
     i32 neb_net_set_nonblocking(i32 fd);
     i32 neb_net_set_reuseaddr(i32 fd);
     i32 neb_net_set_reuseport(i32 fd);
     i32 neb_net_set_nodelay(i32 fd);
     i32 neb_net_set_keepalive(i32 fd);
+    i32 neb_net_set_recv_timeout(i32 fd, i32 timeout_secs);
+    i32 neb_net_set_send_timeout(i32 fd, i32 timeout_secs);
 
     // -- Poll / epoll ---------------------------------------------------------
     i32 neb_net_poll(keeps Ref<PollFd> fds, i32 nfds, i32 timeout_ms);
@@ -276,6 +279,12 @@ i32 setNoDelay(i32 fd) => neb_net_set_nodelay(fd)
 // Enable periodic TCP keep-alive probes.
 i32 setKeepAlive(i32 fd) => neb_net_set_keepalive(fd)
 
+// Set receive timeout in seconds (0 = disable). Recv calls return error on timeout.
+i32 setRecvTimeout(i32 fd, i32 secs) => neb_net_set_recv_timeout(fd, secs)
+
+// Set send timeout in seconds (0 = disable). Send calls return error on timeout.
+i32 setSendTimeout(i32 fd, i32 secs) => neb_net_set_send_timeout(fd, secs)
+
 // =============================================================================
 // Polling
 // =============================================================================
@@ -363,3 +372,11 @@ str recvExact(i32 fd, i64 len) => neb_net_recv_exact(fd, len)
  */
 i32 tcpConnectIp(u32 ipNet, u16 port) =>
     neb_net_tcp_connect(ipNet, port)
+
+/*
+ * Open a TCP connection with a timeout (in seconds).
+ * Uses non-blocking connect + poll to enforce the deadline.
+ * Returns the connected fd, or negative on failure/timeout.
+ */
+i32 tcpConnectIpTimeout(u32 ipNet, u16 port, i32 timeoutSecs) =>
+    neb_net_tcp_connect_timeout(ipNet, port, timeoutSecs)

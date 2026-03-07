@@ -21,6 +21,7 @@ import org.nebula.nebc.semantic.SymbolTable;
 import org.nebula.nebc.semantic.types.*;
 import org.nebula.nebc.util.Log;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -2112,7 +2113,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				// str → { i8*, i64 }
 				String text = node.value.toString();
 				LLVMValueRef globalPtr = LLVMBuildGlobalStringPtr(builder, text, ".str");
-				LLVMValueRef length = LLVMConstInt(LLVMInt64TypeInContext(context), text.length(), 0);
+				int utf8Len = text.getBytes(StandardCharsets.UTF_8).length;
+				LLVMValueRef length = LLVMConstInt(LLVMInt64TypeInContext(context), utf8Len, 0);
 
 				LLVMValueRef structVal = LLVMGetUndef(llvmType);
 				structVal = LLVMBuildInsertValue(builder, structVal, globalPtr, 0, "str_ptr");
@@ -3994,11 +3996,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		if (part instanceof LiteralExpression le && le.type == LiteralExpression.LiteralType.STRING)
 		{
 			String text           = le.value.toString();
+			int utf8Len           = text.getBytes(StandardCharsets.UTF_8).length;
 			LLVMValueRef gstr     = LLVMBuildGlobalStringPtr(builder, text, "istr_lit");
 			LLVMValueRef strAlloca = LLVMBuildAlloca(builder, strT, "istr_val");
 			LLVMBuildStore(builder, gstr,
 				LLVMBuildStructGEP2(builder, strT, strAlloca, 0, "istr_ptr"));
-			LLVMBuildStore(builder, LLVMConstInt(i64t, text.length(), 0),
+			LLVMBuildStore(builder, LLVMConstInt(i64t, utf8Len, 0),
 				LLVMBuildStructGEP2(builder, strT, strAlloca, 1, "istr_len"));
 			return LLVMBuildLoad2(builder, strT, strAlloca, "istr_lit_val");
 		}
@@ -4071,11 +4074,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	{
 		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
 		LLVMTypeRef strT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+		int utf8Len = text.getBytes(StandardCharsets.UTF_8).length;
 		LLVMValueRef gstr     = LLVMBuildGlobalStringPtr(builder, new BytePointer(text), new BytePointer("lit"));
 		LLVMValueRef strAlloca = LLVMBuildAlloca(builder, strT, new BytePointer("lit_str"));
 		LLVMBuildStore(builder, gstr,
 			LLVMBuildStructGEP2(builder, strT, strAlloca, 0, new BytePointer("lit_ptr")));
-		LLVMBuildStore(builder, LLVMConstInt(i64t, text.length(), 0),
+		LLVMBuildStore(builder, LLVMConstInt(i64t, utf8Len, 0),
 			LLVMBuildStructGEP2(builder, strT, strAlloca, 1, new BytePointer("lit_len")));
 		return LLVMBuildLoad2(builder, strT, strAlloca, new BytePointer("lit_val"));
 	}
@@ -4557,9 +4561,11 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			Map<String, LLVMValueRef> armBindings = emitDestructuringBindings(
 				pat, selectorVal, selectorType);
 			Map<String, LLVMValueRef> prevNamedValues = null;
+			Set<String> prevInlineStructVars = null;
 			if (!armBindings.isEmpty())
 			{
 				prevNamedValues = new HashMap<>(namedValues);
+				prevInlineStructVars = new HashSet<>(inlineStructVars);
 				namedValues.putAll(armBindings);
 			}
 
@@ -4576,6 +4582,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			{
 				namedValues.clear();
 				namedValues.putAll(prevNamedValues);
+				inlineStructVars.clear();
+				inlineStructVars.addAll(prevInlineStructVars);
 			}
 
 			// --- Prepare for next arm ---
@@ -4693,6 +4701,10 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	/**
 	 * For destructuring patterns on tagged unions, allocates binding allocas
 	 * for each bound variable and extracts the payload.
+	 * <p>
+	 * The payload type is resolved from the variant's {@link MethodSymbol} in the
+	 * union's member scope, ensuring the correct LLVM type and size are used for
+	 * the alloca and load — including aggregate types such as structs.
 	 */
 	private Map<String, LLVMValueRef> emitDestructuringBindings(
 		Pattern pat,
@@ -4711,41 +4723,95 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		if (disc == null)
 			return bindings;
 
-		// Field 1 of the union struct is the opaque [16 x i8] payload.
-		// We bitcast it to a pointer of the payload struct and GEP into it.
 		LLVMTypeRef unionStructType = LLVMTypeMapper.getOrCreateUnionStructType(context, ut);
-		LLVMTypeRef i8PtrType = LLVMPointerTypeInContext(context, 0);
-		LLVMTypeRef i8t = LLVMInt8TypeInContext(context);
 
 		// alloca the whole union struct, store the value, then GEP into it
 		LLVMValueRef unionAlloca = LLVMBuildAlloca(builder, unionStructType, "union_match");
 		LLVMBuildStore(builder, selectorVal, unionAlloca);
 
-		// GEP to field 1 (payload)
+		// GEP to field 1 (the opaque [N x i8] payload buffer)
 		LLVMValueRef payloadGep = LLVMBuildStructGEP2(builder, unionStructType, unionAlloca, 1, "payload_gep");
 
-		// Resolve binding types from the union's variant scope
-		org.nebula.nebc.semantic.SymbolTable memberScope = ut.getMemberScope();
-		for (int i = 0; i < dp.bindings.size(); i++)
+		// Resolve the variant's actual payload type from its constructor MethodSymbol.
+		Symbol variantSym = ut.getMemberScope().resolveLocal(dp.variantName);
+		if (variantSym instanceof MethodSymbol ms)
 		{
-			String bindingName = dp.bindings.get(i);
-			// The payload is at byte offset i * sizeof(T).
-			// For simplicity emit an i64 load and let the caller use it.
-			// A proper implementation would look up the variant field type from the AST.
-			// Here we use i64 as a safe default (covers pointer-sized and smaller types).
-			LLVMTypeRef bindType = LLVMInt64TypeInContext(context);
+			FunctionType ft = ms.getType();
+			if (!ft.parameterTypes.isEmpty() && dp.bindings.size() == 1)
+			{
+				// Single binding: the entire payload is one value (may be a struct,
+				// str, primitive, etc.).  Load the full payload type from the buffer.
+				Type payloadType = ft.parameterTypes.get(0);
+				LLVMTypeRef payloadLLVMType = toLLVMType(payloadType);
+				String bindingName = dp.bindings.get(0);
 
-			// Byte offset: i * 8 (assuming 8-byte fields)
-			LLVMValueRef[] gepIdx = {
-				LLVMConstInt(LLVMInt64TypeInContext(context), (long) i * 8, 0)
-			};
-			LLVMValueRef fieldPtr = LLVMBuildGEP2(builder, i8t, payloadGep,
-				new PointerPointer<>(gepIdx), 1, bindingName + "_field_ptr");
+				LLVMValueRef bindingAlloca = LLVMBuildAlloca(builder, payloadLLVMType, bindingName);
+				LLVMValueRef loaded = LLVMBuildLoad2(builder, payloadLLVMType, payloadGep, bindingName + "_raw");
+				LLVMBuildStore(builder, loaded, bindingAlloca);
+				bindings.put(bindingName, bindingAlloca);
 
-			LLVMValueRef bindingAlloca = LLVMBuildAlloca(builder, bindType, bindingName);
-			LLVMValueRef loaded = LLVMBuildLoad2(builder, bindType, fieldPtr, bindingName + "_raw");
-			LLVMBuildStore(builder, loaded, bindingAlloca);
-			bindings.put(bindingName, bindingAlloca);
+				// Struct payloads are value-types that live inline in the alloca;
+				// register them so visitIdentifierExpression returns the pointer
+				// directly (needed for GEP-based field access).
+				if (payloadType instanceof StructType)
+				{
+					inlineStructVars.add(bindingName);
+				}
+			}
+			else
+			{
+				// Multiple bindings: extract individual fields from the payload buffer
+				// using each parameter's resolved type.
+				LLVMTypeRef i8t = LLVMInt8TypeInContext(context);
+				for (int i = 0; i < dp.bindings.size(); i++)
+				{
+					String bindingName = dp.bindings.get(i);
+					Type fieldType = (i < ft.parameterTypes.size())
+						? ft.parameterTypes.get(i)
+						: null;
+					LLVMTypeRef bindType = (fieldType != null)
+						? toLLVMType(fieldType)
+						: LLVMInt64TypeInContext(context);
+
+					LLVMValueRef[] gepIdx = {
+						LLVMConstInt(LLVMInt64TypeInContext(context), (long) i * 8, 0)
+					};
+					LLVMValueRef fieldPtr = LLVMBuildGEP2(builder, i8t, payloadGep,
+						new PointerPointer<>(gepIdx), 1, bindingName + "_field_ptr");
+
+					LLVMValueRef bindingAlloca = LLVMBuildAlloca(builder, bindType, bindingName);
+					LLVMValueRef loaded = LLVMBuildLoad2(builder, bindType, fieldPtr, bindingName + "_raw");
+					LLVMBuildStore(builder, loaded, bindingAlloca);
+					bindings.put(bindingName, bindingAlloca);
+
+					if (fieldType instanceof StructType)
+					{
+						inlineStructVars.add(bindingName);
+					}
+				}
+			}
+		}
+		else
+		{
+			// No MethodSymbol found (shouldn't happen for payload variants);
+			// fall back to i64 loads for best-effort extraction.
+			LLVMTypeRef i8t = LLVMInt8TypeInContext(context);
+			for (int i = 0; i < dp.bindings.size(); i++)
+			{
+				String bindingName = dp.bindings.get(i);
+				LLVMTypeRef bindType = LLVMInt64TypeInContext(context);
+
+				LLVMValueRef[] gepIdx = {
+					LLVMConstInt(LLVMInt64TypeInContext(context), (long) i * 8, 0)
+				};
+				LLVMValueRef fieldPtr = LLVMBuildGEP2(builder, i8t, payloadGep,
+					new PointerPointer<>(gepIdx), 1, bindingName + "_field_ptr");
+
+				LLVMValueRef bindingAlloca = LLVMBuildAlloca(builder, bindType, bindingName);
+				LLVMValueRef loaded = LLVMBuildLoad2(builder, bindType, fieldPtr, bindingName + "_raw");
+				LLVMBuildStore(builder, loaded, bindingAlloca);
+				bindings.put(bindingName, bindingAlloca);
+			}
 		}
 
 		return bindings;

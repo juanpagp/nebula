@@ -3089,6 +3089,15 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	}
 
 	@Override
+	public Type visitFormattedInterpolationExpression(org.nebula.nebc.ast.expressions.FormattedInterpolationExpression node)
+	{
+		// Analyse the inner expression so its type is recorded.
+		node.expression.accept(this);
+		recordType(node, PrimitiveType.STR);
+		return PrimitiveType.STR;
+	}
+
+	@Override
 	public Type visitMatchArm(MatchArm node)
 	{
 		return null;

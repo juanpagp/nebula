@@ -247,6 +247,11 @@ public interface ASTVisitor<R>
     R visitStringInterpolationExpression(StringInterpolationExpression node);
 
     /**
+     * @grammar {expr:formatSpec} — an interpolation hole with a format specifier.
+     */
+    R visitFormattedInterpolationExpression(FormattedInterpolationExpression node);
+
+    /**
      * @grammar none — absence literal for optional types.
      */
     R visitNoneExpression(org.nebula.nebc.ast.expressions.NoneExpression node);

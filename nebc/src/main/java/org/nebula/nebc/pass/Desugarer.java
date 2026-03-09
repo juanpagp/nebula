@@ -482,6 +482,13 @@ public class Desugarer implements ASTVisitor<ASTNode>
 		return node;
 	}
 
+	@Override
+	public ASTNode visitFormattedInterpolationExpression(FormattedInterpolationExpression node)
+	{
+		Expression desugared = (Expression) node.expression.accept(this);
+		return new FormattedInterpolationExpression(node.getSpan(), desugared, node.formatSpec);
+	}
+
 	// ------------------
 	// ---- Patterns ----
 	// ------------------

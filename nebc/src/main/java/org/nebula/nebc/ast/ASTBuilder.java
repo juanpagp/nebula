@@ -1249,12 +1249,25 @@ public class ASTBuilder extends NebulaParserBaseVisitor<ASTNode>
 		{
 			if (partCtx.interpolated_string_expression() != null)
 			{
-				// {expression} — emit the first expression
+				// {expression} or {expression:formatSpec}
 				NebulaParser.Interpolated_string_expressionContext exprCtx =
 					partCtx.interpolated_string_expression();
 				Expression e = (Expression) visit(exprCtx.expression(0));
 				if (e != null)
-					parts.add(e);
+				{
+					// Check for a format specifier after the colon, e.g. {i:000}
+					if (!exprCtx.FORMAT_STRING().isEmpty())
+					{
+						StringBuilder fmtSpec = new StringBuilder();
+						for (var tok : exprCtx.FORMAT_STRING())
+							fmtSpec.append(tok.getText());
+						parts.add(new FormattedInterpolationExpression(span, e, fmtSpec.toString()));
+					}
+					else
+					{
+						parts.add(e);
+					}
+				}
 			}
 			else if (partCtx.REGULAR_STRING_INSIDE() != null)
 			{

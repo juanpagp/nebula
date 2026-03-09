@@ -2148,17 +2148,17 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 				yield LLVMConstInt(llvmType, codePoint, 0);
 			}
 			case STRING -> {
-				// str → { i8*, i64 }
+				// str → { ptr, i64 }
 				String text = node.value.toString();
-				LLVMValueRef globalPtr = LLVMBuildGlobalStringPtr(builder, text, ".str");
+				LLVMValueRef globalPtr = emitGlobalStringPtr(text, "str");
 				int utf8Len = text.getBytes(StandardCharsets.UTF_8).length;
 				LLVMValueRef length = LLVMConstInt(LLVMInt64TypeInContext(context), utf8Len, 0);
 
-				LLVMValueRef structVal = LLVMGetUndef(llvmType);
-				structVal = LLVMBuildInsertValue(builder, structVal, globalPtr, 0, "str_ptr");
-				structVal = LLVMBuildInsertValue(builder, structVal, length, 1, "str_len");
-
-				yield structVal;
+				// Build a named-struct constant for NebulaStr — works both at
+				// global-constant time (before any function body) and inside functions.
+				LLVMTypeRef strNamedT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+				LLVMValueRef[] fields = { globalPtr, length };
+				yield LLVMConstNamedStruct(strNamedT, new PointerPointer<>(fields), 2);
 			}
 
 		};
@@ -4028,6 +4028,19 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	}
 
 	/**
+	 * A {@link FormattedInterpolationExpression} appearing outside of a string
+	 * interpolation context (e.g. as a standalone expression) falls through to the
+	 * standard interpolation path by immediately converting the inner expression.
+	 * In practice these nodes only occur as parts of a
+	 * {@link StringInterpolationExpression}, so this delegate is a safety net.
+	 */
+	@Override
+	public LLVMValueRef visitFormattedInterpolationExpression(FormattedInterpolationExpression node)
+	{
+		return emitInterpolationPartAsStr(node);
+	}
+
+	/**
 	 * Converts a single string-interpolation part expression to a {@code NebulaStr}
 	 * ({@code { ptr, i64 }}) LLVM value.
 	 *
@@ -4036,6 +4049,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	 *   <li>{@code str} expressions → used directly.</li>
 	 *   <li>Integer / float / bool types → forwarded to the appropriate
 	 *       {@code __nebula_rt_*_to_str} runtime helper.</li>
+	 *   <li>{@link FormattedInterpolationExpression} → forwarded to
+	 *       {@code __nebula_rt_i64_to_str_fmt}.</li>
 	 * </ul>
 	 */
 	private LLVMValueRef emitInterpolationPartAsStr(Expression part)
@@ -4044,12 +4059,18 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
 		LLVMTypeRef strT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
 
+		// ── Formatted expression: {expr:formatSpec} ──────────────────────────────────
+		if (part instanceof FormattedInterpolationExpression fmtExpr)
+		{
+			return emitFormattedInterpolationPart(fmtExpr);
+		}
+
 		// ── Literal string fragments ─────────────────────────────────────────────────
 		if (part instanceof LiteralExpression le && le.type == LiteralExpression.LiteralType.STRING)
 		{
-			String text           = le.value.toString();
-			int utf8Len           = text.getBytes(StandardCharsets.UTF_8).length;
-			LLVMValueRef gstr     = LLVMBuildGlobalStringPtr(builder, text, "istr_lit");
+			String text    = le.value.toString();
+			int utf8Len    = text.getBytes(StandardCharsets.UTF_8).length;
+			LLVMValueRef gstr = emitGlobalStringPtr(text, "istr");
 			LLVMValueRef strAlloca = LLVMBuildAlloca(builder, strT, "istr_val");
 			LLVMBuildStore(builder, gstr,
 				LLVMBuildStructGEP2(builder, strT, strAlloca, 0, "istr_ptr"));
@@ -4146,7 +4167,99 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		}
 	}
 
+	/**
+	 * Emits code for a {@link FormattedInterpolationExpression} by dispatching to
+	 * the appropriate {@code __nebula_rt_*_to_str_fmt} runtime helper.
+	 *
+	 * <p>Currently supported: all integer types → {@code __nebula_rt_i64_to_str_fmt}.
+	 * Float/str/bool fall back to their unformatted helpers (format spec ignored).
+	 */
+	private LLVMValueRef emitFormattedInterpolationPart(FormattedInterpolationExpression node)
+	{
+		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
+		LLVMTypeRef strT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
+
+		LLVMValueRef argVal = node.expression.accept(this);
+		if (argVal == null)
+			return null;
+
+		Type partType = analyzer.getType(node.expression);
+		if (partType == null)
+			return null;
+
+		// Build a NebulaStr for the format specifier string
+		LLVMValueRef fmtStr = emitStringLiteralValue(node.formatSpec);
+
+		// Integers (signed or unsigned) → __nebula_rt_i64_to_str_fmt(i64, NebulaStr)
+		if (partType == PrimitiveType.I8  || partType == PrimitiveType.I16
+			|| partType == PrimitiveType.I32 || partType == PrimitiveType.I64
+			|| partType == PrimitiveType.U8  || partType == PrimitiveType.U16
+			|| partType == PrimitiveType.U32 || partType == PrimitiveType.U64)
+		{
+			LLVMTypeRef fnType = LLVMFunctionType(strT,
+				new PointerPointer<>(new LLVMTypeRef[]{ i64t, strT }), 2, 0);
+			LLVMValueRef fn    = getOrDeclareIntrinsic("__nebula_rt_i64_to_str_fmt", fnType);
+			LLVMValueRef asI64 = emitCast(argVal, partType, PrimitiveType.I64);
+			LLVMValueRef[] args = { asI64, fmtStr };
+			return LLVMBuildCall2(builder, fnType, fn,
+				new PointerPointer<>(args), 2, "fmt_i64_str");
+		}
+
+		// All other types: fall back to unformatted conversion
+		return emitInterpolationPartAsStr(node.expression);
+	}
+
 	// ── Structural toStr helpers ─────────────────────────────────────────────────
+
+	/**
+	 * Returns a constant {@code i8*} (opaque {@code ptr}) that points to the
+	 * first byte of a null-terminated LLVM global string for {@code text}.
+	 *
+	 * <p>Unlike {@link org.bytedeco.llvm.global.LLVM#LLVMBuildGlobalStringPtr
+	 * LLVMBuildGlobalStringPtr}, this method works regardless of whether the
+	 * IR builder currently has an active insertion point, making it safe to
+	 * call while emitting global constants (before any function body exists).
+	 *
+	 * <p>Equivalent globals are de-duplicated by name so that each unique
+	 * {@code text} only produces one {@code @.str.N} in the IR.
+	 */
+	private LLVMValueRef emitGlobalStringPtr(String text, String hint)
+	{
+		byte[] utf8 = text.getBytes(StandardCharsets.UTF_8);
+		// Build a null-terminated byte array: [len+1 x i8] = <utf8 bytes..., 0x00>
+		LLVMTypeRef i8t    = LLVMInt8TypeInContext(context);
+		LLVMTypeRef arrT   = LLVMArrayType(i8t, utf8.length + 1);
+		byte[] nullTerminated = new byte[utf8.length + 1];
+		System.arraycopy(utf8, 0, nullTerminated, 0, utf8.length);
+		nullTerminated[utf8.length] = 0;
+
+		// Build an LLVM constant array from the bytes
+		LLVMValueRef[] byteConsts = new LLVMValueRef[nullTerminated.length];
+		for (int i = 0; i < nullTerminated.length; i++)
+		{
+			byteConsts[i] = LLVMConstInt(i8t, nullTerminated[i] & 0xFF, 0);
+		}
+		LLVMValueRef constArr = LLVMConstArray(i8t,
+			new PointerPointer<>(byteConsts), byteConsts.length);
+
+		// Use the hint as a unique-ish global name (duplicates are handled by LLVM)
+		String globalName = ".str." + hint + "." + Integer.toHexString(text.hashCode());
+		LLVMValueRef existing = LLVMGetNamedGlobal(module, globalName);
+		if (existing == null || existing.isNull())
+		{
+			existing = LLVMAddGlobal(module, arrT, globalName);
+			LLVMSetInitializer(existing, constArr);
+			LLVMSetGlobalConstant(existing, 1);
+			LLVMSetLinkage(existing, LLVMPrivateLinkage);
+			LLVMSetUnnamedAddress(existing, LLVMGlobalUnnamedAddr);
+		}
+
+		// GEP [N x i8]* → i8* (ptr to first element) — this is a constant expression
+		LLVMTypeRef i64t   = LLVMInt64TypeInContext(context);
+		LLVMValueRef zero  = LLVMConstInt(i64t, 0, 0);
+		LLVMValueRef[] idx = { zero, zero };
+		return LLVMConstGEP2(arrT, existing, new PointerPointer<>(idx), 2);
+	}
 
 	/**
 	 * Emits a constant {@code NebulaStr} ({@code { ptr, i64 }}) for a compile-time
@@ -4157,7 +4270,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		LLVMTypeRef i64t = LLVMInt64TypeInContext(context);
 		LLVMTypeRef strT = LLVMTypeMapper.getOrCreateStructType(context, PrimitiveType.STR);
 		int utf8Len = text.getBytes(StandardCharsets.UTF_8).length;
-		LLVMValueRef gstr     = LLVMBuildGlobalStringPtr(builder, new BytePointer(text), new BytePointer("lit"));
+		LLVMValueRef gstr     = emitGlobalStringPtr(text, "lit");
 		LLVMValueRef strAlloca = LLVMBuildAlloca(builder, strT, new BytePointer("lit_str"));
 		LLVMBuildStore(builder, gstr,
 			LLVMBuildStructGEP2(builder, strT, strAlloca, 0, new BytePointer("lit_ptr")));
@@ -5153,7 +5266,7 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		}
 
 		// Build a str constant for the message
-		LLVMValueRef msgPtr = LLVMBuildGlobalStringPtr(builder, message, "panic_lit");
+		LLVMValueRef msgPtr = emitGlobalStringPtr(message, "panic");
 		LLVMValueRef msgLen = LLVMConstInt(i64t, message.length(), 0);
 
 		LLVMValueRef msgAlloca = LLVMBuildAlloca(builder, strStructType, "panic_str");

@@ -93,6 +93,93 @@ NebulaStr __nebula_rt_i64_to_str(int64_t v) {
     return (NebulaStr){ buf, i };
 }
 
+/**
+ * Format an i64 value using a printf-like format specifier string.
+ * Supported formats:
+ *   "000"   → zero-pad to width (width = number of zeros)
+ *   "###"   → right-align with spaces to width (width = number of #)
+ *   plain number string → treat as minimum width with space padding
+ *
+ * The format spec is passed as a NebulaStr.
+ */
+NebulaStr __nebula_rt_i64_to_str_fmt(int64_t v, NebulaStr fmt) {
+    // Convert the integer to a plain decimal string first.
+    char digits[32];
+    int dlen = 0;
+    int is_neg = 0;
+
+    if (v == 0) {
+        digits[dlen++] = '0';
+    } else {
+        int64_t tmp_v = v;
+        if (tmp_v < 0) {
+            is_neg = 1;
+            tmp_v = -tmp_v;
+        }
+        while (tmp_v != 0) {
+            digits[dlen++] = (tmp_v % 10) + '0';
+            tmp_v /= 10;
+        }
+        if (is_neg) digits[dlen++] = '-';
+        reverse_str(digits, dlen);
+    }
+    digits[dlen] = '\0';
+
+    // Parse the format spec to determine pad character and width.
+    char pad_char = ' ';
+    int width = 0;
+
+    if (fmt.len > 0) {
+        // If every character is '0', use zero-padding; width = number of '0's.
+        // If characters are '#', use space-padding; width = number of '#'s.
+        // Otherwise try to parse as a plain integer width.
+        int all_zeros = 1;
+        int all_hashes = 1;
+        for (int64_t i = 0; i < fmt.len; i++) {
+            if (fmt.ptr[i] != '0') all_zeros = 0;
+            if (fmt.ptr[i] != '#') all_hashes = 0;
+        }
+        if (all_zeros) {
+            pad_char = '0';
+            width = (int)fmt.len;
+        } else if (all_hashes) {
+            pad_char = ' ';
+            width = (int)fmt.len;
+        } else {
+            // Parse as integer width
+            for (int64_t i = 0; i < fmt.len; i++) {
+                uint8_t c = fmt.ptr[i];
+                if (c >= '0' && c <= '9')
+                    width = width * 10 + (c - '0');
+            }
+        }
+    }
+
+    // Compute the total output length.
+    int out_len = dlen;
+    if (width > dlen) out_len = width;
+
+    uint8_t* buf = (uint8_t*)neb_alloc((uint64_t)(out_len + 1));
+    if (!buf) return (NebulaStr){ (const uint8_t*)"", 0 };
+
+    int pad = out_len - dlen;
+    int offset = 0;
+
+    if (pad_char == '0' && is_neg) {
+        // "-000123": sign first, then zeros, then digits (minus already in digits)
+        // digits[0] is '-', rest are the number
+        buf[offset++] = '-';
+        for (int p = 0; p < pad; p++) buf[offset++] = '0';
+        // skip the '-' in digits (already written)
+        for (int d = 1; d < dlen; d++) buf[offset++] = (uint8_t)digits[d];
+    } else {
+        for (int p = 0; p < pad; p++) buf[offset++] = (uint8_t)pad_char;
+        for (int d = 0; d < dlen; d++) buf[offset++] = (uint8_t)digits[d];
+    }
+    buf[out_len] = '\0';
+    return (NebulaStr){ buf, out_len };
+}
+
 NebulaStr __nebula_rt_u64_to_str(uint64_t v) {
     char tmp[32];
     int i = 0;

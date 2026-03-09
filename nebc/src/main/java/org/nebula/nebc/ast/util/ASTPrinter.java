@@ -403,6 +403,12 @@ public class ASTPrinter implements ASTVisitor<String>
 		return line("StringInterpolation") + visitNodes("Parts", node.parts);
 	}
 
+	@Override
+	public String visitFormattedInterpolationExpression(FormattedInterpolationExpression node)
+	{
+		return line("FormattedInterpolation(\"" + node.formatSpec + "\")") + visitNode("Expr", node.expression);
+	}
+
 	// =========================================================================
 	// Patterns & Tags & Types
 	// =========================================================================

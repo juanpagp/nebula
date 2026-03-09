@@ -1,0 +1,171 @@
+namespace std::fn;
+
+// =============================================================================
+// std::fn — CVT-safe callable references
+// =============================================================================
+//
+// This module provides FnRef, the standard way to hold and invoke a reference
+// to any compiled function symbol in Nebula.
+//
+// CVT contract
+// ────────────
+// Compiled functions live permanently in the binary's .text section.  Under
+// Causal Validity Tracking they occupy the "Global" state — they are never
+// allocated on the heap and never freed.  A FnRef therefore has no CVT
+// lifecycle: the compiler does not inject any free() call for it, and it may
+// be freely copied, stored in structs, or passed across function boundaries
+// without any ownership transfer.
+//
+// FnRef is a struct (value type).  Copying it copies only the raw code
+// address — no heap allocation occurs.
+//
+// Typed dispatch
+// ──────────────
+// Because Nebula does not yet have first-class function types, dispatch is
+// provided as explicitly-named methods covering the common return-type /
+// arity combinations.  The caller is responsible for choosing the variant
+// that matches the actual signature of the wrapped function:
+//
+//   FnRef fn = std::reflect::entry_fn(i);
+//   if (fn.isValid())
+//   {
+//       fn.call();              // void()
+//       i64  n = fn.callI64();  // i64()
+//       bool b = fn.callBool(); // bool()
+//       str  s = fn.callStr();  // str()
+//       f64  d = fn.callF64();  // f64()
+//
+//       fn.callWithI64(42);     // void(i64)
+//       fn.callWithStr("hi");   // void(str)
+//   }
+//
+// Generic usage via the Callable trait
+// ──────────────────────────────────────
+// FnRef implements the Callable trait.  Functions that accept any zero-
+// argument void callable can be written as:
+//
+//   void runAll<T: Callable>(T[] items)
+//   {
+//       for (var i = 0; i < items.length; i++)
+//           items[i].call();
+//   }
+//
+// Obtaining a FnRef
+// ─────────────────
+//   // From the attribute registry (recommended):
+//   FnRef fn = std::reflect::entry_fn(i);
+//
+//   // From a raw Ref (advanced / FFI interop):
+//   FnRef fn = FnRef(some_raw_ref);
+
+// =============================================================================
+// Runtime dispatch shims (implemented in std/runtime/core/fn.c)
+// =============================================================================
+
+private extern "C"
+{
+    // Null-safety predicate — returns 1 when raw is non-null.
+    i32  __nebula_rt_fn_is_valid(keeps Ref raw);
+
+    // void return — zero arguments
+    void __nebula_rt_fn_call_void(keeps Ref raw);
+
+    // void return — one argument
+    void __nebula_rt_fn_call_void_i64(keeps Ref raw, i64 a);
+    void __nebula_rt_fn_call_void_bool(keeps Ref raw, bool a);
+    void __nebula_rt_fn_call_void_str(keeps Ref raw, keeps str a);
+    void __nebula_rt_fn_call_void_f64(keeps Ref raw, f64 a);
+
+    // value return — zero arguments
+    i64  __nebula_rt_fn_call_i64(keeps Ref raw);
+    i32  __nebula_rt_fn_call_bool(keeps Ref raw);
+    str  __nebula_rt_fn_call_str(keeps Ref raw);
+    f64  __nebula_rt_fn_call_f64(keeps Ref raw);
+}
+
+// =============================================================================
+// Callable — the minimal interface for a zero-argument void invocable
+// =============================================================================
+
+// Any type that implements Callable can be passed to generic utilities that
+// invoke callbacks without caring about return value or arguments.
+trait Callable
+{
+    // Invoke the target function with no arguments, discarding any return value.
+    void call();
+}
+
+// =============================================================================
+// FnRef — the standard Nebula function reference
+// =============================================================================
+
+struct FnRef
+{
+    Ref raw;
+
+    // Construct from an explicit raw pointer.  Prefer std::reflect::entry_fn()
+    // for registry-derived references.
+    FnRef(Ref ptr)
+    {
+        this.raw = ptr;
+    }
+
+    // -------------------------------------------------------------------------
+    // Validity
+    // -------------------------------------------------------------------------
+
+    // Returns true when this FnRef wraps a non-null function pointer.
+    // Always check isValid() on registry-derived FnRefs, as entries for non-
+    // method symbols (classes, traits, …) carry a null pointer.
+    bool isValid() => __nebula_rt_fn_is_valid(this.raw) != 0
+
+    // -------------------------------------------------------------------------
+    // Void return — zero arguments
+    // -------------------------------------------------------------------------
+
+    // Invoke the wrapped function as void().
+    // Use this for test callbacks, event handlers, and task entry points.
+
+    // -------------------------------------------------------------------------
+    // Void return — one argument
+    // -------------------------------------------------------------------------
+
+    // Invoke as void(i64).
+    void callWithI64(i64 a)   => __nebula_rt_fn_call_void_i64(this.raw, a)
+
+    // Invoke as void(bool).
+    void callWithBool(bool a) => __nebula_rt_fn_call_void_bool(this.raw, a)
+
+    // Invoke as void(str).
+    void callWithStr(str a)   => __nebula_rt_fn_call_void_str(this.raw, a)
+
+    // Invoke as void(f64).
+    void callWithF64(f64 a)   => __nebula_rt_fn_call_void_f64(this.raw, a)
+
+    // -------------------------------------------------------------------------
+    // Value return — zero arguments
+    // -------------------------------------------------------------------------
+
+    // Invoke as i64().
+    i64  callI64()  => __nebula_rt_fn_call_i64(this.raw)
+
+    // Invoke as bool().
+    bool callBool() => __nebula_rt_fn_call_bool(this.raw) != 0
+
+    // Invoke as str().
+    str  callStr()  => __nebula_rt_fn_call_str(this.raw)
+
+    // Invoke as f64().
+    f64  callF64()  => __nebula_rt_fn_call_f64(this.raw)
+}
+
+// =============================================================================
+// Callable implementation for FnRef
+// =============================================================================
+
+// Registers FnRef as a Callable so it can be used anywhere the Callable trait
+// is required (e.g. generic runner utilities: void runAll<T: Callable>(T[])).
+impl Callable for FnRef
+{
+    void call() => __nebula_rt_fn_call_void(this.raw)
+}

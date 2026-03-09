@@ -272,6 +272,22 @@ public class SymbolTable
 	}
 
 	/**
+	 * Registers {@code symbol} under {@code localName} as a transparent alias:
+	 * the symbol is findable by the new name in this scope but its
+	 * {@link Symbol#setDefinedIn} is <em>not</em> updated, so
+	 * {@link Symbol#getMangledName()} continues to return the original
+	 * fully-qualified mangled name.
+	 *
+	 * <p>Used by the prelude export so that {@code println} in the global scope
+	 * still mangles as {@code std__io__println} rather than as bare
+	 * {@code println}.</p>
+	 */
+	public void alias(String localName, Symbol symbol)
+	{
+		symbols.putIfAbsent(localName, symbol);
+	}
+
+	/**
 	 * Imports all symbols from {@code scope} into this scope (glob import).
 	 * Existing local symbols take precedence and are never overwritten.
 	 * Used to implement {@code use Enum::*}.

@@ -365,6 +365,20 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 	 */
 	public LLVMModuleRef generate(List<CompilationUnit> units, SemanticAnalyzer analyzer)
 	{
+		return generate(units, analyzer, /* isLibraryBuild= */ false);
+	}
+
+	/**
+	 * Generates LLVM IR for all compilation units in {@code units}.
+	 *
+	 * @param isLibraryBuild When {@code true} the attribute registry is <em>not</em>
+	 *                       emitted, because libraries must not provide definitions
+	 *                       for the {@code __nebula_rt_attr_*} accessor functions —
+	 *                       those are always provided by the final executable.
+	 */
+	public LLVMModuleRef generate(List<CompilationUnit> units, SemanticAnalyzer analyzer,
+	                              boolean isLibraryBuild)
+	{
 		this.analyzer = analyzer;
 		LLVMTypeMapper.clearCache();
 
@@ -384,10 +398,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			cu.accept(this);
 		}
 
-		// 4. Verify the module (removed from here to allow IR dump in Compiler.java even if invalid)
-		// verifyModule();
-
-		// verifyModule();
+		// 3. Emit the compile-time attribute registry unless this is a library build.
+		//    (Library builds must not define __nebula_rt_attr_* — the executable does.)
+		if (!isLibraryBuild)
+		{
+			new AttributeRegistryEmitter(context, module, builder).emit(analyzer);
+		}
 
 		return module;
 	}
@@ -2834,8 +2850,12 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		Symbol sym = analyzer.getSymbol(node, Symbol.class);
 		if (sym instanceof TypeSymbol ts && ts.getType() instanceof CompositeType ct)
 		{
-			// Find the constructor method in the composite type's member scope
-			Symbol ctorSym = ct.getMemberScope().resolveLocal(node.name);
+			// For qualified names like "std::fn::FnRef", strip the namespace prefix —
+			// the constructor is stored in the member scope under the simple type name.
+			String simpleName = node.name.contains("::")
+					? node.name.substring(node.name.lastIndexOf("::") + 2)
+					: node.name;
+			Symbol ctorSym = ct.getMemberScope().resolveLocal(simpleName);
 			if (ctorSym instanceof MethodSymbol ctorMs)
 			{
 				String mangledName = ctorMs.getMangledName();

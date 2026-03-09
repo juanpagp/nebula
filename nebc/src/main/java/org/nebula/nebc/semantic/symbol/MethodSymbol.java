@@ -28,6 +28,14 @@ public final class MethodSymbol extends Symbol
 	/** LLVM bitcode for the type-erased version of this generic method (null for non-generics). */
 	private byte[] genericBitcode = null;
 	/**
+	 * When non-null, {@link Symbol#getMangledName()} returns this value verbatim
+	 * instead of computing the name from the {@code definedIn} chain.  Set by
+	 * {@link org.nebula.nebc.semantic.SymbolImporter} for symbols whose
+	 * enclosing namespace context cannot be reconstructed from the
+	 * {@code .nebsym} file alone (e.g. primitive trait impl methods).
+	 */
+	private String overriddenMangledName = null;
+	/**
 	 * True when this symbol was synthesised by the compiler for a structural
 	 * type (tuple / array) that implements a trait by structural recursion rather
 	 * than via an explicit {@code impl} declaration in Nebula source code.
@@ -60,6 +68,16 @@ public final class MethodSymbol extends Symbol
 	public void setGenericBitcode(byte[] bitcode)
 	{
 		this.genericBitcode = bitcode;
+	}
+
+	public String getOverriddenMangledName()
+	{
+		return overriddenMangledName;
+	}
+
+	public void setOverriddenMangledName(String name)
+	{
+		this.overriddenMangledName = name;
 	}
 
 	public boolean isSyntheticStructural()

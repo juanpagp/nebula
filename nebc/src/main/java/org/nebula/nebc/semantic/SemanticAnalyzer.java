@@ -49,6 +49,15 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	/** Synthetic member scopes for primitive type trait implementations. */
 	private final Map<Type, SymbolTable> primitiveImplScopes = new HashMap<>();
 
+	/**
+	 * Tracks (type::trait) pairs that have been *fully* resolved by
+	 * {@link #visitImplDeclarationForType}.  Used by the overlap check in
+	 * {@link #visitImplDeclarationForTag} so that pre-registered stubs from
+	 * {@link #preRegisterImplSignaturesForType} are not mistaken for a real
+	 * prior impl and do not trigger false-positive overlap errors.
+	 */
+	private final java.util.Set<String> resolvedImplPairs = new java.util.HashSet<>();
+
 	public SemanticAnalyzer(CompilerConfig config)
 	{
 		this.config = config;
@@ -554,6 +563,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				nsSym = new NamespaceSymbol(part, nsType, node);
 				table.define(nsSym);
 			}
+			// Ensure the member table's owner is set so that getMangledName() can
+			// walk the definedIn chain and produce fully-qualified mangled names
+			// (e.g. std__reflect__total instead of just total).
+			nsSym.getMemberTable().setOwner(nsSym);
 			table = nsSym.getMemberTable();
 		}
 		return table;
@@ -1815,7 +1828,13 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			// MethodSymbol and perform type inference to monomorphize the return type.
 			if (node.target instanceof IdentifierExpression ie)
 			{
-				Symbol ctorSym = compositeTarget.getMemberScope().resolveLocal(ie.name);
+				// Qualified constructor call: std::fn::FnRef(x) has ie.name = "std::fn::FnRef".
+				// The constructor is stored in the member scope under the simple type name only
+				// (e.g. "FnRef"), so strip any namespace prefix before the lookup.
+				String ctorKey = ie.name.contains("::")
+						? ie.name.substring(ie.name.lastIndexOf("::") + 2)
+						: ie.name;
+				Symbol ctorSym = compositeTarget.getMemberScope().resolveLocal(ctorKey);
 				if (ctorSym instanceof MethodSymbol ctorMethod)
 				{
 					FunctionType ctorFnType = ctorMethod.getType();
@@ -3252,9 +3271,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				// itself receive a concrete impl.
 				continue;
 
-			// Overlap check: does this concrete member already satisfy the trait?
-			SymbolTable existing = resolveImplScopeForType(member);
-			if (existing != null && traitType.findMissingMethod(existing) == null)
+			// Overlap check: only fire when a *different* impl block has already
+			// fully resolved (member, trait).  Pre-registered stubs from
+			// preRegisterImplSignaturesForType do NOT count — resolvedImplPairs is
+			// only populated by visitImplDeclarationForType after full resolution.
+			String implKey = member.name() + "::" + traitType.name();
+			if (resolvedImplPairs.contains(implKey))
 			{
 				error(DiagnosticCode.TAG_IMPL_OVERLAP, node, traitType.name(), member.name());
 				continue;
@@ -3427,6 +3449,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			if (missing != null)
 			{
 				error(DiagnosticCode.TYPE_MISMATCH, node, traitType.name(), targetType.name() + " (missing required method '" + missing + "')");
+			}
+			else
+			{
+				// Mark this (type, trait) pair as fully resolved so that the overlap
+				// check in visitImplDeclarationForTag can detect genuine duplicates.
+				resolvedImplPairs.add(targetType.name() + "::" + traitType.name());
 			}
 		}
 		finally
@@ -3824,9 +3852,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	 * from the AST into the simplified {@link Symbol.AttributeInfo} representation
 	 * stored on symbols.
 	 *
-	 * <p>Argument expressions are serialised to their AST-printer text so that
-	 * consumers of the {@code std::attributes} API can inspect them without
-	 * needing access to the original parse tree.</p>
+	 * <p>For simple literal arguments the raw value is extracted (e.g. a string
+	 * literal {@code "foo"} becomes {@code "foo"}, not the ASTPrinter debug text).
+	 * Complex expression arguments fall back to the ASTPrinter serialisation so
+	 * that no information is lost.</p>
 	 */
 	private List<Symbol.AttributeInfo> collectAttributeInfos(
 		List<org.nebula.nebc.ast.declarations.AttributeNode> nodes)
@@ -3840,10 +3869,24 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			List<String> argTexts = new ArrayList<>();
 			for (var arg : attr.args)
 			{
-				argTexts.add(org.nebula.nebc.ast.util.ASTPrinter.print(arg).trim());
+				argTexts.add(extractArgText(arg));
 			}
 			result.add(new Symbol.AttributeInfo(attr.path, argTexts));
 		}
 		return result;
+	}
+
+	/**
+	 * Extracts a clean string representation of an attribute argument expression.
+	 * Simple literals are returned as their raw value; complex expressions fall
+	 * back to the ASTPrinter serialisation.
+	 */
+	private String extractArgText(org.nebula.nebc.ast.ASTNode arg)
+	{
+		if (arg instanceof org.nebula.nebc.ast.expressions.LiteralExpression le)
+		{
+			return le.value.toString();
+		}
+		return org.nebula.nebc.ast.util.ASTPrinter.print(arg).trim();
 	}
 }

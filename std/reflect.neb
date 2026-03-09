@@ -1,0 +1,105 @@
+namespace std::reflect;
+
+use std::fn;
+
+// =============================================================================
+// Compile-time attribute reflection API
+// =============================================================================
+//
+// The Nebula compiler emits a constant attribute registry into every executable
+// binary.  Each entry in the registry represents one (symbol, attribute) pair:
+// a symbol with three attributes produces three entries.
+//
+// Usage example — a minimal test runner:
+//
+//   i32 main()
+//   {
+//       i64 n = std::reflect::total();
+//       for (var i = 0; i < n; i++)
+//       {
+//           if (std::reflect::entry_attr_path(i).equals("test"))
+//           {
+//               std::io::println(std::reflect::entry_symbol_name(i));
+//               std::fn::FnRef fn = std::reflect::entry_fn(i);
+//               if (fn.isValid()) fn.call();
+//           }
+//       }
+//       0
+//   }
+
+// =============================================================================
+// Symbol kind constants
+// =============================================================================
+// These match the compiler's SymbolKind encoding stored in each registry entry.
+
+const i32 SYMBOL_KIND_METHOD = 0;
+const i32 SYMBOL_KIND_CLASS  = 1;
+const i32 SYMBOL_KIND_STRUCT = 2;
+const i32 SYMBOL_KIND_ENUM   = 3;
+const i32 SYMBOL_KIND_TRAIT  = 4;
+const i32 SYMBOL_KIND_UNION  = 5;
+const i32 SYMBOL_KIND_CONST  = 6;
+
+// =============================================================================
+// Low-level FFI — provided by the compiler for every executable
+// =============================================================================
+
+private extern "C"
+{
+    // Total number of (symbol, attribute) entries in the registry.
+    i64 __nebula_rt_attr_entry_count();
+
+    // Qualified symbol name for the entry at idx, e.g. "mylib::run_test".
+    str __nebula_rt_attr_symbol_name(i64 idx);
+
+    // Symbol kind for the entry at idx (one of the SYMBOL_KIND_* constants).
+    i32 __nebula_rt_attr_symbol_kind(i64 idx);
+
+    // Attribute path for the entry at idx, e.g. "test" or "std::deprecated".
+    str __nebula_rt_attr_path(i64 idx);
+
+    // Number of arguments supplied to the attribute at idx.
+    i32 __nebula_rt_attr_args_count(i64 idx);
+
+    // The arg_i-th argument string for the entry at idx.
+    str __nebula_rt_attr_arg(i64 idx, i32 arg_i);
+
+    // Raw function pointer for method entries compiled into this binary.
+    // Returns null for non-method symbols or methods from imported libraries.
+    Ref __nebula_rt_attr_fn_ptr(i64 idx);
+}
+
+// =============================================================================
+// Public API
+// =============================================================================
+
+// Returns the total number of attribute registry entries in this binary.
+i64 total() => __nebula_rt_attr_entry_count()
+
+// Returns the qualified symbol name for entry idx.
+str entry_symbol_name(i64 idx) => __nebula_rt_attr_symbol_name(idx)
+
+// Returns the symbol kind (one of the SYMBOL_KIND_* constants) for entry idx.
+i32 entry_symbol_kind(i64 idx) => __nebula_rt_attr_symbol_kind(idx)
+
+// Returns the attribute path for entry idx, e.g. "test".
+str entry_attr_path(i64 idx) => __nebula_rt_attr_path(idx)
+
+// Returns the number of attribute arguments for entry idx.
+i32 entry_args_count(i64 idx) => __nebula_rt_attr_args_count(idx)
+
+// Returns the arg_i-th argument string for entry idx.
+str entry_attr_arg(i64 idx, i32 arg_i) => __nebula_rt_attr_arg(idx, arg_i)
+
+// Returns a raw function pointer for method entries, or null for other kinds.
+// Prefer entry_fn() for safe typed dispatch via std::fn::FnRef.
+Ref entry_fn_ptr(i64 idx) => __nebula_rt_attr_fn_ptr(idx)
+
+// Returns a typed FnRef for method entries compiled into this binary.
+// For non-method symbols the returned FnRef.isValid() == false.
+// This is the preferred accessor — it integrates directly with std::fn::Callable:
+//
+//   std::fn::FnRef fn = std::reflect::entry_fn(i);
+//   if (fn.isValid()) fn.call();
+//
+std::fn::FnRef entry_fn(i64 idx) => std::fn::FnRef(__nebula_rt_attr_fn_ptr(idx))

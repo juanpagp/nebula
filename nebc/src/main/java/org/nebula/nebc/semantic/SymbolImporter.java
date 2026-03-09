@@ -123,6 +123,9 @@ public class SymbolImporter
                         nsSym = new NamespaceSymbol(nsName, nsType, null);
                         table.define(nsSym);
                     }
+                    // Ensure the owner is set so getMangledName() traverses the
+                    // full namespace chain (e.g. std__reflect__total).
+                    nsSym.getMemberTable().setOwner(nsSym);
                     importTypeSymbols(obj.getAsJsonArray("symbols"),
                             nsSym.getMemberTable(), globalScope);
                     break;
@@ -174,6 +177,9 @@ public class SymbolImporter
                     NamespaceSymbol nsSym  = (NamespaceSymbol) table.resolveLocal(nsName);
                     if (nsSym != null)
                     {
+                        // Ensure the owner is set so getMangledName() traverses the
+                        // full namespace chain (e.g. std__reflect__total).
+                        nsSym.getMemberTable().setOwner(nsSym);
                         importMethodSymbols(obj.getAsJsonArray("symbols"),
                                 nsSym.getMemberTable(), globalScope);
                     }
@@ -246,7 +252,7 @@ public class SymbolImporter
             }
         }
 
-        Type returnType = resolveType(obj.get("return_type").getAsString(), resolveTable);
+        Type returnType = resolveType(obj.get("return_type").getAsString(), resolveTable, globalScope);
 
         java.util.List<Type>          paramTypes = new ArrayList<>();
         java.util.List<ParameterInfo> paramInfos = new ArrayList<>();
@@ -254,7 +260,7 @@ public class SymbolImporter
         for (JsonElement pEl : params)
         {
             JsonObject pObj  = pEl.getAsJsonObject();
-            Type       pType = resolveType(pObj.get("type").getAsString(), resolveTable);
+            Type       pType = resolveType(pObj.get("type").getAsString(), resolveTable, globalScope);
             paramTypes.add(pType);
 
             String      pName = pObj.get("name").getAsString();
@@ -292,6 +298,14 @@ public class SymbolImporter
         if (obj.has("attributes"))
             ms.setAttributes(importAttributes(obj.getAsJsonArray("attributes")));
 
+        // Preserve the exact mangled name from the exporting compiler so that
+        // getMangledName() returns the correct fully-qualified symbol regardless
+        // of how this method's definedIn scope is reconstructed during import.
+        if (obj.has("mangled_name"))
+        {
+            ms.setOverriddenMangledName(obj.get("mangled_name").getAsString());
+        }
+
         return ms;
     }
 
@@ -312,6 +326,12 @@ public class SymbolImporter
 
         TypeSymbol sym = new TypeSymbol(name, type, null);
         type.getMemberScope().setOwner(sym);
+
+        // Pre-register the TypeSymbol in the outer table BEFORE importing member
+        // methods.  Without this, methods whose 'this' parameter references the
+        // composite type itself (e.g. FnRef.isValid(this: FnRef)) would fail to
+        // resolve the type and produce Type.ANY — breaking receiver-type matching.
+        table.define(sym);
 
         if (obj.has("members"))
         {
@@ -512,6 +532,21 @@ public class SymbolImporter
 
     private Type resolveType(String name, SymbolTable table)
     {
+        return resolveType(name, table, null);
+    }
+
+    /**
+     * Resolves a type name first from the local {@code table} (and its parent
+     * chain), then falls back to a deep recursive search from {@code fallback}
+     * when the local lookup yields nothing.
+     *
+     * <p>The deep fallback is required for cross-namespace type references: e.g.
+     * {@code std::reflect::entry_fn} returns {@code FnRef} which is defined in
+     * {@code std::fn}, a sibling namespace not reachable via the parent chain of
+     * the reflect member table.</p>
+     */
+    private Type resolveType(String name, SymbolTable table, SymbolTable fallback)
+    {
         Type t = PrimitiveType.getByName(name);
         if (t != null)
             return t;
@@ -520,6 +555,40 @@ public class SymbolImporter
         if (sym != null)
             return sym.getType();
 
+        // Deep search across all namespace scopes from the fallback root.
+        if (fallback != null)
+        {
+            TypeSymbol deep = resolveTypeDeep(name, fallback);
+            if (deep != null)
+                return deep.getType();
+        }
+
         return Type.ANY;
+    }
+
+    /**
+     * Recursively searches {@code scope} and all descendant {@link NamespaceSymbol}
+     * member scopes for a {@link TypeSymbol} with the given simple name.
+     *
+     * <p>Used to resolve cross-namespace type references during symbol import
+     * (e.g. a method in {@code std::reflect} that returns a type defined in
+     * {@code std::fn}).</p>
+     */
+    private TypeSymbol resolveTypeDeep(String name, SymbolTable scope)
+    {
+        TypeSymbol sym = scope.resolveType(name);
+        if (sym != null)
+            return sym;
+
+        for (Symbol child : scope.getSymbols().values())
+        {
+            if (child instanceof NamespaceSymbol ns)
+            {
+                TypeSymbol found = resolveTypeDeep(name, ns.getMemberTable());
+                if (found != null)
+                    return found;
+            }
+        }
+        return null;
     }
 }

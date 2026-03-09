@@ -109,7 +109,16 @@ public class SymbolExporter
                 // Don't export local variables; skip imported variables too.
                 if (vs.getDeclarationNode() == null)
                     continue;
-                if (table.getParent() == null || table.getOwner() instanceof NamespaceSymbol)
+                // Export:
+                //  • global/namespace-level variables (table has no parent or is
+                //    owned by a NamespaceSymbol), AND
+                //  • struct/class field variables (table is owned by a TypeSymbol).
+                // Local-function variables are excluded because their tables either
+                // have no owner or are owned by a MethodSymbol.
+                boolean isNamespaceLevel = table.getParent() == null
+                        || table.getOwner() instanceof NamespaceSymbol;
+                boolean isStructField    = table.getOwner() instanceof TypeSymbol;
+                if (isNamespaceLevel || isStructField)
                 {
                     array.add(exportVariable(vs));
                 }
@@ -123,6 +132,7 @@ public class SymbolExporter
         JsonObject obj = new JsonObject();
         obj.addProperty("kind", "method");
         obj.addProperty("name", ms.getName());
+        obj.addProperty("mangled_name", ms.getMangledName());
         obj.addProperty("is_extern", ms.isExtern());
 
         if (ms.getTraitName() != null)

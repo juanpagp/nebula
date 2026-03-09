@@ -65,15 +65,18 @@ public abstract sealed class Symbol permits VariableSymbol, MethodSymbol, TypeSy
 	}
 
 	/**
-	 * Returns a mangled name suitable for LLVM.
+	 * Returns the LLVM-compatible mangled name for this symbol.
 	 * For extern functions, returns the original name.
 	 * For others, returns a qualified name (e.g. std_io_println).
 	 */
 	public String getMangledName()
 	{
-		if (this instanceof MethodSymbol ms && ms.isExtern())
+		if (this instanceof MethodSymbol ms)
 		{
-			return name;
+			if (ms.isExtern())
+				return name;
+			if (ms.getOverriddenMangledName() != null)
+				return ms.getOverriddenMangledName();
 		}
 
 		java.util.List<String> parts = new java.util.ArrayList<>();
@@ -92,6 +95,31 @@ public abstract sealed class Symbol permits VariableSymbol, MethodSymbol, TypeSy
 		}
 
 		return String.join("__", parts);
+	}
+
+	/**
+	 * Returns a human-readable qualified name using {@code ::} as the namespace
+	 * separator (e.g. {@code mylib::run_test}).  Used by the attribute registry
+	 * so that {@code std::reflect} exposes clean names to user-land code.
+	 */
+	public String getQualifiedName()
+	{
+		java.util.List<String> parts = new java.util.ArrayList<>();
+		parts.add(name);
+
+		if (this instanceof MethodSymbol ms && ms.getTraitName() != null)
+		{
+			parts.add(0, ms.getTraitName());
+		}
+
+		SymbolTable current = definedIn;
+		while (current != null && current.getOwner() != null)
+		{
+			parts.add(0, current.getOwner().getName());
+			current = current.getParent();
+		}
+
+		return String.join("::", parts);
 	}
 
 	public String getName()

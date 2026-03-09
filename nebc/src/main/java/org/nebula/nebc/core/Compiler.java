@@ -183,7 +183,7 @@ public class Compiler
 						&& !cu.getSpan().file().contains("\\std\\"))
 					.toList();
 			}
-			codegen.generate(unitsToCompile, analyzer);
+			codegen.generate(unitsToCompile, analyzer, config.compileAsLibrary());
 
 			// Print LLVM IR in verbose mode
 			if (config.verbose())
@@ -272,8 +272,11 @@ public class Compiler
 		List<Path> objects = new ArrayList<>();
 		List<org.nebula.nebc.io.SourceFile> nativeSources = new ArrayList<>(config.nativeSources());
 
-		// 1. Automatically include standard library runtime if enabled
-		if (config.useStdLib())
+		// 1. Automatically include standard library runtime if enabled.
+		// When building a library (--library flag), always include std/runtime/*.c even
+		// if --nostdlib was passed. --nostdlib only prevents loading neb.nebsym and
+		// auto-linking libneb.so — the C runtime must still be compiled into the library itself.
+		if (config.useStdLib() || config.compileAsLibrary())
 		{
 			Path stdRuntimeDir = Path.of("std", "runtime");
 			if (!Files.exists(stdRuntimeDir))
@@ -516,7 +519,10 @@ public class Compiler
 			Symbol symbol = ioNs.getMemberTable().resolve(symbolName);
 			if (symbol != null)
 			{
-				analyzer.getGlobalScope().define(symbol);
+				// Use alias() so that the symbol's definedIn is NOT overwritten —
+				// getMangledName() must still return std__io__println, not plain println,
+				// otherwise erased generic bitcode linking breaks.
+				analyzer.getGlobalScope().alias(symbolName, symbol);
 				if (config.verbose())
 				{
 					Log.debug("Prelude: exporting std::io::" + symbolName + " to global scope");

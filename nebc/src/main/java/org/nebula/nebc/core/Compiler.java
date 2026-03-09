@@ -361,6 +361,11 @@ public class Compiler
 		SymbolImporter importer  = new SymbolImporter();
 		java.util.Map<Type, SymbolTable> primImpls = analyzer.getPrimitiveImplScopes();
 
+		// Track canonical paths of all symbol files already loaded to prevent
+		// double-loading when both -s <path> and -l/-L auto-loading would resolve
+		// to the same file.
+		java.util.Set<String> loadedSymPaths = new java.util.LinkedHashSet<>();
+
 		// Load default std if not disabled
 		if (config.useStdLib())
 		{
@@ -376,6 +381,7 @@ public class Compiler
 				{
 					Log.info("Loading standard library symbols: " + stdSyms);
 					importer.importSymbols(stdSyms.toString(), analyzer.getGlobalScope(), primImpls);
+					loadedSymPaths.add(stdSyms.toAbsolutePath().toString());
 
 					// Auto-detect the compiled std library (.so or .a) next to the .nebsym
 					// file so consumers of erased bitcode can resolve concrete symbols like
@@ -411,13 +417,15 @@ public class Compiler
 			}
 		}
 
-		// Load user-specified symbol files
+		// Load user-specified symbol files (e.g. -s path/to/lib.nebsym)
 		for (SourceFile sf : config.symbolFiles())
 		{
 			try
 			{
+				String canonical = new java.io.File(sf.path()).getCanonicalPath();
 				Log.info("Loading symbols: " + sf.path());
 				importer.importSymbols(sf.path(), analyzer.getGlobalScope(), primImpls);
+				loadedSymPaths.add(canonical);
 			}
 			catch (IOException e)
 			{
@@ -427,6 +435,7 @@ public class Compiler
 
 		// Auto-load .nebsym companion files for every -l library found in -L search paths.
 		// e.g. `-l test -L .` will look for ./test.nebsym and load it for analysis.
+		// Skips files already loaded via an explicit -s flag.
 		for (SourceFile lib : config.nebLibraries())
 		{
 			String libName = lib.path();
@@ -439,8 +448,17 @@ public class Compiler
 				{
 					try
 					{
-						Log.info("Auto-loading symbols for library '" + libName + "': " + nebsym);
-						importer.importSymbols(nebsym.toString(), analyzer.getGlobalScope(), primImpls);
+						String canonical = nebsym.toFile().getCanonicalPath();
+						if (loadedSymPaths.contains(canonical))
+						{
+							Log.debug("Skipping already-loaded symbols for library '" + libName + "': " + nebsym);
+						}
+						else
+						{
+							Log.info("Auto-loading symbols for library '" + libName + "': " + nebsym);
+							importer.importSymbols(nebsym.toString(), analyzer.getGlobalScope(), primImpls);
+							loadedSymPaths.add(canonical);
+						}
 					}
 					catch (IOException e)
 					{

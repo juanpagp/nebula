@@ -660,6 +660,33 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 				// 'this' — no-op if already defined
 				currentScope.define(new VariableSymbol("this", structType, false, sd));
 
+				// Pre-register struct fields so that cross-file field access is
+				// order-independent during Phase 2. Without this, a file analyzed
+				// before the file that defines the struct would not see the fields.
+				for (Declaration member : sd.members)
+				{
+					if (member instanceof VariableDeclaration vd && !vd.isVar)
+					{
+						boolean allNoInit = vd.declarators.stream().noneMatch(VariableDeclarator::hasInitializer);
+						if (allNoInit)
+						{
+							Type fieldType = resolveType(vd.type);
+							if (fieldType != null && !(fieldType instanceof TagType))
+							{
+								for (VariableDeclarator fieldDecl : vd.declarators)
+								{
+									if (currentScope.resolveLocal(fieldDecl.name()) == null)
+									{
+										VariableSymbol vs = new VariableSymbol(
+												fieldDecl.name(), fieldType, false, vd.isBacklink, vd);
+										currentScope.define(vs);
+									}
+								}
+							}
+						}
+					}
+				}
+
 				// Pre-declare each member signature, guarding against duplicates
 				for (Declaration member : sd.members)
 				{

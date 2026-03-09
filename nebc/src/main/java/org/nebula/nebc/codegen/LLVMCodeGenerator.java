@@ -561,11 +561,17 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		// 4. Add the function to the module (or retrieve if already declared)
 		String funcName = (currentSubstitution != null) ? getSpecializationName(symbol) : symbol.getMangledName();
 
-		// When emitting the entry-point `main`, always use the C ABI signature
-		// (i32 argc, ptr argv) -> i32, regardless of whether the Nebula source
-		// declared parameters or not.  This keeps binaries compatible with standard
-		// OS loaders and lets start.c pass argc/argv without any tricks.
-		boolean isMain = "main".equals(funcName);
+		// When emitting the entry-point `main`, always use the C ABI name "main"
+		// and the C ABI signature (i32 argc, ptr argv) -> i32, regardless of whether
+		// the Nebula source declared parameters or not, and regardless of the namespace
+		// the function lives in (e.g. nebula::cli::main is still emitted as "main").
+		// This keeps binaries compatible with standard OS loaders and lets start.c
+		// pass argc/argv without any tricks.
+		boolean isMain = (node == analyzer.getMainMethod());
+		if (isMain)
+		{
+			funcName = "main";
+		}
 		boolean isVoidMain = isMain && returnType == PrimitiveType.VOID;
 		boolean mainHasArgs = isMain && !node.parameters.isEmpty();
 		LLVMTypeRef llvmFuncType;

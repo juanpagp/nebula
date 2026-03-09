@@ -1835,6 +1835,14 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		Type left = node.left.accept(this);
 		Type right = node.right.accept(this);
 
+		// Suppress cascading errors: if either operand already failed, return ERROR
+		// without emitting a new diagnostic (the root cause was already reported).
+		if (left == Type.ERROR || right == Type.ERROR)
+		{
+			recordType(node, Type.ERROR);
+			return Type.ERROR;
+		}
+
 		// Check operator overloading on composite types before primitive dispatch
 		if (left instanceof CompositeType ct)
 		{

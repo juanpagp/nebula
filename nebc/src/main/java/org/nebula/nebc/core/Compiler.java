@@ -57,7 +57,8 @@ public class Compiler
 		SemanticAnalyzer analyzer = new SemanticAnalyzer(config);
 
 		// 3.1 Load external symbols (.nebsym files) into the symbol table.
-		loadExternalSymbols(analyzer);
+		if (!loadExternalSymbols(analyzer))
+			return ExitCode.IO_ERROR;
 
 		for (var cu : compilationUnits)
 		{
@@ -356,7 +357,7 @@ public class Compiler
 		return objects;
 	}
 
-	private void loadExternalSymbols(SemanticAnalyzer analyzer)
+	private boolean loadExternalSymbols(SemanticAnalyzer analyzer)
 	{
 		SymbolImporter importer  = new SymbolImporter();
 		java.util.Map<Type, SymbolTable> primImpls = analyzer.getPrimitiveImplScopes();
@@ -429,7 +430,8 @@ public class Compiler
 			}
 			catch (IOException e)
 			{
-				Log.err("Failed to load symbols from " + sf.path() + ": " + e.getMessage());
+				Log.err("Failed to load symbols from '" + sf.path() + "': " + e.getMessage());
+				return false; // Fatal: user explicitly requested this file
 			}
 		}
 
@@ -474,6 +476,7 @@ public class Compiler
 				Log.debug("No .nebsym found for library '" + libName + "' in library search paths.");
 			}
 		}
+		return true;
 	}
 
 	/**

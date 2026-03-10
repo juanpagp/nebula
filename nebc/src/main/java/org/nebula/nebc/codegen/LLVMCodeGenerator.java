@@ -2953,11 +2953,16 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			return LLVMBuildLoad2(builder, expectedType, globalVar, node.name + "_load");
 		}
 
-		// Try to resolve as an unqualified enum variant (e.g. `Super` instead of `Form.Super`).
-		// The SA records the symbol as a VariableSymbol whose type is the EnumType.
+		// Try to resolve as an enum variant — supports both unqualified names
+		// (symbol recorded by SA) and the canonical "Type::Variant" qualified form.
+		// The discriminant map is keyed as "EnumType.VariantName", so we normalise.
 		if (sym instanceof VariableSymbol vs && vs.getType() instanceof EnumType et)
 		{
-			String key = et.name() + "." + node.name;
+			// "Form::Super" → simple name "Super"; unqualified stays as-is
+			String simpleName = node.name.contains("::")
+					? node.name.substring(node.name.lastIndexOf("::") + 2)
+					: node.name;
+			String key = et.name() + "." + simpleName;
 			Integer disc = enumDiscriminants.get(key);
 			if (disc != null)
 				return LLVMConstInt(LLVMInt32TypeInContext(context), disc, 0);
@@ -4973,6 +4978,8 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 		{
 			LLVMValueRef litVal = lp.value.accept(this);
 			Type litType = analyzer.getType(lp.value);
+			if (selectorType == PrimitiveType.STR)
+				return emitStrEq(selectorVal, litVal);
 			boolean isFloat = isFloatType(selectorType);
 			if (isFloat)
 				return LLVMBuildFCmp(builder, LLVMRealOEQ, selectorVal,

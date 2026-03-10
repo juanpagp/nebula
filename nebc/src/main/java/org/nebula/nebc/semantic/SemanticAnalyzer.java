@@ -2483,10 +2483,19 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	{
 		Symbol sym = currentScope.resolve(node.name);
 		if (sym == null)
-			sym = resolveEnumVariant(node.name);
-		if (sym == null)
 		{
-			error(DiagnosticCode.UNDEFINED_SYMBOL, node, node.name);
+			// Check if this looks like a bare (unqualified) enum variant — emit a
+			// targeted diagnostic pointing the user to the qualified syntax.
+			Symbol variantHint = resolveEnumVariant(node.name);
+			if (variantHint instanceof VariableSymbol hintVs && hintVs.getType() instanceof EnumType hintEt)
+			{
+				error(DiagnosticCode.UNQUALIFIED_ENUM_VARIANT, node,
+					node.name, hintEt.name(), node.name, hintEt.name());
+			}
+			else
+			{
+				error(DiagnosticCode.UNDEFINED_SYMBOL, node, node.name);
+			}
 			return Type.ERROR;
 		}
 
@@ -2511,9 +2520,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			// type must be accessed via 'this.fieldName', not bare.
 			// We detect this when the symbol resolves only by leaving the method's own
 			// scope chain — i.e. it is NOT found in the method boundary scope or below.
+			// Enum variants (declared by EnumDeclaration) are never struct fields and
+			// must never be flagged, regardless of whether their name is qualified.
 			if (currentTypeDefinition != null && currentMethodBoundaryScope != null
 					&& vs.getType() != currentTypeDefinition // 'this' itself is fine
 					&& !(sym.getDeclarationNode() instanceof MethodDeclaration)
+					&& !(sym.getDeclarationNode() instanceof EnumDeclaration)
 					&& resolveInMethodScope(node.name) == null)
 			{
 				error(DiagnosticCode.BARE_FIELD_ACCESS, node, node.name, node.name);

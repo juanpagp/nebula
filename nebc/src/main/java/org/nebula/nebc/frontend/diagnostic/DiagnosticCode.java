@@ -7,6 +7,7 @@ public enum DiagnosticCode
 
 	// --- Symbols & Types ---
 	UNDEFINED_SYMBOL("Undefined symbol '%s'."), DUPLICATE_SYMBOL("Symbol '%s' is already defined."), UNKNOWN_TYPE("Unknown type '%s'."), TYPE_ALREADY_DEFINED("Type '%s' is already defined."), TYPE_MISMATCH("Type mismatch. Expected '%s', got '%s'."), NOT_CALLABLE("Expression of type '%s' is not callable."), NOT_HAS_MEMBERS("Type '%s' does not have members."), MEMBER_NOT_FOUND("Member '%s' not found in type '%s'."), DUPLICATE_PARAMETER("Duplicate parameter '%s'."),
+	UNQUALIFIED_ENUM_VARIANT("Enum variant '%s' must be qualified as '%s::%s', or import variants with 'use %s::*'."),
 
 	// --- Syntax & Structural ---
 	RETURN_OUTSIDE_METHOD("Return statement outside of method body."), THIS_OUTSIDE_TYPE("'this' expression outside of a type or impl block."), IF_CONDITION_NOT_BOOL("If condition must be boolean, got '%s'."), FOR_CONDITION_NOT_BOOL("For condition must be boolean, got '%s'."), WHILE_CONDITION_NOT_BOOL("While condition must be boolean, got '%s'."), OPERATOR_NOT_DEFINED("Operator '%s' not defined for '%s' and '%s'."),

@@ -46,6 +46,7 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 	private Type mainMethodReturnType = null;
 	// --- Context Tracking ---
 	private Type currentMethodReturnType = null;
+	private boolean currentMethodHasExplicitReturn = false;
 	private boolean insideLoop = false;
 	private Type currentTypeDefinition = null;
 	private boolean isInsideExtern = false; // Flag for extern "C" blocks
@@ -1555,7 +1556,9 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		enterScope(); // Body scope
 		currentMethodBoundaryScope = currentScope; // Mark method entry boundary for CVT
 		Type prevRet = currentMethodReturnType;
+		boolean prevHasExplicitReturn = currentMethodHasExplicitReturn;
 		currentMethodReturnType = returnType;
+		currentMethodHasExplicitReturn = false;
 
 		// Define parameters as variable symbols
 		for (Parameter param : node.parameters)
@@ -1606,9 +1609,31 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			{
 				error(DiagnosticCode.TYPE_MISMATCH, node.body, returnType.name(), bodyType.name());
 			}
+			// Catch assignment-as-tail-expression in a non-void method.
+			// e.g. `Form m() { this.field = expr }` — the tail expression has type
+			// void (assignments are void), but the method declares a non-void return.
+			// Methods that use explicit 'return' statements also have bodyType==VOID,
+			// but they have no tail expression, so this branch is skipped for them.
+			else if (returnType != PrimitiveType.VOID
+					&& bodyType == PrimitiveType.VOID
+					&& node.body instanceof ExpressionBlock eb
+					&& eb.hasTail())
+			{
+				error(DiagnosticCode.TYPE_MISMATCH, node.body, returnType.name(), PrimitiveType.VOID.name());
+			}
+			// Catch non-void methods with no tail and no explicit return statements.
+			// e.g. `Form m() { this.field = expr; }` — the body evaluates to void and
+			// no 'return' keyword was encountered, so the method never yields a value.
+			else if (returnType != PrimitiveType.VOID
+					&& bodyType == PrimitiveType.VOID
+					&& !currentMethodHasExplicitReturn)
+			{
+				error(DiagnosticCode.MISSING_RETURN, node, node.name, returnType.name());
+			}
 		}
 
 		currentMethodReturnType = prevRet;
+		currentMethodHasExplicitReturn = prevHasExplicitReturn;
 		currentMethodBoundaryScope = null; // Leaving method body
 		exitScope();
 		if (outerScope != null)
@@ -1710,6 +1735,10 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 		else if (!valType.isAssignableTo(currentMethodReturnType))
 		{
 			error(DiagnosticCode.TYPE_MISMATCH, node, currentMethodReturnType.name(), valType.name());
+		}
+		else if (valType != PrimitiveType.VOID && valType != Type.ERROR)
+		{
+			currentMethodHasExplicitReturn = true;
 		}
 		return PrimitiveType.VOID;
 	}
@@ -2615,8 +2644,12 @@ public class SemanticAnalyzer implements ASTVisitor<Type>
 			}
 		}
 
-		recordType(node, targetType);
-		return targetType;
+		// Assignment is a statement; it produces no value. Recording it as VOID
+		// ensures that using an assignment as a tail return expression (without a
+		// trailing ';') in a non-void method is caught as a type mismatch rather
+		// than silently slipping through to codegen.
+		recordType(node, PrimitiveType.VOID);
+		return PrimitiveType.VOID;
 	}
 
 	@Override

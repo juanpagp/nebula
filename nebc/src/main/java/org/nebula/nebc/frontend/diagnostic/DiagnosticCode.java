@@ -19,6 +19,7 @@ public enum DiagnosticCode
 
 	// --- Function & Method ---
 	ARGUMENT_COUNT_MISMATCH("Argument count mismatch. Expected %d, got %d."), ARGUMENT_TYPE_MISMATCH("Argument %d: expected '%s', got '%s'."), UNINITIALIZED_VARIABLE("Implicit variable '%s' must be initialized."),
+	MISSING_RETURN("Non-void method '%s' must return a value of type '%s'."),
 
 	// --- Arrays & Indexing ---
 	INDEX_NOT_INTEGER("Array index must be an integer, got '%s'."), TYPE_NOT_INDEXABLE("Type '%s' is not indexable."), ARRAY_LITERAL_MISMATCH("Array literal element type mismatch. Expected '%s', got '%s'."),

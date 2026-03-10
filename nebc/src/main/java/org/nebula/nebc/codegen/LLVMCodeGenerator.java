@@ -1742,6 +1742,14 @@ public class LLVMCodeGenerator implements ASTVisitor<LLVMValueRef>
 			return value;
 		}
 
+		// Enums are stored as i32 — return the integer value directly.
+		// Must be checked before the generic CompositeType branch below because
+		// EnumType extends CompositeType but is NOT a struct/class.
+		if (retType instanceof EnumType)
+		{
+			return emitCast(value, srcType, retType);
+		}
+
 		// Classes are reference types — return a pointer.
 		if (retType instanceof CompositeType retCt && srcType instanceof CompositeType)
 		{

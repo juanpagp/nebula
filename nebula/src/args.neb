@@ -85,7 +85,6 @@ ParsedArgs parseArgs(str[] args)
     use Command::*;
 
     result.command = match (cmd)
-<<<<<<< HEAD
     {
         "init" => Init,
         "build" => Build,
@@ -97,38 +96,6 @@ ParsedArgs parseArgs(str[] args)
         "version" | "--version" | "-v" => Version,
         _ => Unknown
     };
-=======
-    {
-        "init" => Init,
-        "build" => Build,
-        "run" => Run,
-        "test" => Test,
-        "clean" => Clean,
-        "deps" => Deps,
-        "help" | "--help" | "-h" => Help,
-        "version" | "--version" | "-v" => Version,
-        _ => Unknown
-    };
-
-    /*
-    if (cmd.equals("init"))         { result.command = Command.Init; }
-    else if (cmd.equals("build"))   { result.command = Command.Build; }
-    else if (cmd.equals("run"))     { result.command = Command.Run; }
-    else if (cmd.equals("test"))    { result.command = Command.Test; }
-    else if (cmd.equals("clean"))   { result.command = Command.Clean; }
-    else if (cmd.equals("deps"))    { result.command = Command.Deps; }
-    else if (cmd.equals("help"))    { result.command = Command.Help; }
-    else if (cmd.equals("--help"))  { result.command = Command.Help; }
-    else if (cmd.equals("-h"))      { result.command = Command.Help; }
-    else if (cmd.equals("version")) { result.command = Command.Version; }
-    else if (cmd.equals("--version")) { result.command = Command.Version; }
-    else if (cmd.equals("-v"))      { result.command = Command.Version; }
-    else
-    {
-        result.command = Command.Unknown;
-    }
-    */
->>>>>>> 0eda8d4b301e3e4e8e1b6986efa05c60fbfdbfa4
     result.commandStr = cmd;
 
     // Parse remaining args as flags or positional

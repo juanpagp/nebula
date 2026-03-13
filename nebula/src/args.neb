@@ -82,22 +82,20 @@ ParsedArgs parseArgs(str[] args)
     str cmd = args[idx];
     idx = idx + 1;
 
-    if (cmd.equals("init"))         { result.command = Command.Init; }
-    else if (cmd.equals("build"))   { result.command = Command.Build; }
-    else if (cmd.equals("run"))     { result.command = Command.Run; }
-    else if (cmd.equals("test"))    { result.command = Command.Test; }
-    else if (cmd.equals("clean"))   { result.command = Command.Clean; }
-    else if (cmd.equals("deps"))    { result.command = Command.Deps; }
-    else if (cmd.equals("help"))    { result.command = Command.Help; }
-    else if (cmd.equals("--help"))  { result.command = Command.Help; }
-    else if (cmd.equals("-h"))      { result.command = Command.Help; }
-    else if (cmd.equals("version")) { result.command = Command.Version; }
-    else if (cmd.equals("--version")) { result.command = Command.Version; }
-    else if (cmd.equals("-v"))      { result.command = Command.Version; }
-    else
+    use Command::*;
+
+    result.command = match (cmd)
     {
-        result.command = Command.Unknown;
-    }
+        "init" => Init,
+        "build" => Build,
+        "run" => Run,
+        "test" => Test,
+        "clean" => Clean,
+        "deps" => Deps,
+        "help" | "--help" | "-h" => Help,
+        "version" | "--version" | "-v" => Version,
+        _ => Unknown
+    };
     result.commandStr = cmd;
 
     // Parse remaining args as flags or positional
